@@ -19,6 +19,23 @@ fixtures = [
 		],
 	},
 	{"dt": "Tecponto Settings"},
+	{
+		"dt": "Custom DocPerm",
+		"filters": [
+			[
+				"parent",
+				"in",
+				[
+					"Customer Device",
+					"Device Trade Evaluation",
+					"Item",
+					"Service Order",
+					"Trade-In Operation",
+					"Tecponto Settings",
+				],
+			]
+		],
+	},
 ]
 
 # Apps
@@ -145,22 +162,44 @@ fixtures = [
 # permission_query_conditions = {
 # 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
 # }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"Service Order": "tecponto_app.tecponto.permissions.service_order_query",
+}
+
+has_permission = {
+	"Service Order": "tecponto_app.tecponto.permissions.service_order_has_permission",
+}
 
 # Document Events
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Item": {
+		"before_validate": "tecponto_app.tecponto.stock.apply_item_valuation_defaults",
+	},
+	"Service Order": {
+		"before_validate": "tecponto_app.tecponto.stock.apply_service_order_stock_defaults",
+		"validate": "tecponto_app.tecponto.pricing.validate_service_order_pricing",
+	},
+	"Sales Invoice": {
+		"before_validate": "tecponto_app.tecponto.stock.apply_sales_stock_defaults",
+		"validate": "tecponto_app.tecponto.pricing.validate_sales_pricing",
+	},
+	"POS Invoice": {
+		"before_validate": "tecponto_app.tecponto.stock.apply_sales_stock_defaults",
+		"validate": "tecponto_app.tecponto.pricing.validate_sales_pricing",
+	},
+	"Stock Entry": {
+		"validate": "tecponto_app.tecponto.stock.validate_transfer_role",
+	},
+}
+
+after_migrate = [
+	"tecponto_app.tecponto.stock.ensure_moving_average_valuation",
+	"tecponto_app.tecponto.payments.ensure_card_receivables_setup",
+	"tecponto_app.tecponto.hr.ensure_hr_foundation",
+]
 
 # Scheduled Tasks
 # ---------------

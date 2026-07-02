@@ -1,8 +1,29 @@
 [
  {
   "abandono_prazo_dias": 90,
-  "acquirer_clearing_account": null,
-  "card_fees": [],
+  "acquirer_clearing_account": "Recebíveis de Cartão - TEC",
+  "card_fees": [
+   {
+    "settlement_days": 1,
+    "taxa_pct": 1.5,
+    "tipo": "Débito"
+   },
+   {
+    "settlement_days": 30,
+    "taxa_pct": 3.0,
+    "tipo": "Crédito à vista"
+   },
+   {
+    "settlement_days": 30,
+    "taxa_pct": 4.5,
+    "tipo": "Crédito 2x"
+   },
+   {
+    "settlement_days": 30,
+    "taxa_pct": 5.5,
+    "tipo": "Crédito 3x+"
+   }
+  ],
   "carencia_dias": 0,
   "commercial_warehouse": "Acessórios - TEC",
   "commission_labor_only": 1,
@@ -13,8 +34,8 @@
   "doctype": "Tecponto Settings",
   "fiscal_certificate": null,
   "fiscal_provider": null,
-  "modified": "2026-07-02 08:32:04.978881",
-  "name": null,
+  "modified": "2026-07-02 13:28:29.439867",
+  "name": "Tecponto Settings",
   "notification_provider": "Nenhum",
   "price_floor_block": 1,
   "purchase_approval_threshold": 0.0,
