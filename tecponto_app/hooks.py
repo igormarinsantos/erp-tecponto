@@ -228,7 +228,10 @@ doc_events = {
 	},
 	"Service Order": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_service_order_stock_defaults",
-		"validate": "tecponto_app.tecponto.pricing.validate_service_order_pricing",
+		"validate": [
+			"tecponto_app.tecponto.pricing.validate_service_order_pricing",
+			"tecponto_app.tecponto.service_order.aceites.validate_aceites",
+		],
 	},
 	"Sales Invoice": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_sales_stock_defaults",
