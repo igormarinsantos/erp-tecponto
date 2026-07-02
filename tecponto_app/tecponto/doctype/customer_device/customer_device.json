@@ -1,0 +1,136 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "format:CD-{#####}",
+ "creation": "2026-07-01 18:05:12.733320",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "device_section",
+  "customer",
+  "brand",
+  "model",
+  "color",
+  "device_column_break",
+  "imei_serial",
+  "capacity",
+  "device_password",
+  "condition_section",
+  "general_state",
+  "notes",
+  "photos",
+  "registration_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "device_section",
+   "fieldtype": "Section Break",
+   "label": "Aparelho"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Cliente",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "label": "Marca"
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Modelo"
+  },
+  {
+   "fieldname": "color",
+   "fieldtype": "Data",
+   "label": "Cor"
+  },
+  {
+   "fieldname": "device_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "imei_serial",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "IMEI / Serial",
+   "search_index": 1
+  },
+  {
+   "fieldname": "capacity",
+   "fieldtype": "Select",
+   "label": "Capacidade",
+   "options": "\n32GB\n64GB\n128GB\n256GB\n512GB\n1TB"
+  },
+  {
+   "fieldname": "device_password",
+   "fieldtype": "Data",
+   "label": "Senha/Padr?o",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "condition_section",
+   "fieldtype": "Section Break",
+   "label": "Estado e observa??es"
+  },
+  {
+   "fieldname": "general_state",
+   "fieldtype": "Small Text",
+   "label": "Estado geral"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Observa??es"
+  },
+  {
+   "fieldname": "photos",
+   "fieldtype": "Attach Image",
+   "label": "Fotos"
+  },
+  {
+   "default": "Today",
+   "fieldname": "registration_date",
+   "fieldtype": "Date",
+   "label": "Data de cadastro"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-02 09:06:41.562921",
+ "modified_by": "Administrator",
+ "module": "Tecponto",
+ "name": "Customer Device",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "customer,brand,model,imei_serial",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "model",
+ "track_changes": 1
+}

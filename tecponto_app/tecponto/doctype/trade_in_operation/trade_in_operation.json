@@ -1,0 +1,135 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-07-01 18:05:26.346879",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identification_section",
+  "naming_series",
+  "customer",
+  "evaluation",
+  "device_out",
+  "identification_column_break",
+  "difference",
+  "payment_mode",
+  "atomic_status",
+  "fiscal_section",
+  "used_device_fiscal_ref",
+  "sale_fiscal_ref",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "identification_section",
+   "fieldtype": "Section Break",
+   "label": "Identifica??o"
+  },
+  {
+   "default": "TRIN-.YYYY.-.####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "S?rie",
+   "options": "TRIN-.YYYY.-.####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Cliente",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "evaluation",
+   "fieldtype": "Link",
+   "label": "Avalia??o",
+   "options": "Device Trade Evaluation",
+   "reqd": 1
+  },
+  {
+   "fieldname": "device_out",
+   "fieldtype": "Link",
+   "label": "Aparelho de sa?da (Serial/IMEI)",
+   "options": "Serial No"
+  },
+  {
+   "fieldname": "identification_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "difference",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Diferen?a",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "payment_mode",
+   "fieldtype": "Link",
+   "label": "Forma de pagamento",
+   "options": "Mode of Payment"
+  },
+  {
+   "default": "Rascunho",
+   "fieldname": "atomic_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status at?mico",
+   "options": "\nRascunho\nPendente\nConfirmada\nCancelada\nFalhou"
+  },
+  {
+   "fieldname": "fiscal_section",
+   "fieldtype": "Section Break",
+   "label": "Refer?ncias fiscais"
+  },
+  {
+   "fieldname": "used_device_fiscal_ref",
+   "fieldtype": "Data",
+   "label": "Refer?ncia fiscal da entrada"
+  },
+  {
+   "fieldname": "sale_fiscal_ref",
+   "fieldtype": "Data",
+   "label": "Refer?ncia fiscal da sa?da"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Observa??es"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-01 18:05:26.346879",
+ "modified_by": "Administrator",
+ "module": "Tecponto",
+ "name": "Trade-In Operation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "customer,evaluation,device_out,atomic_status",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "customer",
+ "track_changes": 1
+}

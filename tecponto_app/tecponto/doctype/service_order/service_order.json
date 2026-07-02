@@ -1,0 +1,575 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-07-01 18:05:27.903252",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identification_section",
+  "naming_series",
+  "customer",
+  "customer_device",
+  "entry_date",
+  "attendant",
+  "identification_column_break",
+  "technician",
+  "priority",
+  "workflow_state",
+  "entry_section",
+  "reported_defect",
+  "attendance_notes",
+  "physical_state",
+  "accessories_received",
+  "entry_photos",
+  "diagnosis_section",
+  "problem_found",
+  "probable_cause",
+  "recommended_solution",
+  "estimated_deadline",
+  "diagnosis_column_break",
+  "diagnosis_notes",
+  "diagnosis_date",
+  "diagnosis_fee_enabled",
+  "diagnosis_fee_value",
+  "budget_section",
+  "services",
+  "parts",
+  "labor_total",
+  "parts_total",
+  "budget_column_break",
+  "discount",
+  "grand_total",
+  "quote_locked",
+  "budget_version",
+  "approval_section",
+  "approval_status",
+  "approval_channel",
+  "approved_by",
+  "approved_by_attendant",
+  "approval_column_break",
+  "approval_date",
+  "approval_deadline",
+  "approval_notes",
+  "warranty_section",
+  "is_warranty",
+  "original_service_order",
+  "courtesy_warranty",
+  "courtesy_warranty_reason",
+  "advance_section",
+  "sinal_enabled",
+  "sinal_value",
+  "sinal_payment_entry",
+  "additional_damage_section",
+  "additional_damage",
+  "additional_damage_cause",
+  "finance_section",
+  "mode_of_payment",
+  "sales_invoice",
+  "pickup_section",
+  "pickup_date",
+  "picked_up_by",
+  "picked_up_doc",
+  "picked_up_by_third_party",
+  "third_party_doc",
+  "third_party_auth",
+  "pickup_column_break",
+  "pickup_photos",
+  "customer_signature",
+  "pickup_notes",
+  "estadia_section",
+  "estadia_enabled",
+  "estadia_start_date",
+  "estadia_daily_value",
+  "estadia_grace_days",
+  "estadia_cap_value",
+  "estadia_total",
+  "formal_notice_section",
+  "formal_notice_log",
+  "internal_section",
+  "internal_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "identification_section",
+   "fieldtype": "Section Break",
+   "label": "Identifica??o"
+  },
+  {
+   "default": "OS-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "S?rie",
+   "options": "OS-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Cliente",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer_device",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Aparelho",
+   "link_filters": "[[\"Customer Device\",\"customer\",\"=\",\"eval:doc.customer\"]]",
+   "options": "Customer Device"
+  },
+  {
+   "default": "Now",
+   "fieldname": "entry_date",
+   "fieldtype": "Datetime",
+   "label": "Data de entrada"
+  },
+  {
+   "fieldname": "attendant",
+   "fieldtype": "Link",
+   "label": "Atendente",
+   "options": "User"
+  },
+  {
+   "fieldname": "identification_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "technician",
+   "fieldtype": "Link",
+   "label": "T?cnico",
+   "options": "User"
+  },
+  {
+   "default": "Normal",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Prioridade",
+   "options": "\nBaixa\nNormal\nAlta\nUrgente"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Status (workflow)",
+   "options": "Workflow State"
+  },
+  {
+   "fieldname": "entry_section",
+   "fieldtype": "Section Break",
+   "label": "Entrada"
+  },
+  {
+   "fieldname": "reported_defect",
+   "fieldtype": "Small Text",
+   "label": "Defeito relatado"
+  },
+  {
+   "fieldname": "attendance_notes",
+   "fieldtype": "Text",
+   "label": "Observa??es do atendimento"
+  },
+  {
+   "fieldname": "physical_state",
+   "fieldtype": "Small Text",
+   "label": "Estado f?sico de entrada"
+  },
+  {
+   "fieldname": "accessories_received",
+   "fieldtype": "Small Text",
+   "label": "Acess?rios recebidos"
+  },
+  {
+   "fieldname": "entry_photos",
+   "fieldtype": "Attach Image",
+   "label": "Fotos de entrada"
+  },
+  {
+   "fieldname": "diagnosis_section",
+   "fieldtype": "Section Break",
+   "label": "Diagn?stico"
+  },
+  {
+   "fieldname": "problem_found",
+   "fieldtype": "Text",
+   "label": "Problema encontrado"
+  },
+  {
+   "fieldname": "probable_cause",
+   "fieldtype": "Small Text",
+   "label": "Causa prov?vel"
+  },
+  {
+   "fieldname": "recommended_solution",
+   "fieldtype": "Small Text",
+   "label": "Solu??o recomendada"
+  },
+  {
+   "fieldname": "estimated_deadline",
+   "fieldtype": "Date",
+   "label": "Prazo estimado"
+  },
+  {
+   "fieldname": "diagnosis_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "diagnosis_notes",
+   "fieldtype": "Text",
+   "label": "Observa??es do diagn?stico"
+  },
+  {
+   "fieldname": "diagnosis_date",
+   "fieldtype": "Date",
+   "label": "Data do diagn?stico"
+  },
+  {
+   "default": "0",
+   "fieldname": "diagnosis_fee_enabled",
+   "fieldtype": "Check",
+   "label": "Cobrar taxa de diagn?stico"
+  },
+  {
+   "depends_on": "diagnosis_fee_enabled",
+   "fieldname": "diagnosis_fee_value",
+   "fieldtype": "Currency",
+   "label": "Valor da taxa de diagn?stico"
+  },
+  {
+   "fieldname": "budget_section",
+   "fieldtype": "Section Break",
+   "label": "Or?amento"
+  },
+  {
+   "fieldname": "services",
+   "fieldtype": "Table",
+   "label": "Servi?os/M?o de obra",
+   "options": "Service Order Service"
+  },
+  {
+   "fieldname": "parts",
+   "fieldtype": "Table",
+   "label": "Pe?as",
+   "options": "Service Order Part"
+  },
+  {
+   "fieldname": "labor_total",
+   "fieldtype": "Currency",
+   "label": "Total m?o de obra",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parts_total",
+   "fieldtype": "Currency",
+   "label": "Total pe?as",
+   "read_only": 1
+  },
+  {
+   "fieldname": "budget_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "discount",
+   "fieldtype": "Currency",
+   "label": "Desconto"
+  },
+  {
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Total geral",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "quote_locked",
+   "fieldtype": "Check",
+   "label": "Or?amento travado"
+  },
+  {
+   "default": "1",
+   "fieldname": "budget_version",
+   "fieldtype": "Int",
+   "label": "Vers?o do or?amento"
+  },
+  {
+   "fieldname": "approval_section",
+   "fieldtype": "Section Break",
+   "label": "Aprova??o"
+  },
+  {
+   "default": "Pendente",
+   "fieldname": "approval_status",
+   "fieldtype": "Select",
+   "label": "Status da aprova??o",
+   "options": "\nPendente\nAprovado\nReprovado"
+  },
+  {
+   "fieldname": "approval_channel",
+   "fieldtype": "Select",
+   "label": "Canal de aprova??o",
+   "options": "\nPresencial\nTelefone\nWhatsApp\nLink"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Aprovado por",
+   "options": "User"
+  },
+  {
+   "fieldname": "approved_by_attendant",
+   "fieldtype": "Link",
+   "label": "Atendente que registrou aprova??o",
+   "options": "User"
+  },
+  {
+   "fieldname": "approval_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approval_date",
+   "fieldtype": "Datetime",
+   "label": "Data da aprova??o"
+  },
+  {
+   "fieldname": "approval_deadline",
+   "fieldtype": "Datetime",
+   "label": "Prazo de aprova??o"
+  },
+  {
+   "fieldname": "approval_notes",
+   "fieldtype": "Small Text",
+   "label": "Observa??o da aprova??o"
+  },
+  {
+   "fieldname": "warranty_section",
+   "fieldtype": "Section Break",
+   "label": "Garantia"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_warranty",
+   "fieldtype": "Check",
+   "label": "? garantia"
+  },
+  {
+   "fieldname": "original_service_order",
+   "fieldtype": "Link",
+   "label": "OS original",
+   "options": "Service Order"
+  },
+  {
+   "default": "0",
+   "fieldname": "courtesy_warranty",
+   "fieldtype": "Check",
+   "label": "Garantia-cortesia"
+  },
+  {
+   "fieldname": "courtesy_warranty_reason",
+   "fieldtype": "Small Text",
+   "label": "Justificativa da garantia-cortesia"
+  },
+  {
+   "fieldname": "advance_section",
+   "fieldtype": "Section Break",
+   "label": "Sinal"
+  },
+  {
+   "default": "0",
+   "fieldname": "sinal_enabled",
+   "fieldtype": "Check",
+   "label": "Sinal habilitado"
+  },
+  {
+   "fieldname": "sinal_value",
+   "fieldtype": "Currency",
+   "label": "Valor do sinal"
+  },
+  {
+   "fieldname": "sinal_payment_entry",
+   "fieldtype": "Link",
+   "label": "Payment Entry do sinal",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "additional_damage_section",
+   "fieldtype": "Section Break",
+   "label": "Dano adicional"
+  },
+  {
+   "default": "0",
+   "fieldname": "additional_damage",
+   "fieldtype": "Check",
+   "label": "Dano adicional registrado"
+  },
+  {
+   "fieldname": "additional_damage_cause",
+   "fieldtype": "Small Text",
+   "label": "Causa do dano adicional"
+  },
+  {
+   "fieldname": "finance_section",
+   "fieldtype": "Section Break",
+   "label": "Financeiro"
+  },
+  {
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Forma de pagamento",
+   "options": "Mode of Payment"
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Sales Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pickup_section",
+   "fieldtype": "Section Break",
+   "label": "Retirada"
+  },
+  {
+   "fieldname": "pickup_date",
+   "fieldtype": "Datetime",
+   "label": "Data de retirada"
+  },
+  {
+   "fieldname": "picked_up_by",
+   "fieldtype": "Data",
+   "label": "Retirado por"
+  },
+  {
+   "fieldname": "picked_up_doc",
+   "fieldtype": "Data",
+   "label": "Documento de quem retirou"
+  },
+  {
+   "default": "0",
+   "fieldname": "picked_up_by_third_party",
+   "fieldtype": "Check",
+   "label": "Retirado por terceiro"
+  },
+  {
+   "fieldname": "third_party_doc",
+   "fieldtype": "Data",
+   "label": "Documento do terceiro"
+  },
+  {
+   "fieldname": "third_party_auth",
+   "fieldtype": "Small Text",
+   "label": "Autoriza??o do terceiro"
+  },
+  {
+   "fieldname": "pickup_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pickup_photos",
+   "fieldtype": "Attach Image",
+   "label": "Fotos finais"
+  },
+  {
+   "fieldname": "customer_signature",
+   "fieldtype": "Signature",
+   "label": "Assinatura"
+  },
+  {
+   "fieldname": "pickup_notes",
+   "fieldtype": "Small Text",
+   "label": "Observa??o da retirada"
+  },
+  {
+   "fieldname": "estadia_section",
+   "fieldtype": "Section Break",
+   "label": "Estadia"
+  },
+  {
+   "default": "0",
+   "fieldname": "estadia_enabled",
+   "fieldtype": "Check",
+   "label": "Estadia habilitada"
+  },
+  {
+   "fieldname": "estadia_start_date",
+   "fieldtype": "Date",
+   "label": "In?cio da estadia"
+  },
+  {
+   "fieldname": "estadia_daily_value",
+   "fieldtype": "Currency",
+   "label": "Valor da di?ria"
+  },
+  {
+   "fieldname": "estadia_grace_days",
+   "fieldtype": "Int",
+   "label": "Car?ncia em dias"
+  },
+  {
+   "fieldname": "estadia_cap_value",
+   "fieldtype": "Currency",
+   "label": "Teto da estadia"
+  },
+  {
+   "fieldname": "estadia_total",
+   "fieldtype": "Currency",
+   "label": "Total de estadia",
+   "read_only": 1
+  },
+  {
+   "fieldname": "formal_notice_section",
+   "fieldtype": "Section Break",
+   "label": "Notifica??es formais"
+  },
+  {
+   "fieldname": "formal_notice_log",
+   "fieldtype": "Table",
+   "label": "Registro de notifica??es formais",
+   "options": "Service Order Formal Notice"
+  },
+  {
+   "fieldname": "internal_section",
+   "fieldtype": "Section Break",
+   "label": "Interno"
+  },
+  {
+   "fieldname": "internal_notes",
+   "fieldtype": "Text",
+   "label": "Observa??es internas",
+   "permlevel": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-01 18:05:27.903252",
+ "modified_by": "Administrator",
+ "module": "Tecponto",
+ "name": "Service Order",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "customer,customer_device,workflow_state,approval_status",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "customer_device",
+ "track_changes": 1
+}

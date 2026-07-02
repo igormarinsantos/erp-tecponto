@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-07-01 18:05:10.709570",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "notice_date",
+  "channel",
+  "recipient",
+  "message",
+  "proof",
+  "notes"
+ ],
+ "fields": [
+  {
+   "default": "Now",
+   "fieldname": "notice_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Data da notifica??o"
+  },
+  {
+   "fieldname": "channel",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Canal",
+   "options": "\nWhatsApp\nTelefone\nE-mail\nCarta\nPresencial\nOutro"
+  },
+  {
+   "fieldname": "recipient",
+   "fieldtype": "Data",
+   "label": "Destinat?rio"
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "label": "Mensagem"
+  },
+  {
+   "fieldname": "proof",
+   "fieldtype": "Attach",
+   "label": "Comprovante"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Observa??es"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-01 18:05:10.709570",
+ "modified_by": "Administrator",
+ "module": "Tecponto",
+ "name": "Service Order Formal Notice",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

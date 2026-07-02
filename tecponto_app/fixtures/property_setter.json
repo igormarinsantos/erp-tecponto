@@ -1,0 +1,34 @@
+[
+ {
+  "default_value": null,
+  "doc_type": "Item",
+  "docstatus": 0,
+  "doctype": "Property Setter",
+  "doctype_or_field": "DocField",
+  "field_name": "valuation_rate",
+  "is_system_generated": 0,
+  "modified": "2026-07-01 17:32:26.836244",
+  "module": "Tecponto",
+  "name": "Item-valuation_rate-permlevel",
+  "property": "permlevel",
+  "property_type": "Int",
+  "row_name": null,
+  "value": "1"
+ },
+ {
+  "default_value": null,
+  "doc_type": "Item",
+  "docstatus": 0,
+  "doctype": "Property Setter",
+  "doctype_or_field": "DocField",
+  "field_name": "last_purchase_rate",
+  "is_system_generated": 0,
+  "modified": "2026-07-01 17:32:27.570624",
+  "module": "Tecponto",
+  "name": "Item-last_purchase_rate-permlevel",
+  "property": "permlevel",
+  "property_type": "Int",
+  "row_name": null,
+  "value": "1"
+ }
+]

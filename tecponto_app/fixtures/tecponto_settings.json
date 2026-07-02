@@ -1,0 +1,31 @@
+[
+ {
+  "abandono_prazo_dias": 90,
+  "acquirer_clearing_account": null,
+  "card_fees": [],
+  "carencia_dias": 0,
+  "commercial_warehouse": "Acessórios - TEC",
+  "commission_labor_only": 1,
+  "commission_pct": 20.0,
+  "default_labor_item": "MO-REPARO",
+  "discount_limit": 0.0,
+  "docstatus": 0,
+  "doctype": "Tecponto Settings",
+  "fiscal_certificate": null,
+  "fiscal_provider": null,
+  "modified": "2026-07-02 08:32:04.978881",
+  "name": null,
+  "notification_provider": "Nenhum",
+  "price_floor_block": 1,
+  "purchase_approval_threshold": 0.0,
+  "regime_tributario": "Simples Nacional",
+  "reorder_level": 3.0,
+  "repair_warehouse": "Peças - TEC",
+  "teto": 0.0,
+  "tradein_over_max_needs_manager": 1,
+  "used_device_warranty_days": 90,
+  "used_devices_warehouse": "Aparelhos Usados - TEC",
+  "valor_diaria": 0.0,
+  "valuation_method": "Moving Average"
+ }
+]

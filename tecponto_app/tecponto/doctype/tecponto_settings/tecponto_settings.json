@@ -1,0 +1,243 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-07-02 08:31:52.849512",
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "fiscal_section",
+  "regime_tributario",
+  "fiscal_provider",
+  "fiscal_certificate",
+  "operations_section",
+  "repair_warehouse",
+  "commercial_warehouse",
+  "used_devices_warehouse",
+  "default_labor_item",
+  "notification_provider",
+  "finance_section",
+  "acquirer_clearing_account",
+  "card_fees",
+  "price_floor_block",
+  "discount_limit",
+  "purchase_approval_threshold",
+  "commission_section",
+  "commission_pct",
+  "commission_labor_only",
+  "estadia_section",
+  "valor_diaria",
+  "carencia_dias",
+  "teto",
+  "abandono_prazo_dias",
+  "stock_tradein_section",
+  "reorder_level",
+  "valuation_method",
+  "used_device_warranty_days",
+  "tradein_over_max_needs_manager"
+ ],
+ "fields": [
+  {
+   "fieldname": "fiscal_section",
+   "fieldtype": "Section Break",
+   "label": "Fiscal"
+  },
+  {
+   "default": "Simples Nacional",
+   "fieldname": "regime_tributario",
+   "fieldtype": "Select",
+   "label": "Regime tribut\u00e1rio",
+   "options": "Simples Nacional\nLucro Presumido\nLucro Real"
+  },
+  {
+   "fieldname": "fiscal_provider",
+   "fieldtype": "Data",
+   "label": "Provedor fiscal"
+  },
+  {
+   "fieldname": "fiscal_certificate",
+   "fieldtype": "Attach",
+   "label": "Certificado fiscal"
+  },
+  {
+   "fieldname": "operations_section",
+   "fieldtype": "Section Break",
+   "label": "Opera\u00e7\u00e3o"
+  },
+  {
+   "default": "Pe\u00e7as - TEC",
+   "fieldname": "repair_warehouse",
+   "fieldtype": "Link",
+   "label": "Dep\u00f3sito de reparo",
+   "options": "Warehouse"
+  },
+  {
+   "default": "Acess\u00f3rios - TEC",
+   "fieldname": "commercial_warehouse",
+   "fieldtype": "Link",
+   "label": "Dep\u00f3sito comercial",
+   "options": "Warehouse"
+  },
+  {
+   "default": "Aparelhos Usados - TEC",
+   "fieldname": "used_devices_warehouse",
+   "fieldtype": "Link",
+   "label": "Dep\u00f3sito de usados",
+   "options": "Warehouse"
+  },
+  {
+   "default": "MO-REPARO",
+   "fieldname": "default_labor_item",
+   "fieldtype": "Link",
+   "label": "Item padr\u00e3o de m\u00e3o de obra",
+   "options": "Item"
+  },
+  {
+   "default": "Nenhum",
+   "fieldname": "notification_provider",
+   "fieldtype": "Select",
+   "label": "Provedor de notifica\u00e7\u00e3o",
+   "options": "Nenhum\nLog\nWhatsApp Oficial\nEvolution"
+  },
+  {
+   "fieldname": "finance_section",
+   "fieldtype": "Section Break",
+   "label": "Financeiro"
+  },
+  {
+   "fieldname": "acquirer_clearing_account",
+   "fieldtype": "Link",
+   "label": "Conta transit\u00f3ria da adquirente",
+   "options": "Account"
+  },
+  {
+   "fieldname": "card_fees",
+   "fieldtype": "Table",
+   "label": "Taxas de cart\u00e3o",
+   "options": "Tecponto Card Fee"
+  },
+  {
+   "default": "1",
+   "fieldname": "price_floor_block",
+   "fieldtype": "Check",
+   "label": "Bloquear pre\u00e7o abaixo do custo"
+  },
+  {
+   "default": "0",
+   "fieldname": "discount_limit",
+   "fieldtype": "Currency",
+   "label": "Limite de desconto sem aprova\u00e7\u00e3o"
+  },
+  {
+   "default": "0",
+   "fieldname": "purchase_approval_threshold",
+   "fieldtype": "Currency",
+   "label": "Teto de compra sem aprova\u00e7\u00e3o"
+  },
+  {
+   "fieldname": "commission_section",
+   "fieldtype": "Section Break",
+   "label": "Comiss\u00e3o"
+  },
+  {
+   "default": "20",
+   "fieldname": "commission_pct",
+   "fieldtype": "Percent",
+   "label": "Percentual de comiss\u00e3o"
+  },
+  {
+   "default": "1",
+   "fieldname": "commission_labor_only",
+   "fieldtype": "Check",
+   "label": "Comiss\u00e3o apenas sobre m\u00e3o de obra"
+  },
+  {
+   "fieldname": "estadia_section",
+   "fieldtype": "Section Break",
+   "label": "Estadia e abandono"
+  },
+  {
+   "default": "0",
+   "fieldname": "valor_diaria",
+   "fieldtype": "Currency",
+   "label": "Valor da di\u00e1ria"
+  },
+  {
+   "default": "0",
+   "fieldname": "carencia_dias",
+   "fieldtype": "Int",
+   "label": "Car\u00eancia em dias"
+  },
+  {
+   "default": "0",
+   "fieldname": "teto",
+   "fieldtype": "Currency",
+   "label": "Teto de estadia"
+  },
+  {
+   "default": "90",
+   "fieldname": "abandono_prazo_dias",
+   "fieldtype": "Int",
+   "label": "Prazo de abandono em dias"
+  },
+  {
+   "fieldname": "stock_tradein_section",
+   "fieldtype": "Section Break",
+   "label": "Estoque e troca"
+  },
+  {
+   "default": "3",
+   "fieldname": "reorder_level",
+   "fieldtype": "Float",
+   "label": "N\u00edvel de reposi\u00e7\u00e3o"
+  },
+  {
+   "default": "Moving Average",
+   "fieldname": "valuation_method",
+   "fieldtype": "Select",
+   "label": "M\u00e9todo de valora\u00e7\u00e3o",
+   "options": "Moving Average\nFIFO"
+  },
+  {
+   "default": "90",
+   "fieldname": "used_device_warranty_days",
+   "fieldtype": "Int",
+   "label": "Garantia de usados em dias"
+  },
+  {
+   "default": "1",
+   "fieldname": "tradein_over_max_needs_manager",
+   "fieldtype": "Check",
+   "label": "Troca acima do m\u00e1ximo exige Gestor"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-07-02 08:31:52.849512",
+ "modified_by": "Administrator",
+ "module": "Tecponto",
+ "name": "Tecponto Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

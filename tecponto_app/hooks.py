@@ -5,6 +5,22 @@ app_description = "Custom ERP app for Tecponto"
 app_email = "admin@tecponto.local"
 app_license = "mit"
 
+fixtures = [
+	{"dt": "Custom Field", "filters": [["module", "=", "Tecponto"]]},
+	{"dt": "Property Setter", "filters": [["module", "=", "Tecponto"]]},
+	{
+		"dt": "Role",
+		"filters": [
+			[
+				"role_name",
+				"in",
+				["Tecponto Atendente", "Tecponto Tecnico", "Tecponto Gestor"],
+			]
+		],
+	},
+	{"dt": "Tecponto Settings"},
+]
+
 # Apps
 # ------------------
 
@@ -255,4 +271,3 @@ app_license = "mit"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

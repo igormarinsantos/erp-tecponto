@@ -1,0 +1,205 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-07-01 18:05:24.814159",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identification_section",
+  "naming_series",
+  "customer",
+  "device_type",
+  "evaluated_device_desc",
+  "model",
+  "identification_column_break",
+  "physical_state",
+  "capacity",
+  "icloud_google_lock",
+  "has_invoice",
+  "defects",
+  "checklist_section",
+  "checklist",
+  "values_section",
+  "table_min",
+  "table_max",
+  "suggested_value",
+  "approved_value",
+  "values_column_break",
+  "approver",
+  "destination",
+  "workflow_state",
+  "created_item"
+ ],
+ "fields": [
+  {
+   "fieldname": "identification_section",
+   "fieldtype": "Section Break",
+   "label": "Identifica??o"
+  },
+  {
+   "default": "TROCA-.YYYY.-.####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "S?rie",
+   "options": "TROCA-.YYYY.-.####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Cliente",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "device_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Tipo de aparelho",
+   "options": "\niPhone\nAndroid"
+  },
+  {
+   "fieldname": "evaluated_device_desc",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Descri??o do aparelho"
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Modelo"
+  },
+  {
+   "fieldname": "identification_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "physical_state",
+   "fieldtype": "Select",
+   "label": "Estado f?sico",
+   "options": "\nA\nB\nC\nSucata"
+  },
+  {
+   "fieldname": "capacity",
+   "fieldtype": "Select",
+   "label": "Capacidade",
+   "options": "\n32GB\n64GB\n128GB\n256GB\n512GB\n1TB"
+  },
+  {
+   "default": "0",
+   "fieldname": "icloud_google_lock",
+   "fieldtype": "Check",
+   "label": "Bloqueio iCloud/Google"
+  },
+  {
+   "default": "0",
+   "fieldname": "has_invoice",
+   "fieldtype": "Check",
+   "label": "Tem nota fiscal"
+  },
+  {
+   "fieldname": "defects",
+   "fieldtype": "Text",
+   "label": "Defeitos"
+  },
+  {
+   "fieldname": "checklist_section",
+   "fieldtype": "Section Break",
+   "label": "Checklist"
+  },
+  {
+   "fieldname": "checklist",
+   "fieldtype": "Table",
+   "label": "Checklist",
+   "options": "Device Trade Evaluation Checklist"
+  },
+  {
+   "fieldname": "values_section",
+   "fieldtype": "Section Break",
+   "label": "Valores"
+  },
+  {
+   "fieldname": "table_min",
+   "fieldtype": "Currency",
+   "label": "Valor m?nimo da tabela"
+  },
+  {
+   "fieldname": "table_max",
+   "fieldtype": "Currency",
+   "label": "Valor m?ximo da tabela"
+  },
+  {
+   "fieldname": "suggested_value",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Valor sugerido"
+  },
+  {
+   "fieldname": "approved_value",
+   "fieldtype": "Currency",
+   "label": "Valor aprovado"
+  },
+  {
+   "fieldname": "values_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approver",
+   "fieldtype": "Link",
+   "label": "Aprovador",
+   "options": "User"
+  },
+  {
+   "fieldname": "destination",
+   "fieldtype": "Select",
+   "label": "Destino",
+   "options": "\nVenda\nPe?as\nDescarte"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Status",
+   "options": "Workflow State"
+  },
+  {
+   "fieldname": "created_item",
+   "fieldtype": "Link",
+   "label": "Item criado",
+   "options": "Item",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-01 18:05:24.814159",
+ "modified_by": "Administrator",
+ "module": "Tecponto",
+ "name": "Device Trade Evaluation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "customer,evaluated_device_desc,model",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "evaluated_device_desc",
+ "track_changes": 1
+}
