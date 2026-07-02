@@ -1,0 +1,86 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.283831",
+  "name": "Aguardando aprovação",
+  "workflow_action_name": "Aguardando aprovação"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.330638",
+  "name": "Aguardando peça",
+  "workflow_action_name": "Aguardando peça"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.343755",
+  "name": "Aprovado",
+  "workflow_action_name": "Aprovado"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.349588",
+  "name": "Cancelado",
+  "workflow_action_name": "Cancelado"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.365431",
+  "name": "Em diagnóstico",
+  "workflow_action_name": "Em diagnóstico"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.371286",
+  "name": "Em reparo",
+  "workflow_action_name": "Em reparo"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.378990",
+  "name": "Entregue",
+  "workflow_action_name": "Entregue"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.386561",
+  "name": "Expirar orçamento",
+  "workflow_action_name": "Expirar orçamento"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.400226",
+  "name": "Pronto para retirada",
+  "workflow_action_name": "Pronto para retirada"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.407004",
+  "name": "Reprovado",
+  "workflow_action_name": "Reprovado"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.418085",
+  "name": "Sem conserto",
+  "workflow_action_name": "Sem conserto"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-02 17:58:20.425326",
+  "name": "Teste final",
+  "workflow_action_name": "Teste final"
+ }
+]

@@ -36,6 +36,54 @@ fixtures = [
 			]
 		],
 	},
+	{"dt": "Workflow", "filters": [["name", "=", "Service Order"]]},
+	{
+		"dt": "Workflow State",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Entrada criada",
+					"Em diagnóstico",
+					"Aguardando aprovação",
+					"Aprovado",
+					"Reprovado",
+					"Orçamento expirado",
+					"Aguardando peça",
+					"Em reparo",
+					"Teste final",
+					"Pronto para retirada",
+					"Entregue",
+					"Sem conserto",
+					"Cancelado",
+				],
+			]
+		],
+	},
+	{
+		"dt": "Workflow Action Master",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Aguardando aprovação",
+					"Aguardando peça",
+					"Aprovado",
+					"Cancelado",
+					"Em diagnóstico",
+					"Em reparo",
+					"Entregue",
+					"Expirar orçamento",
+					"Pronto para retirada",
+					"Reprovado",
+					"Sem conserto",
+					"Teste final",
+				],
+			]
+		],
+	},
 ]
 
 # Apps
@@ -199,6 +247,7 @@ after_migrate = [
 	"tecponto_app.tecponto.stock.ensure_moving_average_valuation",
 	"tecponto_app.tecponto.payments.ensure_card_receivables_setup",
 	"tecponto_app.tecponto.hr.ensure_hr_foundation",
+	"tecponto_app.tecponto.workflow.ensure_service_order_workflow",
 ]
 
 # Scheduled Tasks

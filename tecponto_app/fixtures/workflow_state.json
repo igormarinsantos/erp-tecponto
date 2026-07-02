@@ -1,0 +1,119 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:15.354258",
+  "name": "Entrada criada",
+  "style": "Info",
+  "workflow_state_name": "Entrada criada"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.021488",
+  "name": "Em diagnóstico",
+  "style": "Info",
+  "workflow_state_name": "Em diagnóstico"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.034646",
+  "name": "Aguardando aprovação",
+  "style": "Warning",
+  "workflow_state_name": "Aguardando aprovação"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.041595",
+  "name": "Aprovado",
+  "style": "Success",
+  "workflow_state_name": "Aprovado"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.055203",
+  "name": "Reprovado",
+  "style": "Danger",
+  "workflow_state_name": "Reprovado"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.062900",
+  "name": "Orçamento expirado",
+  "style": "Warning",
+  "workflow_state_name": "Orçamento expirado"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.077991",
+  "name": "Aguardando peça",
+  "style": "Warning",
+  "workflow_state_name": "Aguardando peça"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.094197",
+  "name": "Em reparo",
+  "style": "Info",
+  "workflow_state_name": "Em reparo"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.101368",
+  "name": "Teste final",
+  "style": "Info",
+  "workflow_state_name": "Teste final"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.114904",
+  "name": "Pronto para retirada",
+  "style": "Success",
+  "workflow_state_name": "Pronto para retirada"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.122095",
+  "name": "Entregue",
+  "style": "Success",
+  "workflow_state_name": "Entregue"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.134807",
+  "name": "Sem conserto",
+  "style": "Danger",
+  "workflow_state_name": "Sem conserto"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-02 17:58:20.142037",
+  "name": "Cancelado",
+  "style": "Danger",
+  "workflow_state_name": "Cancelado"
+ }
+]
