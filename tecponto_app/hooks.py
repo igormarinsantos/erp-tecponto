@@ -231,6 +231,7 @@ doc_events = {
 		"validate": [
 			"tecponto_app.tecponto.pricing.validate_service_order_pricing",
 			"tecponto_app.tecponto.service_order.aceites.validate_aceites",
+			"tecponto_app.tecponto.service_order.deadline.set_approval_deadline",
 		],
 	},
 	"Sales Invoice": {
@@ -251,28 +252,17 @@ after_migrate = [
 	"tecponto_app.tecponto.payments.ensure_card_receivables_setup",
 	"tecponto_app.tecponto.hr.ensure_hr_foundation",
 	"tecponto_app.tecponto.workflow.ensure_service_order_workflow",
+	"tecponto_app.tecponto.service_order.deadline.ensure_guarulhos_holiday_list",
 ]
 
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"tecponto_app.tasks.all"
-# 	],
-# 	"daily": [
-# 		"tecponto_app.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"tecponto_app.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"tecponto_app.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"tecponto_app.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"daily": [
+		"tecponto_app.tecponto.service_order.deadline.expirar_orcamentos",
+	],
+}
 
 # Testing
 # -------
