@@ -55,6 +55,7 @@
   "warranty_section",
   "is_warranty",
   "original_service_order",
+  "warranty_expiry",
   "courtesy_warranty",
   "courtesy_warranty_reason",
   "advance_section",
@@ -358,6 +359,12 @@
    "fieldtype": "Link",
    "label": "OS original",
    "options": "Service Order"
+  },
+  {
+   "fieldname": "warranty_expiry",
+   "fieldtype": "Date",
+   "label": "Garantia até",
+   "read_only": 1
   },
   {
    "default": "0",
