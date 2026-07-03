@@ -234,7 +234,10 @@ doc_events = {
 			"tecponto_app.tecponto.service_order.budget.validate_budget_lock",
 			"tecponto_app.tecponto.service_order.deadline.set_approval_deadline",
 		],
-		"on_update": "tecponto_app.tecponto.service_order.budget.reset_locked_budget_if_changed",
+		"on_update": [
+			"tecponto_app.tecponto.service_order.budget.reset_locked_budget_if_changed",
+			"tecponto_app.tecponto.service_order.parts.processar_pecas",
+		],
 	},
 	"Sales Invoice": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_sales_stock_defaults",
@@ -255,6 +258,7 @@ after_migrate = [
 	"tecponto_app.tecponto.hr.ensure_hr_foundation",
 	"tecponto_app.tecponto.workflow.ensure_service_order_workflow",
 	"tecponto_app.tecponto.service_order.deadline.ensure_guarulhos_holiday_list",
+	"tecponto_app.tecponto.service_order.parts.ensure_stock_reservation_for_service_order",
 ]
 
 # Scheduled Tasks

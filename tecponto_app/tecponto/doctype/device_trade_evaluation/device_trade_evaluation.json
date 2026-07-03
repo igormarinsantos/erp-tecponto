@@ -157,7 +157,7 @@
    "fieldname": "destination",
    "fieldtype": "Select",
    "label": "Destino",
-   "options": "\nVenda\nPe?as\nDescarte"
+   "options": "\nVenda\nPeças\nDescarte"
   },
   {
    "fieldname": "workflow_state",

@@ -30,7 +30,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Resultado",
-   "options": "\nOK\nAten??o\nReprovado\nN/A"
+   "options": "\nOK\nAtenção\nReprovado\nN/A"
   },
   {
    "fieldname": "notes",

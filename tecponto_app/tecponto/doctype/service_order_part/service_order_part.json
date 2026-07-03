@@ -78,7 +78,7 @@
    "fieldname": "loss_reason",
    "fieldtype": "Select",
    "label": "Motivo da perda",
-   "options": "\nPerda da loja\nResponsabilidade do t?cnico\nGarantia do fornecedor"
+   "options": "\nPerda da loja\nResponsabilidade do técnico\nGarantia do fornecedor"
   },
   {
    "fieldname": "batch_no",

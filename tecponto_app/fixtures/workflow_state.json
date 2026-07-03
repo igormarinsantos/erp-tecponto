@@ -3,7 +3,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:15.354258",
+  "modified": "2026-07-03 15:08:51.855259",
   "name": "Entrada criada",
   "style": "Info",
   "workflow_state_name": "Entrada criada"
@@ -12,7 +12,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.021488",
+  "modified": "2026-07-03 15:08:51.898984",
   "name": "Em diagnóstico",
   "style": "Info",
   "workflow_state_name": "Em diagnóstico"
@@ -21,7 +21,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.034646",
+  "modified": "2026-07-03 15:08:51.914149",
   "name": "Aguardando aprovação",
   "style": "Warning",
   "workflow_state_name": "Aguardando aprovação"
@@ -30,7 +30,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.041595",
+  "modified": "2026-07-03 15:08:51.926514",
   "name": "Aprovado",
   "style": "Success",
   "workflow_state_name": "Aprovado"
@@ -39,7 +39,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.055203",
+  "modified": "2026-07-03 15:08:51.946167",
   "name": "Reprovado",
   "style": "Danger",
   "workflow_state_name": "Reprovado"
@@ -48,7 +48,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.062900",
+  "modified": "2026-07-03 15:08:51.965327",
   "name": "Orçamento expirado",
   "style": "Warning",
   "workflow_state_name": "Orçamento expirado"
@@ -57,7 +57,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.077991",
+  "modified": "2026-07-03 15:08:51.984932",
   "name": "Aguardando peça",
   "style": "Warning",
   "workflow_state_name": "Aguardando peça"
@@ -66,7 +66,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.094197",
+  "modified": "2026-07-03 15:08:51.998832",
   "name": "Em reparo",
   "style": "Info",
   "workflow_state_name": "Em reparo"
@@ -75,7 +75,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.101368",
+  "modified": "2026-07-03 15:08:52.013906",
   "name": "Teste final",
   "style": "Info",
   "workflow_state_name": "Teste final"
@@ -84,7 +84,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.114904",
+  "modified": "2026-07-03 15:08:52.031995",
   "name": "Pronto para retirada",
   "style": "Success",
   "workflow_state_name": "Pronto para retirada"
@@ -93,7 +93,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.122095",
+  "modified": "2026-07-03 15:08:52.054399",
   "name": "Entregue",
   "style": "Success",
   "workflow_state_name": "Entregue"
@@ -102,7 +102,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.134807",
+  "modified": "2026-07-03 15:08:52.068405",
   "name": "Sem conserto",
   "style": "Danger",
   "workflow_state_name": "Sem conserto"
@@ -111,7 +111,7 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2026-07-02 17:58:20.142037",
+  "modified": "2026-07-03 15:08:52.083840",
   "name": "Cancelado",
   "style": "Danger",
   "workflow_state_name": "Cancelado"
