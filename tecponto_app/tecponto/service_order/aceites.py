@@ -36,7 +36,8 @@ def _validate_delivery_acceptance(doc) -> None:
 	if doc.get("workflow_state") != STATE_ENTREGUE:
 		return
 
-	_exigir_nota_paga(doc)
+	if not doc.get("is_warranty"):
+		_exigir_nota_paga(doc)
 
 	if not doc.get("customer_signature"):
 		frappe.throw("Assinatura de retirada e obrigatoria.")

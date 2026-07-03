@@ -231,12 +231,14 @@ doc_events = {
 		"validate": [
 			"tecponto_app.tecponto.pricing.validate_service_order_pricing",
 			"tecponto_app.tecponto.service_order.aceites.validate_aceites",
+			"tecponto_app.tecponto.service_order.policies.validate_repare_rules",
 			"tecponto_app.tecponto.service_order.budget.validate_budget_lock",
 			"tecponto_app.tecponto.service_order.deadline.set_approval_deadline",
 		],
 		"on_update": [
 			"tecponto_app.tecponto.service_order.budget.reset_locked_budget_if_changed",
 			"tecponto_app.tecponto.service_order.parts.processar_pecas",
+			"tecponto_app.tecponto.service_order.advance.processar_sinal",
 			"tecponto_app.tecponto.service_order.billing.gerar_nota",
 			"tecponto_app.tecponto.service_order.commission.gerar_comissao",
 		],

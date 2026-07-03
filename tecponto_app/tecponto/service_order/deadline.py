@@ -90,6 +90,8 @@ def set_approval_deadline(doc, method=None) -> None:
 
 
 def expirar_orcamentos() -> None:
+	from tecponto_app.tecponto.service_order.billing import gerar_nota
+
 	for row in frappe.get_all(
 		"Service Order",
 		filters={
@@ -105,6 +107,7 @@ def expirar_orcamentos() -> None:
 			STATE_ORCAMENTO_EXPIRADO,
 			update_modified=True,
 		)
+		gerar_nota(frappe.get_doc("Service Order", row))
 
 
 def add_business_hours(start_datetime, hours: int, holiday_list: str | None = None) -> datetime:
