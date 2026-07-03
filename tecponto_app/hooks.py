@@ -237,6 +237,7 @@ doc_events = {
 		"on_update": [
 			"tecponto_app.tecponto.service_order.budget.reset_locked_budget_if_changed",
 			"tecponto_app.tecponto.service_order.parts.processar_pecas",
+			"tecponto_app.tecponto.service_order.billing.gerar_nota",
 		],
 	},
 	"Sales Invoice": {
