@@ -37,6 +37,7 @@ fixtures = [
 		],
 	},
 	{"dt": "Workflow", "filters": [["name", "=", "Service Order"]]},
+	{"dt": "Kanban Board", "filters": [["name", "=", "OS - Operacao"]]},
 	{
 		"dt": "Workflow State",
 		"filters": [
@@ -302,6 +303,7 @@ after_migrate = [
 	"tecponto_app.tecponto.service_order.deadline.ensure_guarulhos_holiday_list",
 	"tecponto_app.tecponto.service_order.parts.ensure_stock_reservation_for_service_order",
 	"tecponto_app.tecponto.pos.ensure_pos_profile",
+	"tecponto_app.tecponto.service_order.kanban.ensure_service_order_kanban",
 ]
 
 # Scheduled Tasks

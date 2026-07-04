@@ -1,0 +1,83 @@
+[
+ {
+  "columns": [
+   {
+    "column_name": "Entrada criada",
+    "indicator": "Gray",
+    "order": "[]",
+    "status": "Active"
+   },
+   {
+    "column_name": "Em diagnóstico",
+    "indicator": "Light Blue",
+    "order": "[]",
+    "status": "Active"
+   },
+   {
+    "column_name": "Aguardando aprovação",
+    "indicator": "Orange",
+    "order": "[]",
+    "status": "Active"
+   },
+   {
+    "column_name": "Aguardando peça",
+    "indicator": "Purple",
+    "order": "[]",
+    "status": "Active"
+   },
+   {
+    "column_name": "Em reparo",
+    "indicator": "Blue",
+    "order": "[]",
+    "status": "Active"
+   },
+   {
+    "column_name": "Teste final",
+    "indicator": "Cyan",
+    "order": "[]",
+    "status": "Active"
+   },
+   {
+    "column_name": "Pronto para retirada",
+    "indicator": "Green",
+    "order": "[]",
+    "status": "Active"
+   },
+   {
+    "column_name": "Orçamento expirado",
+    "indicator": "Red",
+    "order": "[]",
+    "status": "Archived"
+   },
+   {
+    "column_name": "Entregue",
+    "indicator": "Green",
+    "order": "[]",
+    "status": "Archived"
+   },
+   {
+    "column_name": "Cancelado",
+    "indicator": "Gray",
+    "order": "[]",
+    "status": "Archived"
+   },
+   {
+    "column_name": "Sem conserto",
+    "indicator": "Red",
+    "order": "[]",
+    "status": "Archived"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Kanban Board",
+  "field_name": "workflow_state",
+  "fields": "[\"name\", \"customer\", \"customer_device\", \"approval_deadline\", \"estimated_deadline\"]",
+  "filters": null,
+  "kanban_board_name": "OS - Operacao",
+  "modified": "2026-07-04 16:08:00.293426",
+  "name": "OS - Operacao",
+  "private": 0,
+  "reference_doctype": "Service Order",
+  "show_labels": 1
+ }
+]
