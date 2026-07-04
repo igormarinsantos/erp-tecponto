@@ -274,6 +274,19 @@ doc_events = {
 			"tecponto_app.tecponto.pricing.validate_sales_pricing",
 		],
 	},
+	"Material Request": {
+		"before_validate": "tecponto_app.tecponto.purchasing.apply_buying_warehouse_defaults",
+	},
+	"Purchase Order": {
+		"before_validate": "tecponto_app.tecponto.purchasing.apply_buying_warehouse_defaults",
+		"before_submit": "tecponto_app.tecponto.purchasing.validate_purchase_approval_threshold",
+	},
+	"Purchase Receipt": {
+		"before_validate": "tecponto_app.tecponto.purchasing.apply_buying_warehouse_defaults",
+	},
+	"Purchase Invoice": {
+		"before_validate": "tecponto_app.tecponto.purchasing.apply_buying_warehouse_defaults",
+	},
 	"Stock Entry": {
 		"validate": "tecponto_app.tecponto.stock.validate_transfer_role",
 	},
