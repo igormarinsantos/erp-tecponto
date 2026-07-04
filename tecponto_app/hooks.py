@@ -243,6 +243,9 @@ doc_events = {
 			"tecponto_app.tecponto.service_order.commission.gerar_comissao",
 		],
 	},
+	"Device Trade Evaluation": {
+		"validate": "tecponto_app.tecponto.tradein.evaluation.validar_avaliacao",
+	},
 	"Sales Invoice": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_sales_stock_defaults",
 		"validate": "tecponto_app.tecponto.pricing.validate_sales_pricing",
