@@ -257,11 +257,18 @@ doc_events = {
 		"on_update": "tecponto_app.tecponto.tradein.operation.confirmar_troca",
 	},
 	"Sales Invoice": {
-		"before_validate": "tecponto_app.tecponto.stock.apply_sales_stock_defaults",
+		"before_validate": [
+			"tecponto_app.tecponto.stock.apply_sales_stock_defaults",
+			"tecponto_app.tecponto.used_device_warranty.validate_used_device_serials",
+		],
 		"validate": "tecponto_app.tecponto.pricing.validate_sales_pricing",
+		"on_submit": "tecponto_app.tecponto.used_device_warranty.create_used_device_warranties",
 	},
 	"POS Invoice": {
-		"before_validate": "tecponto_app.tecponto.stock.apply_sales_stock_defaults",
+		"before_validate": [
+			"tecponto_app.tecponto.stock.apply_sales_stock_defaults",
+			"tecponto_app.tecponto.used_device_warranty.validate_used_device_serials",
+		],
 		"validate": [
 			"tecponto_app.tecponto.pos.validate_pos_warehouse",
 			"tecponto_app.tecponto.pricing.validate_sales_pricing",
