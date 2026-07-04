@@ -247,7 +247,10 @@ doc_events = {
 	},
 	"Device Trade Evaluation": {
 		"validate": "tecponto_app.tecponto.tradein.evaluation.validar_avaliacao",
-		"on_update": "tecponto_app.tecponto.tradein.buyback.concretizar_compra",
+		"on_update": [
+			"tecponto_app.tecponto.tradein.buyback.concretizar_compra",
+			"tecponto_app.tecponto.tradein.cannibalization.canibalizar",
+		],
 	},
 	"Trade-In Operation": {
 		"on_update": "tecponto_app.tecponto.tradein.operation.confirmar_troca",

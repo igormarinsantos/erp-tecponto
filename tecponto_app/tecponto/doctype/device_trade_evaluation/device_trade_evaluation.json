@@ -31,7 +31,9 @@
   "approver",
   "destination",
   "workflow_state",
-  "created_item"
+  "created_item",
+  "canibalization_section",
+  "harvest_parts"
  ],
  "fields": [
   {
@@ -178,6 +180,17 @@
    "label": "Item criado",
    "options": "Item",
    "read_only": 1
+  },
+  {
+   "fieldname": "canibalization_section",
+   "fieldtype": "Section Break",
+   "label": "Canibaliza\u00e7\u00e3o"
+  },
+  {
+   "fieldname": "harvest_parts",
+   "fieldtype": "Table",
+   "label": "Pe\u00e7as colhidas",
+   "options": "Device Trade Harvest Part"
   }
  ],
  "grid_page_length": 50,
