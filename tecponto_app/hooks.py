@@ -86,6 +86,7 @@ fixtures = [
 			]
 		],
 	},
+	{"dt": "POS Profile", "filters": [["name", "=", "Tecponto Balcão"]]},
 ]
 
 # Apps
@@ -261,7 +262,10 @@ doc_events = {
 	},
 	"POS Invoice": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_sales_stock_defaults",
-		"validate": "tecponto_app.tecponto.pricing.validate_sales_pricing",
+		"validate": [
+			"tecponto_app.tecponto.pos.validate_pos_warehouse",
+			"tecponto_app.tecponto.pricing.validate_sales_pricing",
+		],
 	},
 	"Stock Entry": {
 		"validate": "tecponto_app.tecponto.stock.validate_transfer_role",
@@ -277,6 +281,7 @@ after_migrate = [
 	"tecponto_app.tecponto.tradein.buyback.ensure_serial_batch_for_used_devices",
 	"tecponto_app.tecponto.service_order.deadline.ensure_guarulhos_holiday_list",
 	"tecponto_app.tecponto.service_order.parts.ensure_stock_reservation_for_service_order",
+	"tecponto_app.tecponto.pos.ensure_pos_profile",
 ]
 
 # Scheduled Tasks
