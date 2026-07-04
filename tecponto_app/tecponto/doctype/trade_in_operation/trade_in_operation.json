@@ -79,7 +79,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status at?mico",
-   "options": "\nRascunho\nPendente\nConfirmada\nCancelada\nFalhou"
+   "options": "\nRascunho\nPendente\nConfirmada\nConclu\u00edda\nCancelada\nFalhou"
   },
   {
    "fieldname": "fiscal_section",

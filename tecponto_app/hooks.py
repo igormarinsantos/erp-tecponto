@@ -249,6 +249,9 @@ doc_events = {
 		"validate": "tecponto_app.tecponto.tradein.evaluation.validar_avaliacao",
 		"on_update": "tecponto_app.tecponto.tradein.buyback.concretizar_compra",
 	},
+	"Trade-In Operation": {
+		"on_update": "tecponto_app.tecponto.tradein.operation.confirmar_troca",
+	},
 	"Sales Invoice": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_sales_stock_defaults",
 		"validate": "tecponto_app.tecponto.pricing.validate_sales_pricing",
