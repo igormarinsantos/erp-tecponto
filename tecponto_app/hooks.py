@@ -57,6 +57,8 @@ fixtures = [
 					"Entregue",
 					"Sem conserto",
 					"Cancelado",
+					"Aprovado para compra",
+					"Comprado",
 				],
 			]
 		],
@@ -245,6 +247,7 @@ doc_events = {
 	},
 	"Device Trade Evaluation": {
 		"validate": "tecponto_app.tecponto.tradein.evaluation.validar_avaliacao",
+		"on_update": "tecponto_app.tecponto.tradein.buyback.concretizar_compra",
 	},
 	"Sales Invoice": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_sales_stock_defaults",
@@ -264,6 +267,8 @@ after_migrate = [
 	"tecponto_app.tecponto.payments.ensure_card_receivables_setup",
 	"tecponto_app.tecponto.hr.ensure_hr_foundation",
 	"tecponto_app.tecponto.workflow.ensure_service_order_workflow",
+	"tecponto_app.tecponto.tradein.workflow.ensure_tradein_workflow_states",
+	"tecponto_app.tecponto.tradein.buyback.ensure_serial_batch_for_used_devices",
 	"tecponto_app.tecponto.service_order.deadline.ensure_guarulhos_holiday_list",
 	"tecponto_app.tecponto.service_order.parts.ensure_stock_reservation_for_service_order",
 ]

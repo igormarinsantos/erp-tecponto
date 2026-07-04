@@ -13,6 +13,7 @@
   "device_type",
   "evaluated_device_desc",
   "model",
+  "imei",
   "identification_column_break",
   "physical_state",
   "capacity",
@@ -71,6 +72,12 @@
    "fieldname": "model",
    "fieldtype": "Data",
    "label": "Modelo"
+  },
+  {
+   "fieldname": "imei",
+   "fieldtype": "Data",
+   "label": "IMEI / Serial",
+   "search_index": 1
   },
   {
    "fieldname": "identification_column_break",
@@ -197,7 +204,7 @@
  ],
  "row_format": "Dynamic",
  "rows_threshold_for_grid_search": 20,
- "search_fields": "customer,evaluated_device_desc,model",
+ "search_fields": "customer,evaluated_device_desc,model,imei",
  "sort_field": "creation",
  "sort_order": "DESC",
  "states": [],
