@@ -1,0 +1,55 @@
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#tecponto-root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 16% -10%, rgba(255, 91, 18, 0.12), transparent 26rem),
+    radial-gradient(circle at 90% 2%, rgba(47, 140, 255, 0.1), transparent 22rem),
+    linear-gradient(135deg, rgb(var(--tp-bg)) 0%, rgb(10 17 22) 52%, rgb(8 12 16) 100%);
+  color: rgb(var(--tp-text));
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  letter-spacing: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(255, 91, 18, 0.32);
+}
+
+.tp-panel {
+  border: 1px solid rgba(var(--tp-border), 0.28);
+  background:
+    linear-gradient(180deg, rgba(var(--tp-panel-strong), 0.84), rgba(var(--tp-panel), 0.88)),
+    rgba(var(--tp-panel), 0.92);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
+}
+
+.tp-row-border {
+  border-color: rgba(var(--tp-border), 0.18);
+}

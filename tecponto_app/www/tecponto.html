@@ -1,0 +1,38 @@
+{% extends "templates/web.html" %}
+
+{% block title %}Tecponto{% endblock %}
+
+{% block header %}{% endblock %}
+
+{% block style %}
+<style>
+	html,
+	body {
+		background: #070b0f;
+	}
+
+	.navbar,
+	.web-footer,
+	.page-breadcrumbs {
+		display: none !important;
+	}
+
+	.web-page-content {
+		padding: 0 !important;
+		margin: 0 !important;
+		max-width: none !important;
+	}
+</style>
+<link rel="stylesheet" href="/assets/tecponto_app/frontend/assets/app.css">
+{% endblock %}
+
+{% block page_content %}
+<div id="tecponto-root"></div>
+<script>
+	window.tecpontoBoot = {
+		csrfToken: "{{ frappe.session.csrf_token }}",
+		site: "{{ frappe.local.site }}",
+	};
+</script>
+<script type="module" src="/assets/tecponto_app/frontend/assets/app.js"></script>
+{% endblock %}

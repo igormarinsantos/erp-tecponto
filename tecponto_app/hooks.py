@@ -20,7 +20,12 @@ fixtures = [
 			[
 				"role_name",
 				"in",
-				["Tecponto Atendente", "Tecponto Tecnico", "Tecponto Gestor"],
+				[
+					"Tecponto Atendente",
+					"Tecponto Tecnico",
+					"Tecponto Gestor",
+					"Tecponto Diretor",
+				],
 			]
 		],
 	},
@@ -318,6 +323,7 @@ after_migrate = [
 	"tecponto_app.tecponto.stock.ensure_moving_average_valuation",
 	"tecponto_app.tecponto.payments.ensure_card_receivables_setup",
 	"tecponto_app.tecponto.hr.ensure_hr_foundation",
+	"tecponto_app.tecponto.frontend.setup.ensure_frontend_foundation",
 	"tecponto_app.tecponto.workflow.ensure_service_order_workflow",
 	"tecponto_app.tecponto.tradein.workflow.ensure_tradein_workflow_states",
 	"tecponto_app.tecponto.tradein.buyback.ensure_serial_batch_for_used_devices",
@@ -327,6 +333,19 @@ after_migrate = [
 	"tecponto_app.tecponto.service_order.kanban.ensure_service_order_kanban",
 	"tecponto_app.tecponto.service_order.print_formats.ensure_service_order_print_formats",
 ]
+
+website_route_rules = [
+	{"from_route": "/tecponto", "to_route": "tecponto"},
+]
+
+role_home_page = {
+	"Tecponto Atendente": "tecponto",
+	"Tecponto Tecnico": "tecponto",
+	"Tecponto Gestor": "tecponto",
+	"Tecponto Diretor": "tecponto",
+}
+
+after_build = "tecponto_app.tecponto.frontend.build.build_frontend"
 
 # Scheduled Tasks
 # ---------------
