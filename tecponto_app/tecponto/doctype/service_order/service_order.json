@@ -96,13 +96,13 @@
   {
    "fieldname": "identification_section",
    "fieldtype": "Section Break",
-   "label": "Identifica??o"
+   "label": "Identificação"
   },
   {
    "default": "OS-.YYYY.-.#####",
    "fieldname": "naming_series",
    "fieldtype": "Select",
-   "label": "S?rie",
+   "label": "Série",
    "options": "OS-.YYYY.-.#####",
    "reqd": 1
   },
@@ -141,7 +141,7 @@
   {
    "fieldname": "technician",
    "fieldtype": "Link",
-   "label": "T?cnico",
+   "label": "Técnico",
    "options": "User"
   },
   {
@@ -171,17 +171,17 @@
   {
    "fieldname": "attendance_notes",
    "fieldtype": "Text",
-   "label": "Observa??es do atendimento"
+   "label": "Observações do atendimento"
   },
   {
    "fieldname": "physical_state",
    "fieldtype": "Small Text",
-   "label": "Estado f?sico de entrada"
+   "label": "Estado físico de entrada"
   },
   {
    "fieldname": "accessories_received",
    "fieldtype": "Small Text",
-   "label": "Acess?rios recebidos"
+   "label": "Acessórios recebidos"
   },
   {
    "fieldname": "entry_photos",
@@ -196,7 +196,7 @@
   {
    "fieldname": "diagnosis_section",
    "fieldtype": "Section Break",
-   "label": "Diagn?stico"
+   "label": "Diagnóstico"
   },
   {
    "fieldname": "problem_found",
@@ -206,12 +206,12 @@
   {
    "fieldname": "probable_cause",
    "fieldtype": "Small Text",
-   "label": "Causa prov?vel"
+   "label": "Causa provável"
   },
   {
    "fieldname": "recommended_solution",
    "fieldtype": "Small Text",
-   "label": "Solu??o recomendada"
+   "label": "Solução recomendada"
   },
   {
    "fieldname": "estimated_deadline",
@@ -225,52 +225,52 @@
   {
    "fieldname": "diagnosis_notes",
    "fieldtype": "Text",
-   "label": "Observa??es do diagn?stico"
+   "label": "Observações do diagnóstico"
   },
   {
    "fieldname": "diagnosis_date",
    "fieldtype": "Date",
-   "label": "Data do diagn?stico"
+   "label": "Data do diagnóstico"
   },
   {
    "default": "0",
    "fieldname": "diagnosis_fee_enabled",
    "fieldtype": "Check",
-   "label": "Cobrar taxa de diagn?stico"
+   "label": "Cobrar taxa de diagnóstico"
   },
   {
    "depends_on": "diagnosis_fee_enabled",
    "fieldname": "diagnosis_fee_value",
    "fieldtype": "Currency",
-   "label": "Valor da taxa de diagn?stico"
+   "label": "Valor da taxa de diagnóstico"
   },
   {
    "fieldname": "budget_section",
    "fieldtype": "Section Break",
-   "label": "Or?amento"
+   "label": "Orçamento"
   },
   {
    "fieldname": "services",
    "fieldtype": "Table",
-   "label": "Servi?os/M?o de obra",
+   "label": "Serviços/Mão de obra",
    "options": "Service Order Service"
   },
   {
    "fieldname": "parts",
    "fieldtype": "Table",
-   "label": "Pe?as",
+   "label": "Peças",
    "options": "Service Order Part"
   },
   {
    "fieldname": "labor_total",
    "fieldtype": "Currency",
-   "label": "Total m?o de obra",
+   "label": "Total mão de obra",
    "read_only": 1
   },
   {
    "fieldname": "parts_total",
    "fieldtype": "Currency",
-   "label": "Total pe?as",
+   "label": "Total peças",
    "read_only": 1
   },
   {
@@ -292,30 +292,30 @@
    "default": "0",
    "fieldname": "quote_locked",
    "fieldtype": "Check",
-   "label": "Or?amento travado"
+   "label": "Orçamento travado"
   },
   {
    "default": "1",
    "fieldname": "budget_version",
    "fieldtype": "Int",
-   "label": "Vers?o do or?amento"
+   "label": "Versão do orçamento"
   },
   {
    "fieldname": "approval_section",
    "fieldtype": "Section Break",
-   "label": "Aprova??o"
+   "label": "Aprovação"
   },
   {
    "default": "Pendente",
    "fieldname": "approval_status",
    "fieldtype": "Select",
-   "label": "Status da aprova??o",
+   "label": "Status da aprovação",
    "options": "\nPendente\nAprovado\nReprovado"
   },
   {
    "fieldname": "approval_channel",
    "fieldtype": "Select",
-   "label": "Canal de aprova??o",
+   "label": "Canal de aprovação",
    "options": "\nPresencial\nTelefone\nWhatsApp\nLink"
   },
   {
@@ -327,7 +327,7 @@
   {
    "fieldname": "approved_by_attendant",
    "fieldtype": "Link",
-   "label": "Atendente que registrou aprova??o",
+   "label": "Atendente que registrou aprovação",
    "options": "User"
   },
   {
@@ -337,17 +337,17 @@
   {
    "fieldname": "approval_date",
    "fieldtype": "Datetime",
-   "label": "Data da aprova??o"
+   "label": "Data da aprovação"
   },
   {
    "fieldname": "approval_deadline",
    "fieldtype": "Datetime",
-   "label": "Prazo de aprova??o"
+   "label": "Prazo de aprovação"
   },
   {
    "fieldname": "approval_notes",
    "fieldtype": "Small Text",
-   "label": "Observa??o da aprova??o"
+   "label": "Observação da aprovação"
   },
   {
    "fieldname": "warranty_section",
@@ -358,7 +358,7 @@
    "default": "0",
    "fieldname": "is_warranty",
    "fieldtype": "Check",
-   "label": "? garantia"
+   "label": "É garantia"
   },
   {
    "fieldname": "original_service_order",
@@ -474,7 +474,7 @@
   {
    "fieldname": "third_party_auth",
    "fieldtype": "Small Text",
-   "label": "Autoriza??o do terceiro"
+   "label": "Autorização do terceiro"
   },
   {
    "fieldname": "pickup_column_break",
@@ -493,7 +493,7 @@
   {
    "fieldname": "pickup_notes",
    "fieldtype": "Small Text",
-   "label": "Observa??o da retirada"
+   "label": "Observação da retirada"
   },
   {
    "fieldname": "estadia_section",
@@ -509,17 +509,17 @@
   {
    "fieldname": "estadia_start_date",
    "fieldtype": "Date",
-   "label": "In?cio da estadia"
+   "label": "Início da estadia"
   },
   {
    "fieldname": "estadia_daily_value",
    "fieldtype": "Currency",
-   "label": "Valor da di?ria"
+   "label": "Valor da diária"
   },
   {
    "fieldname": "estadia_grace_days",
    "fieldtype": "Int",
-   "label": "Car?ncia em dias"
+   "label": "Carência em dias"
   },
   {
    "fieldname": "estadia_cap_value",
@@ -535,12 +535,12 @@
   {
    "fieldname": "formal_notice_section",
    "fieldtype": "Section Break",
-   "label": "Notifica??es formais"
+   "label": "Notificações formais"
   },
   {
    "fieldname": "formal_notice_log",
    "fieldtype": "Table",
-   "label": "Registro de notifica??es formais",
+   "label": "Registro de notificações formais",
    "options": "Service Order Formal Notice"
   },
   {
@@ -551,7 +551,7 @@
   {
    "fieldname": "internal_notes",
    "fieldtype": "Text",
-   "label": "Observa??es internas",
+   "label": "Observações internas",
    "permlevel": 1
   }
  ],

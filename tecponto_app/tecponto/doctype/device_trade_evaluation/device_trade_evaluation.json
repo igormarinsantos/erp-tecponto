@@ -39,13 +39,13 @@
   {
    "fieldname": "identification_section",
    "fieldtype": "Section Break",
-   "label": "Identifica??o"
+   "label": "Identificação"
   },
   {
    "default": "TROCA-.YYYY.-.####",
    "fieldname": "naming_series",
    "fieldtype": "Select",
-   "label": "S?rie",
+   "label": "Série",
    "options": "TROCA-.YYYY.-.####",
    "reqd": 1
   },
@@ -68,7 +68,7 @@
    "fieldname": "evaluated_device_desc",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Descri??o do aparelho"
+   "label": "Descrição do aparelho"
   },
   {
    "fieldname": "model",
@@ -88,7 +88,7 @@
   {
    "fieldname": "physical_state",
    "fieldtype": "Select",
-   "label": "Estado f?sico",
+   "label": "Estado físico",
    "options": "\nA\nB\nC\nSucata"
   },
   {
@@ -133,12 +133,12 @@
   {
    "fieldname": "table_min",
    "fieldtype": "Currency",
-   "label": "Valor m?nimo da tabela"
+   "label": "Valor mínimo da tabela"
   },
   {
    "fieldname": "table_max",
    "fieldtype": "Currency",
-   "label": "Valor m?ximo da tabela"
+   "label": "Valor máximo da tabela"
   },
   {
    "fieldname": "suggested_value",

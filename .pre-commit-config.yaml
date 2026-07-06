@@ -4,6 +4,15 @@ fail_fast: false
 
 
 repos:
+  - repo: local
+    hooks:
+      - id: tecponto-encoding-guard
+        name: "Check Tecponto UTF-8 and mojibake"
+        entry: python scripts/check_encoding.py
+        language: system
+        pass_filenames: true
+        types_or: [python, json, yaml, markdown, javascript, html, css, text]
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:

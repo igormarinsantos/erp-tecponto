@@ -18,7 +18,7 @@
    "fieldname": "item_code",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Item de servi?o",
+   "label": "Item de serviço",
    "options": "Item",
    "reqd": 1
   },
@@ -26,7 +26,7 @@
    "fieldname": "description",
    "fieldtype": "Small Text",
    "in_list_view": 1,
-   "label": "Descri??o"
+   "label": "Descrição"
   },
   {
    "default": "1",
@@ -46,7 +46,7 @@
    "fieldname": "technician",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "T?cnico",
+   "label": "Técnico",
    "options": "Employee"
   }
  ],

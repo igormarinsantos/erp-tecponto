@@ -20,7 +20,7 @@
    "fieldname": "notice_date",
    "fieldtype": "Datetime",
    "in_list_view": 1,
-   "label": "Data da notifica??o"
+   "label": "Data da notificação"
   },
   {
    "fieldname": "channel",
@@ -32,7 +32,7 @@
   {
    "fieldname": "recipient",
    "fieldtype": "Data",
-   "label": "Destinat?rio"
+   "label": "Destinatário"
   },
   {
    "fieldname": "message",
@@ -47,7 +47,7 @@
   {
    "fieldname": "notes",
    "fieldtype": "Text",
-   "label": "Observa??es"
+   "label": "Observações"
   }
  ],
  "grid_page_length": 50,

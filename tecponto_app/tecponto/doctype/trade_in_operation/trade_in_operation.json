@@ -25,13 +25,13 @@
   {
    "fieldname": "identification_section",
    "fieldtype": "Section Break",
-   "label": "Identifica??o"
+   "label": "Identificação"
   },
   {
    "default": "TRIN-.YYYY.-.####",
    "fieldname": "naming_series",
    "fieldtype": "Select",
-   "label": "S?rie",
+   "label": "Série",
    "options": "TRIN-.YYYY.-.####",
    "reqd": 1
   },
@@ -46,14 +46,14 @@
   {
    "fieldname": "evaluation",
    "fieldtype": "Link",
-   "label": "Avalia??o",
+   "label": "Avaliação",
    "options": "Device Trade Evaluation",
    "reqd": 1
   },
   {
    "fieldname": "device_out",
    "fieldtype": "Link",
-   "label": "Aparelho de sa?da (Serial/IMEI)",
+   "label": "Aparelho de saída (Serial/IMEI)",
    "options": "Serial No"
   },
   {
@@ -64,7 +64,7 @@
    "fieldname": "difference",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Diferen?a",
+   "label": "Diferença",
    "non_negative": 1
   },
   {
@@ -78,28 +78,28 @@
    "fieldname": "atomic_status",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Status at?mico",
+   "label": "Status atômico",
    "options": "\nRascunho\nPendente\nConfirmada\nConclu\u00edda\nCancelada\nFalhou"
   },
   {
    "fieldname": "fiscal_section",
    "fieldtype": "Section Break",
-   "label": "Refer?ncias fiscais"
+   "label": "Referências fiscais"
   },
   {
    "fieldname": "used_device_fiscal_ref",
    "fieldtype": "Data",
-   "label": "Refer?ncia fiscal da entrada"
+   "label": "Referência fiscal da entrada"
   },
   {
    "fieldname": "sale_fiscal_ref",
    "fieldtype": "Data",
-   "label": "Refer?ncia fiscal da sa?da"
+   "label": "Referência fiscal da saída"
   },
   {
    "fieldname": "notes",
    "fieldtype": "Text",
-   "label": "Observa??es"
+   "label": "Observações"
   }
  ],
  "grid_page_length": 50,

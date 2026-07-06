@@ -72,13 +72,13 @@
   {
    "fieldname": "device_password",
    "fieldtype": "Data",
-   "label": "Senha/Padr?o",
+   "label": "Senha/Padrão",
    "permlevel": 1
   },
   {
    "fieldname": "condition_section",
    "fieldtype": "Section Break",
-   "label": "Estado e observa??es"
+   "label": "Estado e observações"
   },
   {
    "fieldname": "general_state",
@@ -88,7 +88,7 @@
   {
    "fieldname": "notes",
    "fieldtype": "Text",
-   "label": "Observa??es"
+   "label": "Observações"
   },
   {
    "fieldname": "photos",

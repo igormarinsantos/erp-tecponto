@@ -35,7 +35,7 @@
   {
    "fieldname": "notes",
    "fieldtype": "Small Text",
-   "label": "Observa??es"
+   "label": "Observações"
   }
  ],
  "grid_page_length": 50,
