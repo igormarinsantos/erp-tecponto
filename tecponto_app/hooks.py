@@ -5,6 +5,12 @@ app_description = "Custom ERP app for Tecponto"
 app_email = "admin@tecponto.local"
 app_license = "mit"
 
+jinja = {
+	"methods": [
+		"tecponto_app.tecponto.service_order.print_formats.get_service_order_print_context",
+	],
+}
+
 fixtures = [
 	{"dt": "Custom Field", "filters": [["module", "=", "Tecponto"]]},
 	{"dt": "Property Setter", "filters": [["module", "=", "Tecponto"]]},
@@ -38,6 +44,21 @@ fixtures = [
 	},
 	{"dt": "Workflow", "filters": [["name", "=", "Service Order"]]},
 	{"dt": "Kanban Board", "filters": [["name", "=", "OS - Operacao"]]},
+	{
+		"dt": "Print Format",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Tecponto Termo de Entrada",
+					"Tecponto Termo de Retirada",
+					"Tecponto OS Orcamento",
+					"Tecponto Etiqueta QR",
+				],
+			]
+		],
+	},
 	{
 		"dt": "Workflow State",
 		"filters": [
@@ -304,6 +325,7 @@ after_migrate = [
 	"tecponto_app.tecponto.service_order.parts.ensure_stock_reservation_for_service_order",
 	"tecponto_app.tecponto.pos.ensure_pos_profile",
 	"tecponto_app.tecponto.service_order.kanban.ensure_service_order_kanban",
+	"tecponto_app.tecponto.service_order.print_formats.ensure_service_order_print_formats",
 ]
 
 # Scheduled Tasks
