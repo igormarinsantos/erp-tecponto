@@ -277,6 +277,9 @@ def _termo_entrada_html() -> str:
     <p><strong>Não retirada e estadia.</strong> Após a conclusão, recusa, expiração do orçamento ou aviso de retirada, a loja poderá registrar tentativas de contato. Se a cobrança de estadia estiver habilitada e comunicada ao cliente, a diária poderá ser aplicada após a carência informada, respeitando os limites configurados na OS.</p>
   </section>
 
+  {% if doc.entry_signature %}
+    <img class="tp-signature-img" src="{{ doc.entry_signature }}" alt="Assinatura de entrada do cliente">
+  {% endif %}
   <div class="tp-signatures">
     <div><span></span><p>Assinatura do cliente</p></div>
     <div><span></span><p>Atendente</p></div>

@@ -23,6 +23,7 @@
   "physical_state",
   "accessories_received",
   "entry_photos",
+  "entry_signature",
   "diagnosis_section",
   "problem_found",
   "probable_cause",
@@ -186,6 +187,11 @@
    "fieldname": "entry_photos",
    "fieldtype": "Attach Image",
    "label": "Fotos de entrada"
+  },
+  {
+   "fieldname": "entry_signature",
+   "fieldtype": "Signature",
+   "label": "Assinatura de entrada"
   },
   {
    "fieldname": "diagnosis_section",

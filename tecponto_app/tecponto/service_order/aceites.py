@@ -20,6 +20,9 @@ def _validate_entry_acceptance(doc) -> None:
 	if not doc.get("entry_photos"):
 		frappe.throw("Foto de entrada e obrigatoria antes de iniciar o atendimento.")
 
+	if doc.meta.has_field("entry_signature") and not doc.get("entry_signature"):
+		frappe.throw("Assinatura de entrada e obrigatoria antes de iniciar o atendimento.")
+
 
 def _validate_approval_acceptance(doc) -> None:
 	if doc.get("approval_status") != APPROVAL_STATUS_APROVADO:
