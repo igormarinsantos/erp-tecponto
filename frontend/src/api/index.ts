@@ -3,6 +3,7 @@ export { checkin } from "./checkin";
 export { getBoot, getLoggedUser, logout } from "./auth";
 export { serviceOrders } from "./serviceOrders";
 export type {
+  BudgetDecisionPayload,
   BootResponse,
   CheckinPayload,
   CheckinResponse,
@@ -21,6 +22,7 @@ export type {
   ServiceOrderSummary,
   ServiceOrderTimelineEvent,
   ServiceOrderWorkflowAction,
+  PickupPayload,
   StockItemListResponse,
   StockItemSummary,
   TradeEvaluationListResponse,

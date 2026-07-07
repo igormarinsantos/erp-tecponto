@@ -61,6 +61,13 @@ export interface ServiceOrderDetailResponse {
   workflow_state: string | null;
   approval_status: string | null;
   approval_deadline: string;
+  approval: {
+    channel: string | null;
+    approved_by: string | null;
+    approved_by_attendant: string | null;
+    approval_date: string;
+    notes: string | null;
+  };
   entry_date: string;
   modified: string;
   attendant: string | null;
@@ -96,6 +103,12 @@ export interface ServiceOrderDetailResponse {
     pickup_person_name: string | null;
     pickup_person_document: string | null;
     pickup_date: string;
+    pickup_notes: string | null;
+    has_signature: boolean;
+  };
+  finance: {
+    sales_invoice: string | null;
+    sales_invoice_status: string | null;
   };
   workflow_actions: ServiceOrderWorkflowAction[];
   timeline: ServiceOrderTimelineEvent[];
@@ -181,6 +194,21 @@ export interface CheckinPayload {
 export interface CheckinResponse {
   service_order: Pick<ServiceOrderDetailResponse, "name" | "workflow_state" | "customer" | "device" | "print_links">;
   entry_photo_url: string;
+}
+
+export interface BudgetDecisionPayload {
+  decision: "approve" | "reject";
+  channel: "Presencial" | "Telefone" | "WhatsApp";
+  notes?: string;
+}
+
+export interface PickupPayload {
+  customer_signature: string;
+  third_party: boolean;
+  picked_up_by?: string;
+  picked_up_doc?: string;
+  third_party_auth?: string;
+  pickup_notes?: string;
 }
 
 export interface DashboardMetrics {

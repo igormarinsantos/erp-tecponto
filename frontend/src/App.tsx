@@ -35,6 +35,7 @@ import {
 } from "./api";
 import { CheckinWizard } from "./CheckinWizard";
 import { panelDefinitions, type ActionDefinition } from "./roleConfig";
+import { BudgetDecisionModal, PickupModal } from "./ServiceOrderFlows";
 import { BadgeStatus, Button, Card, DataTable, MetricCard, Sidebar, Toast, Topbar, type TableColumn } from "./ui";
 
 type LoadState =
@@ -438,9 +439,11 @@ function ServiceOrderDetail({
     | { status: "ready"; detail: ServiceOrderDetailResponse }
     | { status: "error"; message: string }
   >({ status: "loading" });
+  const [activeFlow, setActiveFlow] = useState<"approve" | "reject" | "pickup" | null>(null);
 
   useEffect(() => {
     let mounted = true;
+    setActiveFlow(null);
     setState({ status: "loading" });
     serviceOrders
       .detail(name)
@@ -540,7 +543,12 @@ function ServiceOrderDetail({
         </div>
 
         <aside className="space-y-4">
-          <WorkflowCard actions={detail.workflow_actions} detail={detail} onComingSoon={onComingSoon} />
+          <WorkflowCard
+            actions={detail.workflow_actions}
+            detail={detail}
+            onComingSoon={onComingSoon}
+            onOpenFlow={setActiveFlow}
+          />
           <Card className="p-4">
             <h3 className="text-base font-bold text-white">Atendimento</h3>
             <dl className="mt-4 space-y-3 text-sm">
@@ -553,6 +561,26 @@ function ServiceOrderDetail({
           </Card>
         </aside>
       </div>
+      <BudgetDecisionModal
+        detail={detail}
+        mode="approve"
+        onClose={() => setActiveFlow(null)}
+        onUpdated={(updated) => setState({ status: "ready", detail: updated })}
+        open={activeFlow === "approve"}
+      />
+      <BudgetDecisionModal
+        detail={detail}
+        mode="reject"
+        onClose={() => setActiveFlow(null)}
+        onUpdated={(updated) => setState({ status: "ready", detail: updated })}
+        open={activeFlow === "reject"}
+      />
+      <PickupModal
+        detail={detail}
+        onClose={() => setActiveFlow(null)}
+        onUpdated={(updated) => setState({ status: "ready", detail: updated })}
+        open={activeFlow === "pickup"}
+      />
     </div>
   );
 }
@@ -656,10 +684,12 @@ function WorkflowCard({
   actions,
   detail,
   onComingSoon,
+  onOpenFlow,
 }: {
   actions: ServiceOrderWorkflowAction[];
   detail: ServiceOrderDetailResponse;
   onComingSoon: (label: string, block?: string) => void;
+  onOpenFlow: (flow: "approve" | "reject" | "pickup") => void;
 }) {
   return (
     <Card className="p-4">
@@ -673,12 +703,22 @@ function WorkflowCard({
             <button
               className="flex w-full items-center justify-between gap-3 rounded-card border border-tec-border/20 bg-white/[0.035] p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
               key={`${action.action}-${action.next_state}`}
-              onClick={() => onComingSoon(`${action.action} ${detail.name}`, "bloco 3.1d")}
-              title="Execução do workflow entra no bloco 3.1d"
+              onClick={() => {
+                if (action.next_state === "Aprovado") {
+                  onOpenFlow("approve");
+                } else if (action.next_state === "Reprovado") {
+                  onOpenFlow("reject");
+                } else if (action.next_state === "Entregue") {
+                  onOpenFlow("pickup");
+                } else {
+                  onComingSoon(`${action.action} ${detail.name}`, "bloco 3.1x");
+                }
+              }}
+              title={workflowActionTitle(action)}
               type="button"
             >
               <span>
-                <span className="block text-sm font-bold text-white">{action.action}</span>
+                <span className="block text-sm font-bold text-white">{workflowActionLabel(action)}</span>
                 <span className="mt-1 block text-xs text-tec-muted">Vai para {action.next_state}</span>
               </span>
               <ArrowRight className="text-tec-orange" size={17} />
@@ -692,6 +732,26 @@ function WorkflowCard({
       </div>
     </Card>
   );
+}
+
+function workflowActionLabel(action: ServiceOrderWorkflowAction) {
+  if (action.next_state === "Aprovado") {
+    return "Aprovar";
+  }
+  if (action.next_state === "Reprovado") {
+    return "Reprovar";
+  }
+  if (action.next_state === "Entregue") {
+    return "Entregar";
+  }
+  return action.action;
+}
+
+function workflowActionTitle(action: ServiceOrderWorkflowAction) {
+  if (["Aprovado", "Reprovado", "Entregue"].includes(action.next_state)) {
+    return `Abrir fluxo para ${workflowActionLabel(action).toLowerCase()}`;
+  }
+  return "Ação ainda não disponível neste bloco";
 }
 
 function TimelineCard({ events }: { events: ServiceOrderTimelineEvent[] }) {

@@ -1,5 +1,5 @@
 import { rpc } from "./client";
-import type { ServiceOrderDetailResponse, ServiceOrderListResponse } from "./types";
+import type { BudgetDecisionPayload, PickupPayload, ServiceOrderDetailResponse, ServiceOrderListResponse } from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
 
@@ -12,6 +12,16 @@ export const serviceOrders = {
   detail(name: string) {
     return rpc<ServiceOrderDetailResponse>(`${API}.get_service_order_detail`, {
       query: { name },
+    });
+  },
+  decideBudget(name: string, payload: BudgetDecisionPayload) {
+    return rpc<ServiceOrderDetailResponse>(`${API}.decide_service_order_budget`, {
+      body: { name, payload },
+    });
+  },
+  completePickup(name: string, payload: PickupPayload) {
+    return rpc<ServiceOrderDetailResponse>(`${API}.complete_service_order_pickup`, {
+      body: { name, payload },
     });
   },
 };

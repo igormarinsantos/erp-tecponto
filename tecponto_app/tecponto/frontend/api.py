@@ -7,10 +7,16 @@ from urllib.parse import quote
 
 import frappe
 from frappe import _
+from frappe.model.workflow import apply_workflow
 from frappe.utils import flt, now_datetime, today
 from frappe.utils.file_manager import save_file
 
-from tecponto_app.tecponto.service_order.print_formats import PF_ETIQUETA_QR, PF_OS_ORCAMENTO, PF_TERMO_ENTRADA
+from tecponto_app.tecponto.service_order.print_formats import (
+	PF_ETIQUETA_QR,
+	PF_OS_ORCAMENTO,
+	PF_TERMO_ENTRADA,
+	PF_TERMO_RETIRADA,
+)
 from tecponto_app.tecponto.workflow import _get_service_order_transitions
 
 
@@ -52,6 +58,15 @@ CHECKIN_ALLOWED_ROLES = {
 	"Tecponto Atendente",
 	"Tecponto Gestor",
 }
+ATTENDANT_FLOW_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
+APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp"}
+STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
+STATE_APROVADO = "Aprovado"
+STATE_REPROVADO = "Reprovado"
+STATE_PRONTO_RETIRADA = "Pronto para retirada"
+STATE_ENTREGUE = "Entregue"
+APPROVAL_STATUS_APROVADO = "Aprovado"
+APPROVAL_STATUS_REPROVADO = "Reprovado"
 
 SAFE_SERVICE_ORDER_FIELDS = (
 	"name",
@@ -137,6 +152,13 @@ def _require_checkin_role() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(CHECKIN_ALLOWED_ROLES):
 		return
 	frappe.throw(_("Usuário sem permissão para abrir OS no balcão."), frappe.PermissionError)
+
+
+def _require_attendant_flow_role() -> None:
+	_require_login()
+	if set(frappe.get_roles(frappe.session.user)).intersection(ATTENDANT_FLOW_ALLOWED_ROLES):
+		return
+	frappe.throw(_("Usuário sem permissão para registrar aprovação ou retirada no balcão."), frappe.PermissionError)
 
 
 def _initials(full_name: str, fallback: str) -> str:
@@ -251,6 +273,13 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"workflow_state": doc.get("workflow_state"),
 		"approval_status": doc.get("approval_status"),
 		"approval_deadline": str(doc.get("approval_deadline") or ""),
+		"approval": {
+			"channel": doc.get("approval_channel"),
+			"approved_by": doc.get("approved_by"),
+			"approved_by_attendant": doc.get("approved_by_attendant"),
+			"approval_date": str(doc.get("approval_date") or ""),
+			"notes": doc.get("approval_notes"),
+		},
 		"entry_date": str(doc.get("entry_date") or ""),
 		"modified": str(doc.get("modified") or ""),
 		"attendant": doc.get("attendant"),
@@ -282,10 +311,16 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"warranty_expiry": str(doc.get("warranty_expiry") or ""),
 		},
 		"pickup": {
-			"pickup_by_third_party": bool(doc.get("pickup_by_third_party")),
-			"pickup_person_name": doc.get("pickup_person_name"),
-			"pickup_person_document": doc.get("pickup_person_document"),
+			"pickup_by_third_party": bool(doc.get("picked_up_by_third_party")),
+			"pickup_person_name": doc.get("picked_up_by"),
+			"pickup_person_document": doc.get("picked_up_doc") or doc.get("third_party_doc"),
 			"pickup_date": str(doc.get("pickup_date") or ""),
+			"pickup_notes": doc.get("pickup_notes"),
+			"has_signature": bool(doc.get("customer_signature")),
+		},
+		"finance": {
+			"sales_invoice": doc.get("sales_invoice"),
+			"sales_invoice_status": _get_sales_invoice_status(doc.get("sales_invoice")),
 		},
 		"workflow_actions": _get_visible_workflow_actions(doc),
 		"timeline": _get_service_order_timeline(doc),
@@ -333,6 +368,93 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 		},
 		"entry_photo_url": photo_url,
 	}
+
+
+@frappe.whitelist()
+def decide_service_order_budget(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_attendant_flow_role()
+	data = _parse_payload(payload)
+	decision = (data.get("decision") or "").strip()
+	channel = (data.get("channel") or "").strip()
+	notes = (data.get("notes") or "").strip()
+
+	if decision not in {"approve", "reject"}:
+		frappe.throw(_("Informe se o orçamento foi aprovado ou reprovado."), frappe.ValidationError)
+	if channel not in APPROVAL_CHANNELS:
+		frappe.throw(_("Canal de aprovação inválido."), frappe.ValidationError)
+	if decision == "reject" and not notes:
+		frappe.throw(_("Informe o motivo da reprovação."), frappe.ValidationError)
+
+	doc = frappe.get_doc("Service Order", name)
+	if doc.get("workflow_state") != STATE_AGUARDANDO_APROVACAO:
+		frappe.throw(_("A OS precisa estar em Aguardando aprovação."), frappe.ValidationError)
+
+	if decision == "approve":
+		approval_status = APPROVAL_STATUS_APROVADO
+		approved_by = frappe.session.user
+		workflow_action = STATE_APROVADO
+	else:
+		approval_status = APPROVAL_STATUS_REPROVADO
+		approved_by = None
+		workflow_action = STATE_REPROVADO
+
+	frappe.db.set_value(
+		doc.doctype,
+		doc.name,
+		{
+			"approval_status": approval_status,
+			"approved_by": approved_by,
+			"approval_channel": channel,
+			"approved_by_attendant": frappe.session.user,
+			"approval_notes": notes,
+			"approval_date": now_datetime(),
+		},
+		update_modified=False,
+	)
+	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), workflow_action)
+
+	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def complete_service_order_pickup(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_attendant_flow_role()
+	data = _parse_payload(payload)
+	signature = data.get("customer_signature")
+	if not _is_image_data_url(signature):
+		frappe.throw(_("Assinatura de retirada é obrigatória."), frappe.ValidationError)
+
+	doc = frappe.get_doc("Service Order", name)
+	if doc.get("workflow_state") != STATE_PRONTO_RETIRADA:
+		frappe.throw(_("A OS precisa estar Pronto para retirada."), frappe.ValidationError)
+
+	third_party = bool(data.get("third_party"))
+	picked_up_by = (data.get("picked_up_by") or "").strip()
+	picked_up_doc = (data.get("picked_up_doc") or "").strip()
+	pickup_notes = (data.get("pickup_notes") or "").strip()
+	if third_party and not picked_up_by:
+		frappe.throw(_("Informe o nome de quem está retirando."), frappe.ValidationError)
+	if third_party and not picked_up_doc:
+		frappe.throw(_("Informe o documento de quem está retirando."), frappe.ValidationError)
+
+	frappe.db.set_value(
+		doc.doctype,
+		doc.name,
+		{
+			"picked_up_by": picked_up_by or _customer_label(doc.get("customer")),
+			"picked_up_doc": picked_up_doc,
+			"picked_up_by_third_party": 1 if third_party else 0,
+			"third_party_doc": picked_up_doc if third_party else None,
+			"third_party_auth": (data.get("third_party_auth") or "").strip() if third_party else None,
+			"pickup_notes": pickup_notes,
+			"customer_signature": signature,
+			"pickup_date": now_datetime(),
+		},
+		update_modified=False,
+	)
+	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), STATE_ENTREGUE)
+
+	return get_service_order_detail(doc.name)
 
 
 @frappe.whitelist()
@@ -694,6 +816,13 @@ def _get_customer_detail(customer: str | None) -> dict[str, Any] | None:
 	return dict(item) if item else {"name": customer, "customer_name": customer}
 
 
+def _customer_label(customer: str | None) -> str:
+	item = _get_customer_detail(customer)
+	if not item:
+		return ""
+	return item.get("customer_name") or item.get("name") or ""
+
+
 def _get_device_detail(customer_device: str | None) -> dict[str, Any] | None:
 	if not customer_device:
 		return None
@@ -704,6 +833,12 @@ def _get_device_detail(customer_device: str | None) -> dict[str, Any] | None:
 		as_dict=True,
 	)
 	return dict(item) if item else {"name": customer_device}
+
+
+def _get_sales_invoice_status(sales_invoice: str | None) -> str | None:
+	if not sales_invoice:
+		return None
+	return frappe.db.get_value("Sales Invoice", sales_invoice, "status")
 
 
 def _get_visible_workflow_actions(doc: Any) -> list[dict[str, str]]:
@@ -767,7 +902,7 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 		timeline.append(
 			{
 				"title": "Retirada",
-				"detail": doc.get("pickup_person_name") or "Cliente retirou o aparelho",
+				"detail": doc.get("picked_up_by") or "Cliente retirou o aparelho",
 				"date": str(doc.get("pickup_date") or ""),
 				"tone": "green",
 			}
@@ -780,6 +915,7 @@ def _get_service_order_print_links(name: str) -> list[dict[str, str]]:
 		_print_link(name, "Termo de entrada", PF_TERMO_ENTRADA),
 		_print_link(name, "Orçamento", PF_OS_ORCAMENTO),
 		_print_link(name, "Etiqueta QR", PF_ETIQUETA_QR),
+		_print_link(name, "Termo de retirada", PF_TERMO_RETIRADA),
 	]
 
 
