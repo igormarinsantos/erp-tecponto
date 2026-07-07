@@ -34,7 +34,7 @@ export function MetricCard({ detail, icon, label, tone = "orange", value }: Metr
       <div className={cx("grid h-11 w-11 shrink-0 place-items-center rounded-card", toneClasses[tone])}>{icon}</div>
       <div className="min-w-0">
         <p className="text-sm font-semibold text-tec-subtle">{label}</p>
-        <p className="mt-1 text-2xl font-bold text-tec-text">{value}</p>
+        <p className="tp-metric-value mt-1 text-2xl font-bold text-tec-text">{value}</p>
         {detail ? <p className="mt-1 text-xs text-tec-muted">{detail}</p> : null}
       </div>
     </Card>

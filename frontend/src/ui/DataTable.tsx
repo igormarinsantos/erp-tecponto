@@ -12,13 +12,14 @@ export interface TableColumn<T> {
 interface DataTableProps<T> {
   columns: Array<TableColumn<T>>;
   emptyLabel: string;
+  onRowClick?: (row: T) => void;
   rows: T[];
 }
 
-export function DataTable<T>({ columns, emptyLabel, rows }: DataTableProps<T>) {
+export function DataTable<T>({ columns, emptyLabel, onRowClick, rows }: DataTableProps<T>) {
   return (
     <div className="overflow-hidden rounded-card border border-tec-border/20">
-      <table className="w-full border-collapse text-left text-sm">
+      <table className="tp-data-table w-full border-collapse text-left text-sm">
         <thead className="bg-white/[0.035] text-xs uppercase text-tec-muted">
           <tr>
             {columns.map((column) => (
@@ -31,7 +32,26 @@ export function DataTable<T>({ columns, emptyLabel, rows }: DataTableProps<T>) {
         <tbody>
           {rows.length ? (
             rows.map((row, index) => (
-              <tr className="border-t tp-row-border hover:bg-white/[0.025]" key={index}>
+              <tr
+                className={cx(
+                  "border-t tp-row-border",
+                  onRowClick ? "cursor-pointer hover:bg-white/[0.025]" : "",
+                )}
+                key={index}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
+                role={onRowClick ? "button" : undefined}
+                tabIndex={onRowClick ? 0 : undefined}
+              >
                 {columns.map((column) => (
                   <td className={cx("px-4 py-3 align-middle text-tec-subtle", column.className)} key={column.key}>
                     {column.render(row)}

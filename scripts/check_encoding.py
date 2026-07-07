@@ -26,6 +26,16 @@ SKIP_SUFFIXES = {
 	".woff",
 	".woff2",
 }
+CODE_SUFFIXES = {
+	".cjs",
+	".js",
+	".jsx",
+	".mjs",
+	".py",
+	".ts",
+	".tsx",
+}
+URL_RE = re.compile(r"(?:https?://|/)[^\s\"']*\?[^\s\"']+")
 
 MOJIBAKE_RE = re.compile(
 	r"[\u00c2\u00c3][\u0080-\u00bf\u00a0-\u00bf]"
@@ -33,9 +43,9 @@ MOJIBAKE_RE = re.compile(
 )
 WORD_QUESTION_RE = re.compile(
 	r"[A-Za-z\u00c0-\u024f]\?[A-Za-z\u00c0-\u024f]"
-	r"|\?\?"
 	r"|^\s*\"label\"\s*:\s*\"\?"
 )
+DOUBLE_QUESTION_RE = re.compile(r"\?\?")
 REPLACEMENT_CHAR = "\ufffd"
 
 
@@ -62,11 +72,16 @@ def scan_file(path: Path) -> list[tuple[int, str, str]]:
 
 	findings = []
 	for line_no, line in enumerate(text.splitlines(), 1):
+		scan_line = URL_RE.sub("", line)
+		if path.suffix.lower() in CODE_SUFFIXES:
+			scan_line = scan_line.replace("??", "").replace("?.", "")
 		if REPLACEMENT_CHAR in line:
 			findings.append((line_no, "replacement_char", line.strip()))
 		if MOJIBAKE_RE.search(line):
 			findings.append((line_no, "mojibake", line.strip()))
-		if WORD_QUESTION_RE.search(line):
+		if WORD_QUESTION_RE.search(scan_line):
+			findings.append((line_no, "question_mark_corruption", line.strip()))
+		if path.suffix.lower() not in CODE_SUFFIXES and DOUBLE_QUESTION_RE.search(scan_line):
 			findings.append((line_no, "question_mark_corruption", line.strip()))
 	return findings
 

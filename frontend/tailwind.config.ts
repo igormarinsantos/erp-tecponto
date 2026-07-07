@@ -26,14 +26,14 @@ export default {
         control: "8px",
       },
       fontFamily: {
+        display: [
+          "var(--tp-font-display)",
+        ],
+        table: [
+          "var(--tp-font-table)",
+        ],
         sans: [
-          "Inter",
-          "ui-sans-serif",
-          "system-ui",
-          "-apple-system",
-          "BlinkMacSystemFont",
-          "Segoe UI",
-          "sans-serif",
+          "var(--tp-font-body)",
         ],
       },
       boxShadow: {

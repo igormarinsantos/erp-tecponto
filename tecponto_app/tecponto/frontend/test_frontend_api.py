@@ -2,7 +2,17 @@ from __future__ import annotations
 
 import frappe
 
-from tecponto_app.tecponto.frontend.api import contains_sensitive_field, get_boot, list_service_orders, resolve_panel
+from tecponto_app.tecponto.frontend.api import (
+	contains_sensitive_field,
+	get_dashboard_metrics,
+	get_boot,
+	list_customer_devices,
+	list_service_orders,
+	list_stock_items,
+	list_trade_evaluations,
+	resolve_panel,
+	search_customers,
+)
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 
 
@@ -21,12 +31,16 @@ def run_foundation_checks() -> dict:
 		users = {role: _find_or_create_user(role) for role in FRONTEND_ROLES}
 		panel_checks = _check_role_panels(users)
 		orders_check = _check_service_order_api(users["Tecponto Gestor"])
+		navigation_check = _check_attendant_navigation_apis(users["Tecponto Atendente"])
+		metrics_check = _check_dashboard_metrics(users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 
 		return {
 			"status": "ok",
 			"panel_checks": panel_checks,
 			"service_order_api": orders_check,
+			"navigation_apis": navigation_check,
+			"dashboard_metrics": metrics_check,
 			"sensitive_guard": guard_check,
 		}
 	finally:
@@ -100,11 +114,61 @@ def _check_service_order_api(user: str) -> dict:
 	}
 
 
+def _check_attendant_navigation_apis(user: str) -> dict:
+	frappe.set_user(user)
+	payload = {
+		"customers": search_customers(limit=5),
+		"devices": list_customer_devices(limit=5),
+		"trade_evaluations": list_trade_evaluations(limit=5),
+		"stock_items": list_stock_items(limit=5),
+	}
+	leaks = contains_sensitive_field(payload)
+	if leaks:
+		raise AssertionError(f"Campos sensíveis vazaram nas APIs de navegação: {', '.join(leaks)}")
+
+	return {
+		"user": user,
+		"customers": payload["customers"]["count"],
+		"devices": payload["devices"]["count"],
+		"trade_evaluations": payload["trade_evaluations"]["count"],
+		"stock_items": payload["stock_items"]["count"],
+	}
+
+
+def _check_dashboard_metrics(user: str) -> dict:
+	frappe.set_user(user)
+	payload = get_dashboard_metrics()
+	leaks = contains_sensitive_field(payload)
+	if leaks:
+		raise AssertionError(f"Campos sensíveis vazaram nas métricas do painel: {', '.join(leaks)}")
+
+	service_orders = payload["service_orders"]
+	if not {
+		"awaiting_approval",
+		"ready_for_pickup",
+		"waiting_part",
+	}.issubset(service_orders):
+		raise AssertionError("Métricas de OS não trouxeram os filtros esperados por status.")
+
+	return {
+		"user": user,
+		"sales_today_total": payload["sales_today_total"],
+		"awaiting_approval": service_orders["awaiting_approval"],
+		"ready_for_pickup": service_orders["ready_for_pickup"],
+		"waiting_part": service_orders["waiting_part"],
+	}
+
+
 def _check_sensitive_guard(user: str) -> dict:
 	frappe.set_user(user)
 	payload = {
 		"boot": get_boot(),
+		"metrics": get_dashboard_metrics(),
 		"service_orders": list_service_orders(limit=20),
+		"customers": search_customers(limit=5),
+		"devices": list_customer_devices(limit=5),
+		"trade_evaluations": list_trade_evaluations(limit=5),
+		"stock_items": list_stock_items(limit=5),
 	}
 	leaks = contains_sensitive_field(payload)
 	if leaks:
@@ -112,6 +176,14 @@ def _check_sensitive_guard(user: str) -> dict:
 
 	return {
 		"user": user,
-		"checked_payloads": ["get_boot", "list_service_orders"],
+		"checked_payloads": [
+			"get_boot",
+			"get_dashboard_metrics",
+			"list_service_orders",
+			"search_customers",
+			"list_customer_devices",
+			"list_trade_evaluations",
+			"list_stock_items",
+		],
 		"leaked_fields": leaks,
 	}
