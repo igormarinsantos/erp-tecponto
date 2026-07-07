@@ -23,7 +23,7 @@
 		max-width: none !important;
 	}
 </style>
-<link rel="stylesheet" href="/assets/tecponto_app/frontend/assets/app.css">
+<link rel="stylesheet" href="/assets/tecponto_app/frontend/assets/app.css?v={{ build_version or '3.1b' }}">
 {% endblock %}
 
 {% block page_content %}
@@ -34,5 +34,5 @@
 		site: "{{ frappe.local.site }}",
 	};
 </script>
-<script type="module" src="/assets/tecponto_app/frontend/assets/app.js"></script>
+<script type="module" src="/assets/tecponto_app/frontend/assets/app.js?v={{ build_version or '3.1b' }}"></script>
 {% endblock %}

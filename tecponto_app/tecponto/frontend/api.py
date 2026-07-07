@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime, today
+from frappe.utils import flt, now_datetime, today
+
+from tecponto_app.tecponto.service_order.print_formats import PF_ETIQUETA_QR, PF_OS_ORCAMENTO, PF_TERMO_ENTRADA
+from tecponto_app.tecponto.workflow import _get_service_order_transitions
 
 
 ROLE_PANELS = (
@@ -207,6 +211,70 @@ def list_service_orders(limit: int = 20) -> dict[str, Any]:
 		"items": [_serialize_service_order(item) for item in items],
 		"count": len(items),
 		"fields": list(SAFE_SERVICE_ORDER_FIELDS),
+	}
+
+
+@frappe.whitelist()
+def get_service_order_detail(name: str) -> dict[str, Any]:
+	_require_frontend_role()
+	name = (name or "").strip()
+	if not name:
+		frappe.throw(_("Informe a ordem de serviço."), frappe.ValidationError)
+
+	doc = frappe.get_doc("Service Order", name)
+	doc.check_permission("read")
+
+	services = [_serialize_service_row(row) for row in (doc.get("services") or [])]
+	parts = [_serialize_part_row(row) for row in (doc.get("parts") or [])]
+	service_total = sum(row["amount"] for row in services)
+	parts_price_total = sum(row["amount"] for row in parts)
+	discount = flt(doc.get("discount") or 0)
+	grand_total = flt(doc.get("grand_total") or (service_total + parts_price_total - discount))
+
+	return {
+		"name": doc.name,
+		"workflow_state": doc.get("workflow_state"),
+		"approval_status": doc.get("approval_status"),
+		"approval_deadline": str(doc.get("approval_deadline") or ""),
+		"entry_date": str(doc.get("entry_date") or ""),
+		"modified": str(doc.get("modified") or ""),
+		"attendant": doc.get("attendant"),
+		"technician": doc.get("technician"),
+		"priority": doc.get("priority"),
+		"customer": _get_customer_detail(doc.get("customer")),
+		"device": _get_device_detail(doc.get("customer_device")),
+		"reported_defect": doc.get("reported_defect"),
+		"physical_state": doc.get("physical_state"),
+		"accessories_received": doc.get("accessories_received"),
+		"diagnosis": {
+			"problem_found": doc.get("problem_found"),
+			"diagnosis_date": str(doc.get("diagnosis_date") or ""),
+			"diagnosis_deadline": str(doc.get("diagnosis_deadline") or ""),
+		},
+		"services": services,
+		"parts": parts,
+		"totals": {
+			"service_total": service_total,
+			"parts_price_total": parts_price_total,
+			"discount": discount,
+			"grand_total": grand_total,
+			"budget_version": int(doc.get("budget_version") or 1),
+			"quote_locked": bool(doc.get("quote_locked")),
+		},
+		"warranty": {
+			"is_warranty": bool(doc.get("is_warranty")),
+			"original_service_order": doc.get("original_service_order"),
+			"warranty_expiry": str(doc.get("warranty_expiry") or ""),
+		},
+		"pickup": {
+			"pickup_by_third_party": bool(doc.get("pickup_by_third_party")),
+			"pickup_person_name": doc.get("pickup_person_name"),
+			"pickup_person_document": doc.get("pickup_person_document"),
+			"pickup_date": str(doc.get("pickup_date") or ""),
+		},
+		"workflow_actions": _get_visible_workflow_actions(doc),
+		"timeline": _get_service_order_timeline(doc),
+		"print_links": _get_service_order_print_links(doc.name),
 	}
 
 
@@ -416,6 +484,149 @@ def _serialize_stock_item(item: dict[str, Any]) -> dict[str, Any]:
 		"item_group": item.get("item_group"),
 		"warehouse": item.get("warehouse"),
 		"available_qty": float(item.get("available_qty") or 0),
+	}
+
+
+def _serialize_service_row(row: Any) -> dict[str, Any]:
+	qty = flt(row.get("qty") or 0)
+	unit_price = flt(row.get("rate") or 0)
+	return {
+		"item_code": row.get("item_code"),
+		"description": row.get("description"),
+		"qty": qty,
+		"unit_price": unit_price,
+		"amount": flt(qty * unit_price),
+		"technician": row.get("technician"),
+	}
+
+
+def _serialize_part_row(row: Any) -> dict[str, Any]:
+	qty = flt(row.get("qty") or 0)
+	unit_price = flt(row.get("rate") or 0)
+	return {
+		"item_code": row.get("item_code"),
+		"description": row.get("description"),
+		"qty": qty,
+		"unit_price": unit_price,
+		"amount": flt(qty * unit_price),
+		"warehouse": row.get("warehouse"),
+		"outcome": row.get("outcome"),
+		"loss_reason": row.get("loss_reason"),
+	}
+
+
+def _get_customer_detail(customer: str | None) -> dict[str, Any] | None:
+	if not customer:
+		return None
+	item = frappe.db.get_value(
+		"Customer",
+		customer,
+		["name", "customer_name", "mobile_no", "email_id"],
+		as_dict=True,
+	)
+	return dict(item) if item else {"name": customer, "customer_name": customer}
+
+
+def _get_device_detail(customer_device: str | None) -> dict[str, Any] | None:
+	if not customer_device:
+		return None
+	item = frappe.db.get_value(
+		"Customer Device",
+		customer_device,
+		["name", "customer", "brand", "model", "color", "imei_serial", "capacity"],
+		as_dict=True,
+	)
+	return dict(item) if item else {"name": customer_device}
+
+
+def _get_visible_workflow_actions(doc: Any) -> list[dict[str, str]]:
+	user_roles = set(frappe.get_roles(frappe.session.user))
+	actions: list[dict[str, str]] = []
+	for transition in _get_service_order_transitions():
+		state, action, next_state, allowed, *rest = transition
+		condition = rest[0] if rest else None
+		if state != doc.get("workflow_state"):
+			continue
+		if condition == "False":
+			continue
+		if allowed not in user_roles and "System Manager" not in user_roles:
+			continue
+		actions.append(
+			{
+				"action": action,
+				"next_state": next_state,
+				"role": allowed,
+			}
+		)
+	return actions
+
+
+def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
+	timeline = [
+		{
+			"title": "Entrada criada",
+			"detail": doc.get("reported_defect") or "Atendimento aberto no balcão",
+			"date": str(doc.get("entry_date") or doc.get("creation") or ""),
+			"tone": "blue",
+		}
+	]
+	if doc.get("problem_found") or doc.get("diagnosis_date"):
+		timeline.append(
+			{
+				"title": "Diagnóstico",
+				"detail": doc.get("problem_found") or "Diagnóstico registrado",
+				"date": str(doc.get("diagnosis_date") or ""),
+				"tone": "amber",
+			}
+		)
+	if doc.get("approval_status") and doc.get("approval_status") != "Pendente":
+		timeline.append(
+			{
+				"title": "Aprovação",
+				"detail": doc.get("approval_status"),
+				"date": str(doc.get("approval_date") or ""),
+				"tone": "green" if doc.get("approval_status") == "Aprovado" else "red",
+			}
+		)
+	timeline.append(
+		{
+			"title": "Status atual",
+			"detail": doc.get("workflow_state") or "Sem status",
+			"date": str(doc.get("modified") or ""),
+			"tone": "orange",
+		}
+	)
+	if doc.get("pickup_date"):
+		timeline.append(
+			{
+				"title": "Retirada",
+				"detail": doc.get("pickup_person_name") or "Cliente retirou o aparelho",
+				"date": str(doc.get("pickup_date") or ""),
+				"tone": "green",
+			}
+		)
+	return timeline
+
+
+def _get_service_order_print_links(name: str) -> list[dict[str, str]]:
+	return [
+		_print_link(name, "Termo de entrada", PF_TERMO_ENTRADA),
+		_print_link(name, "Orçamento", PF_OS_ORCAMENTO),
+		_print_link(name, "Etiqueta QR", PF_ETIQUETA_QR),
+	]
+
+
+def _print_link(name: str, label: str, print_format: str) -> dict[str, str]:
+	return {
+		"label": label,
+		"format": print_format,
+		"url": (
+			"/printview?"
+			"doctype=Service%20Order"
+			f"&name={quote(name)}"
+			f"&format={quote(print_format)}"
+			"&no_letterhead=0"
+		),
 	}
 
 

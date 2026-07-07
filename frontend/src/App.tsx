@@ -1,5 +1,16 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, RefreshCw, Search as SearchIcon } from "lucide-react";
+import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Clock3,
+  FileText,
+  Printer,
+  RefreshCw,
+  Search as SearchIcon,
+  Smartphone,
+  Tag,
+  UserRound,
+} from "lucide-react";
 
 import {
   balcao,
@@ -11,6 +22,11 @@ import {
   type CustomerSummary,
   type DashboardMetrics,
   type NavigationTarget,
+  type ServiceOrderBudgetLine,
+  type ServiceOrderDetailResponse,
+  type ServiceOrderPrintLink,
+  type ServiceOrderTimelineEvent,
+  type ServiceOrderWorkflowAction,
   type ServiceOrderSummary,
   type StockItemSummary,
   type TradeEvaluationSummary,
@@ -31,6 +47,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   "service-orders": {
     title: "Ordens de serviço",
     subtitle: "Fila de OS com status e responsáveis.",
+  },
+  "service-order-detail": {
+    title: "Detalhe da OS",
+    subtitle: "Cliente, aparelho, orçamento, workflow e impressos.",
   },
   customers: {
     title: "Clientes",
@@ -57,6 +77,7 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
 export function App() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [activeView, setActiveView] = useState<NavigationTarget>("overview");
+  const [selectedOrderName, setSelectedOrderName] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
 
@@ -90,6 +111,11 @@ export function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), 3200);
   }, []);
 
+  const openServiceOrder = useCallback((name: string) => {
+    setSelectedOrderName(name);
+    setActiveView("service-order-detail");
+  }, []);
+
   if (state.status === "loading") {
     return <LoadingShell />;
   }
@@ -114,7 +140,7 @@ export function App() {
   return (
     <div className="min-h-screen">
       <Sidebar
-        activeItemId={activeView}
+        activeItemId={activeView === "service-order-detail" ? "service-orders" : activeView}
         onComingSoon={showComingSoon}
         onNavigate={setActiveView}
         sections={panel.nav}
@@ -123,7 +149,7 @@ export function App() {
       <Topbar onComingSoon={showComingSoon} onLogout={logout} user={state.boot.user} />
 
       <main className="tp-main-shell p-4">
-        <section className="mx-auto max-w-[1660px]">
+        <section className="tp-content-shell mx-auto">
           <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <h1 className="text-3xl font-black text-white md:text-4xl">
@@ -142,6 +168,7 @@ export function App() {
               metrics={state.metrics}
               onComingSoon={showComingSoon}
               onNavigate={setActiveView}
+              onOpenServiceOrder={openServiceOrder}
               orders={state.orders}
               panel={panel}
             />
@@ -150,7 +177,9 @@ export function App() {
               activeView={activeView}
               onComingSoon={showComingSoon}
               onNavigate={setActiveView}
+              onOpenServiceOrder={openServiceOrder}
               orders={state.orders}
+              selectedOrderName={selectedOrderName}
             />
           )}
         </section>
@@ -165,6 +194,7 @@ function OverviewContent({
   metrics,
   onComingSoon,
   onNavigate,
+  onOpenServiceOrder,
   orders,
   panel,
 }: {
@@ -172,6 +202,7 @@ function OverviewContent({
   metrics: DashboardMetrics;
   onComingSoon: (label: string, block?: string) => void;
   onNavigate: (target: NavigationTarget) => void;
+  onOpenServiceOrder: (name: string) => void;
   orders: ServiceOrderSummary[];
   panel: (typeof panelDefinitions)[keyof typeof panelDefinitions];
 }) {
@@ -193,6 +224,7 @@ function OverviewContent({
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <OperationsTable
           onComingSoon={onComingSoon}
+          onOpenOrder={onOpenServiceOrder}
           onShowAll={() => onNavigate("service-orders")}
           orders={orders}
           title={panel.tableTitle}
@@ -207,17 +239,38 @@ function NavigationContent({
   activeView,
   onComingSoon,
   onNavigate,
+  onOpenServiceOrder,
   orders,
+  selectedOrderName,
 }: {
   activeView: NavigationTarget;
   onComingSoon: (label: string, block?: string) => void;
   onNavigate: (target: NavigationTarget) => void;
+  onOpenServiceOrder: (name: string) => void;
   orders: ServiceOrderSummary[];
+  selectedOrderName: string | null;
 }) {
+  if (activeView === "service-order-detail") {
+    return selectedOrderName ? (
+      <ServiceOrderDetail
+        name={selectedOrderName}
+        onBack={() => onNavigate("service-orders")}
+        onComingSoon={onComingSoon}
+      />
+    ) : (
+      <Card className="p-5 text-sm text-tec-subtle">Selecione uma OS na fila para abrir o detalhe.</Card>
+    );
+  }
+
   if (activeView === "service-orders") {
     return (
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <OperationsTable onComingSoon={onComingSoon} orders={orders} title="Ordens de serviço" />
+        <OperationsTable
+          onComingSoon={onComingSoon}
+          onOpenOrder={onOpenServiceOrder}
+          orders={orders}
+          title="Ordens de serviço"
+        />
         <ActionPanel
           actions={[
             { icon: SearchIcon, label: "Buscar cliente", detail: "Localizar cadastro", target: "customers" },
@@ -252,11 +305,13 @@ function NavigationContent({
 
 function OperationsTable({
   onComingSoon,
+  onOpenOrder,
   onShowAll,
   orders,
   title,
 }: {
   onComingSoon: (label: string, block?: string) => void;
+  onOpenOrder: (name: string) => void;
   onShowAll?: () => void;
   orders: ServiceOrderSummary[];
   title: string;
@@ -318,7 +373,7 @@ function OperationsTable({
       <DataTable
         columns={columns}
         emptyLabel="Nenhuma OS encontrada para este papel."
-        onRowClick={(row) => onComingSoon(`Detalhe da OS ${row.name}`, "bloco 3.1b")}
+        onRowClick={(row) => onOpenOrder(row.name)}
         rows={orders}
       />
       {onShowAll ? (
@@ -333,6 +388,340 @@ function OperationsTable({
         </button>
       ) : null}
     </Card>
+  );
+}
+
+function ServiceOrderDetail({
+  name,
+  onBack,
+  onComingSoon,
+}: {
+  name: string;
+  onBack: () => void;
+  onComingSoon: (label: string, block?: string) => void;
+}) {
+  const [state, setState] = useState<
+    | { status: "loading" }
+    | { status: "ready"; detail: ServiceOrderDetailResponse }
+    | { status: "error"; message: string }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let mounted = true;
+    setState({ status: "loading" });
+    serviceOrders
+      .detail(name)
+      .then((detail) => {
+        if (mounted) {
+          setState({ status: "ready", detail });
+        }
+      })
+      .catch((error) => {
+        if (mounted) {
+          setState({ status: "error", message: error instanceof Error ? error.message : "Falha ao abrir a OS" });
+        }
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [name]);
+
+  if (state.status === "loading") {
+    return (
+      <Card className="p-6">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-tec-orange border-t-transparent" />
+        <p className="mt-4 text-sm font-semibold text-tec-subtle">Carregando detalhe da OS {name}</p>
+      </Card>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <Card className="p-6">
+        <Button icon={<ArrowLeft size={17} />} onClick={onBack}>
+          Voltar
+        </Button>
+        <p className="mt-4 text-sm text-tec-red">{state.message}</p>
+      </Card>
+    );
+  }
+
+  const detail = state.detail;
+  const customerLabel = detail.customer?.customer_name ?? detail.customer?.name ?? "Cliente não informado";
+  const deviceLabel =
+    [detail.device?.brand, detail.device?.model, detail.device?.color].filter(Boolean).join(" ") ||
+    detail.device?.name ||
+    "Aparelho não vinculado";
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0">
+            <button
+              className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-tec-subtle hover:text-white"
+              onClick={onBack}
+              type="button"
+            >
+              <ArrowLeft size={17} />
+              Voltar para a fila
+            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="text-2xl font-black text-white">{detail.name}</h2>
+              <BadgeStatus status={detail.workflow_state} />
+              {detail.priority ? <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-tec-subtle">{detail.priority}</span> : null}
+            </div>
+            <p className="mt-2 max-w-3xl text-sm text-tec-subtle">{detail.reported_defect ?? "Sem defeito informado"}</p>
+          </div>
+          <PrintLinks links={detail.print_links} />
+        </div>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <IdentityCard
+              icon={<UserRound size={20} />}
+              lines={[
+                ["Cliente", customerLabel],
+                ["Telefone", detail.customer?.mobile_no ?? "Não informado"],
+                ["E-mail", detail.customer?.email_id ?? "Não informado"],
+                ["Atendente", detail.attendant ?? "Não definido"],
+              ]}
+              title="Cliente"
+            />
+            <IdentityCard
+              icon={<Smartphone size={20} />}
+              lines={[
+                ["Aparelho", deviceLabel],
+                ["IMEI / Serial", detail.device?.imei_serial ?? "Não informado"],
+                ["Capacidade", detail.device?.capacity ?? "Não informada"],
+                ["Estado declarado", detail.physical_state ?? "Não informado"],
+              ]}
+              title="Aparelho"
+            />
+          </div>
+
+          <BudgetCard detail={detail} />
+          <TimelineCard events={detail.timeline} />
+        </div>
+
+        <aside className="space-y-4">
+          <WorkflowCard actions={detail.workflow_actions} detail={detail} onComingSoon={onComingSoon} />
+          <Card className="p-4">
+            <h3 className="text-base font-bold text-white">Atendimento</h3>
+            <dl className="mt-4 space-y-3 text-sm">
+              <DetailLine label="Entrada" value={formatDate(detail.entry_date)} />
+              <DetailLine label="Prazo de aprovação" value={detail.approval_deadline ? formatDate(detail.approval_deadline) : "Não definido"} />
+              <DetailLine label="Técnico" value={detail.technician ?? "Não definido"} />
+              <DetailLine label="Garantia até" value={detail.warranty.warranty_expiry || "Não aplicada"} />
+              <DetailLine label="Atualização" value={formatDate(detail.modified)} />
+            </dl>
+          </Card>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function IdentityCard({
+  icon,
+  lines,
+  title,
+}: {
+  icon: ReactNode;
+  lines: Array<[string, string]>;
+  title: string;
+}) {
+  return (
+    <Card className="p-4">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="grid h-10 w-10 place-items-center rounded-card bg-tec-orange/15 text-tec-orange">{icon}</span>
+        <h3 className="text-base font-bold text-white">{title}</h3>
+      </div>
+      <dl className="space-y-3 text-sm">
+        {lines.map(([label, value]) => (
+          <DetailLine key={label} label={label} value={value} />
+        ))}
+      </dl>
+    </Card>
+  );
+}
+
+function BudgetCard({ detail }: { detail: ServiceOrderDetailResponse }) {
+  return (
+    <Card className="p-4">
+      <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h3 className="text-base font-bold text-white">Orçamento</h3>
+          <p className="text-xs text-tec-muted">
+            Versão {detail.totals.budget_version} · {detail.totals.quote_locked ? "travado" : "em edição"}
+          </p>
+        </div>
+        <span className="tp-metric-value text-2xl font-bold text-white">{formatCurrency(detail.totals.grand_total)}</span>
+      </div>
+
+      <BudgetLines lines={detail.services} title="Serviços" type="service" />
+      <div className="mt-4">
+        <BudgetLines lines={detail.parts} title="Peças" type="part" />
+      </div>
+
+      <div className="mt-5 grid gap-3 border-t border-tec-border/20 pt-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+        <TotalPill label="Mão de obra" value={formatCurrency(detail.totals.service_total)} />
+        <TotalPill label="Peças" value={formatCurrency(detail.totals.parts_price_total)} />
+        <TotalPill label="Desconto" value={formatCurrency(detail.totals.discount)} />
+        <TotalPill label="Total" value={formatCurrency(detail.totals.grand_total)} strong />
+      </div>
+    </Card>
+  );
+}
+
+function BudgetLines({
+  lines,
+  title,
+  type,
+}: {
+  lines: ServiceOrderBudgetLine[];
+  title: string;
+  type: "service" | "part";
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <h4 className="text-sm font-bold text-white">{title}</h4>
+        <span className="rounded-full bg-white/5 px-2 py-1 text-xs text-tec-muted">{lines.length}</span>
+      </div>
+      <div className="overflow-hidden rounded-card border border-tec-border/20">
+        {lines.length ? (
+          lines.map((line, index) => (
+            <div
+              className="grid gap-3 border-b border-tec-border/15 bg-white/[0.018] p-3 text-sm last:border-0 md:grid-cols-[minmax(0,1fr)_90px_120px_120px]"
+              key={`${line.item_code ?? title}-${index}`}
+            >
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-white">{line.description || line.item_code || "Item sem descrição"}</p>
+                <p className="mt-1 text-xs text-tec-muted">
+                  {line.item_code ?? "Sem item"}
+                  {type === "service" && line.technician ? ` · ${line.technician}` : ""}
+                  {type === "part" && line.outcome ? ` · ${line.outcome}` : ""}
+                </p>
+              </div>
+              <span className="text-tec-subtle">Qtd. {line.qty.toLocaleString("pt-BR")}</span>
+              <span className="text-tec-subtle">{formatCurrency(line.unit_price)}</span>
+              <span className="font-semibold text-white">{formatCurrency(line.amount)}</span>
+            </div>
+          ))
+        ) : (
+          <p className="p-3 text-sm text-tec-muted">Nenhuma linha registrada.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WorkflowCard({
+  actions,
+  detail,
+  onComingSoon,
+}: {
+  actions: ServiceOrderWorkflowAction[];
+  detail: ServiceOrderDetailResponse;
+  onComingSoon: (label: string, block?: string) => void;
+}) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-base font-bold text-white">Ações do workflow</h3>
+        <BadgeStatus status={detail.workflow_state} />
+      </div>
+      <div className="mt-4 space-y-3">
+        {actions.length ? (
+          actions.map((action) => (
+            <button
+              className="flex w-full items-center justify-between gap-3 rounded-card border border-tec-border/20 bg-white/[0.035] p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
+              key={`${action.action}-${action.next_state}`}
+              onClick={() => onComingSoon(`${action.action} ${detail.name}`, "bloco 3.1d")}
+              title="Execução do workflow entra no bloco 3.1d"
+              type="button"
+            >
+              <span>
+                <span className="block text-sm font-bold text-white">{action.action}</span>
+                <span className="mt-1 block text-xs text-tec-muted">Vai para {action.next_state}</span>
+              </span>
+              <ArrowRight className="text-tec-orange" size={17} />
+            </button>
+          ))
+        ) : (
+          <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4 text-sm text-tec-muted">
+            Nenhuma ação disponível para este papel neste estado.
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function TimelineCard({ events }: { events: ServiceOrderTimelineEvent[] }) {
+  return (
+    <Card className="p-4">
+      <h3 className="text-base font-bold text-white">Histórico</h3>
+      <div className="mt-4 space-y-4">
+        {events.map((event, index) => (
+          <div className="flex gap-3" key={`${event.title}-${index}`}>
+            <span className={`mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full ${timelineToneClass(event.tone)}`}>
+              <Clock3 size={15} />
+            </span>
+            <div className="min-w-0 border-b border-tec-border/15 pb-4 last:border-0 last:pb-0">
+              <p className="font-semibold text-white">{event.title}</p>
+              <p className="mt-1 text-sm text-tec-subtle">{event.detail ?? "Sem detalhe"}</p>
+              <p className="mt-1 text-xs text-tec-muted">{event.date ? formatDate(event.date) : "Sem data"}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function PrintLinks({ links }: { links: ServiceOrderPrintLink[] }) {
+  const icons = [FileText, Printer, Tag];
+  return (
+    <div className="flex flex-wrap gap-2">
+      {links.map((link, index) => {
+        const Icon = icons[index] ?? Printer;
+        return (
+          <a
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-border/30 bg-tec-panel-strong/70 px-4 text-sm font-semibold text-tec-text transition hover:border-tec-orange/50"
+            href={link.url}
+            key={link.format}
+            rel="noreferrer"
+            target="_blank"
+            title={`Abrir ${link.label}`}
+          >
+            <Icon size={17} />
+            {link.label}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+function DetailLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <dt className="text-tec-muted">{label}</dt>
+      <dd className="max-w-[68%] text-right font-semibold text-tec-subtle">{value}</dd>
+    </div>
+  );
+}
+
+function TotalPill({ label, strong, value }: { label: string; strong?: boolean; value: string }) {
+  return (
+    <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-3">
+      <p className="text-xs text-tec-muted">{label}</p>
+      <p className={strong ? "mt-1 font-bold text-white" : "mt-1 font-semibold text-tec-subtle"}>{value}</p>
+    </div>
   );
 }
 
@@ -736,4 +1125,21 @@ function formatDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    currency: "BRL",
+    style: "currency",
+  }).format(value || 0);
+}
+
+function timelineToneClass(tone: ServiceOrderTimelineEvent["tone"]) {
+  return {
+    amber: "bg-tec-amber/20 text-tec-amber",
+    blue: "bg-tec-blue/20 text-tec-blue",
+    green: "bg-tec-green/20 text-tec-green",
+    orange: "bg-tec-orange/20 text-tec-orange",
+    red: "bg-tec-red/20 text-tec-red",
+  }[tone];
 }

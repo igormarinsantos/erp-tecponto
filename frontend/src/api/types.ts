@@ -2,6 +2,7 @@ export type RolePanel = "atendente" | "tecnico" | "gestor" | "diretor" | "sem_pa
 export type NavigationTarget =
   | "overview"
   | "service-orders"
+  | "service-order-detail"
   | "customers"
   | "devices"
   | "trade-ins"
@@ -53,6 +54,100 @@ export interface ServiceOrderListResponse {
   items: ServiceOrderSummary[];
   count: number;
   fields: string[];
+}
+
+export interface ServiceOrderDetailResponse {
+  name: string;
+  workflow_state: string | null;
+  approval_status: string | null;
+  approval_deadline: string;
+  entry_date: string;
+  modified: string;
+  attendant: string | null;
+  technician: string | null;
+  priority: string | null;
+  customer: ServiceOrderCustomerDetail | null;
+  device: ServiceOrderDeviceDetail | null;
+  reported_defect: string | null;
+  physical_state: string | null;
+  accessories_received: string | null;
+  diagnosis: {
+    problem_found: string | null;
+    diagnosis_date: string;
+    diagnosis_deadline: string;
+  };
+  services: ServiceOrderBudgetLine[];
+  parts: ServiceOrderBudgetLine[];
+  totals: {
+    service_total: number;
+    parts_price_total: number;
+    discount: number;
+    grand_total: number;
+    budget_version: number;
+    quote_locked: boolean;
+  };
+  warranty: {
+    is_warranty: boolean;
+    original_service_order: string | null;
+    warranty_expiry: string;
+  };
+  pickup: {
+    pickup_by_third_party: boolean;
+    pickup_person_name: string | null;
+    pickup_person_document: string | null;
+    pickup_date: string;
+  };
+  workflow_actions: ServiceOrderWorkflowAction[];
+  timeline: ServiceOrderTimelineEvent[];
+  print_links: ServiceOrderPrintLink[];
+}
+
+export interface ServiceOrderBudgetLine {
+  item_code: string | null;
+  description: string | null;
+  qty: number;
+  unit_price: number;
+  amount: number;
+  technician?: string | null;
+  warehouse?: string | null;
+  outcome?: string | null;
+  loss_reason?: string | null;
+}
+
+export interface ServiceOrderCustomerDetail {
+  name: string;
+  customer_name: string | null;
+  mobile_no: string | null;
+  email_id: string | null;
+}
+
+export interface ServiceOrderDeviceDetail {
+  name: string;
+  customer: string | null;
+  brand: string | null;
+  model: string | null;
+  color: string | null;
+  imei_serial: string | null;
+  capacity: string | null;
+}
+
+export interface ServiceOrderWorkflowAction {
+  action: string;
+  next_state: string;
+  role: string;
+}
+
+export interface ServiceOrderTimelineEvent {
+  title: string;
+  detail: string | null;
+  date: string;
+  tone: "blue" | "amber" | "green" | "red" | "orange";
+}
+
+export interface ServiceOrderPrintLink {
+  label: string;
+  format: string;
+  url: string;
 }
 
 export interface DashboardMetrics {

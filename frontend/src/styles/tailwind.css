@@ -17,13 +17,14 @@ body,
 #tecponto-root {
   min-height: 100vh;
   position: relative;
-  width: 100vw;
-  margin-left: calc(50% - 50vw);
+  width: 100%;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at 16% -10%, rgba(255, 91, 18, 0.12), transparent 26rem),
     radial-gradient(circle at 90% 2%, rgba(47, 140, 255, 0.1), transparent 22rem),
@@ -87,6 +88,10 @@ h2,
   padding: 1rem 1rem 1rem calc(var(--tp-sidebar-width) + 24px) !important;
 }
 
+.tp-content-shell {
+  max-width: min(1660px, calc(100vw - var(--tp-sidebar-width) - 48px));
+}
+
 .tp-topbar-search {
   display: block;
 }
@@ -122,6 +127,10 @@ h2,
 
   .tp-main-shell {
     padding: 1rem !important;
+  }
+
+  .tp-content-shell {
+    max-width: 100%;
   }
 
   .tp-topbar-user {
