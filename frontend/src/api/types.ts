@@ -150,6 +150,39 @@ export interface ServiceOrderPrintLink {
   url: string;
 }
 
+export interface CheckinPayload {
+  customer: {
+    existing_name?: string;
+    customer_name?: string;
+    mobile_no?: string;
+    email_id?: string;
+  };
+  device: {
+    existing_name?: string;
+    brand?: string;
+    model?: string;
+    color?: string;
+    imei_serial?: string;
+    capacity?: string;
+    general_state?: string;
+  };
+  service_order: {
+    reported_defect: string;
+    physical_state: string;
+    accessories_received?: string;
+  };
+  entry_photo: {
+    data_url: string;
+    filename: string;
+  };
+  entry_signature: string;
+}
+
+export interface CheckinResponse {
+  service_order: Pick<ServiceOrderDetailResponse, "name" | "workflow_state" | "customer" | "device" | "print_links">;
+  entry_photo_url: string;
+}
+
 export interface DashboardMetrics {
   sales_today_total: number;
   service_orders: {

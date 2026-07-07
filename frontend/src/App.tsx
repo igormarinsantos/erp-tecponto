@@ -10,6 +10,7 @@ import {
   Smartphone,
   Tag,
   UserRound,
+  Wrench,
 } from "lucide-react";
 
 import {
@@ -18,6 +19,7 @@ import {
   logout,
   serviceOrders,
   type BootResponse,
+  type CheckinResponse,
   type CustomerDeviceSummary,
   type CustomerSummary,
   type DashboardMetrics,
@@ -31,6 +33,7 @@ import {
   type StockItemSummary,
   type TradeEvaluationSummary,
 } from "./api";
+import { CheckinWizard } from "./CheckinWizard";
 import { panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { BadgeStatus, Button, Card, DataTable, MetricCard, Sidebar, Toast, Topbar, type TableColumn } from "./ui";
 
@@ -77,23 +80,26 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
 export function App() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [activeView, setActiveView] = useState<NavigationTarget>("overview");
+  const [checkinOpen, setCheckinOpen] = useState(false);
   const [selectedOrderName, setSelectedOrderName] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
 
-  async function load() {
-    setState({ status: "loading" });
+  const load = useCallback(async (options?: { quiet?: boolean }) => {
+    if (!options?.quiet) {
+      setState({ status: "loading" });
+    }
     try {
       const [boot, orderList, metrics] = await Promise.all([getBoot(), serviceOrders.list(12), balcao.getDashboardMetrics()]);
       setState({ status: "ready", boot, metrics, orders: orderList.items });
     } catch (error) {
       setState({ status: "error", message: error instanceof Error ? error.message : "Falha ao carregar" });
     }
-  }
+  }, []);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     return () => {
@@ -103,18 +109,31 @@ export function App() {
     };
   }, []);
 
-  const showComingSoon = useCallback((label: string, block = "bloco 3.1x") => {
-    setToast(`${label}: em breve — ${block}`);
+  const showToast = useCallback((message: string) => {
+    setToast(message);
     if (toastTimer.current) {
       window.clearTimeout(toastTimer.current);
     }
     toastTimer.current = window.setTimeout(() => setToast(null), 3200);
   }, []);
 
+  const showComingSoon = useCallback((label: string, block = "bloco 3.1x") => {
+    showToast(`${label}: em breve — ${block}`);
+  }, [showToast]);
+
   const openServiceOrder = useCallback((name: string) => {
     setSelectedOrderName(name);
     setActiveView("service-order-detail");
   }, []);
+
+  const startCheckin = useCallback(() => {
+    setCheckinOpen(true);
+  }, []);
+
+  const handleCheckinCreated = useCallback((response: CheckinResponse) => {
+    void load({ quiet: true });
+    showToast(`OS ${response.service_order.name} criada com foto e assinatura.`);
+  }, [load, showToast]);
 
   if (state.status === "loading") {
     return <LoadingShell />;
@@ -126,7 +145,7 @@ export function App() {
         <Card className="max-w-md p-6 text-center">
           <h1 className="text-xl font-bold text-white">Tecponto</h1>
           <p className="mt-3 text-sm text-tec-subtle">{state.message}</p>
-          <Button className="mt-5" onClick={load} variant="primary">
+          <Button className="mt-5" onClick={() => void load()} variant="primary">
             Tentar novamente
           </Button>
         </Card>
@@ -157,7 +176,7 @@ export function App() {
               </h1>
               <p className="mt-1 text-sm text-tec-subtle">{currentView ? currentView.subtitle : panel.subtitle}</p>
             </div>
-            <Button icon={<RefreshCw size={18} />} onClick={load}>
+            <Button icon={<RefreshCw size={18} />} onClick={() => void load()}>
               Atualizar
             </Button>
           </div>
@@ -168,6 +187,7 @@ export function App() {
               metrics={state.metrics}
               onComingSoon={showComingSoon}
               onNavigate={setActiveView}
+              onStartCheckin={startCheckin}
               onOpenServiceOrder={openServiceOrder}
               orders={state.orders}
               panel={panel}
@@ -178,12 +198,19 @@ export function App() {
               onComingSoon={showComingSoon}
               onNavigate={setActiveView}
               onOpenServiceOrder={openServiceOrder}
+              onStartCheckin={startCheckin}
               orders={state.orders}
               selectedOrderName={selectedOrderName}
             />
           )}
         </section>
       </main>
+      <CheckinWizard
+        onClose={() => setCheckinOpen(false)}
+        onCreated={handleCheckinCreated}
+        onOpenOrder={openServiceOrder}
+        open={checkinOpen}
+      />
       {toast ? <Toast message={toast} tone="success" /> : null}
     </div>
   );
@@ -195,6 +222,7 @@ function OverviewContent({
   onComingSoon,
   onNavigate,
   onOpenServiceOrder,
+  onStartCheckin,
   orders,
   panel,
 }: {
@@ -203,6 +231,7 @@ function OverviewContent({
   onComingSoon: (label: string, block?: string) => void;
   onNavigate: (target: NavigationTarget) => void;
   onOpenServiceOrder: (name: string) => void;
+  onStartCheckin: () => void;
   orders: ServiceOrderSummary[];
   panel: (typeof panelDefinitions)[keyof typeof panelDefinitions];
 }) {
@@ -229,7 +258,7 @@ function OverviewContent({
           orders={orders}
           title={panel.tableTitle}
         />
-        <RightRail actions={actions} onComingSoon={onComingSoon} onNavigate={onNavigate} />
+        <RightRail actions={actions} onComingSoon={onComingSoon} onNavigate={onNavigate} onStartCheckin={onStartCheckin} />
       </div>
     </>
   );
@@ -240,6 +269,7 @@ function NavigationContent({
   onComingSoon,
   onNavigate,
   onOpenServiceOrder,
+  onStartCheckin,
   orders,
   selectedOrderName,
 }: {
@@ -247,6 +277,7 @@ function NavigationContent({
   onComingSoon: (label: string, block?: string) => void;
   onNavigate: (target: NavigationTarget) => void;
   onOpenServiceOrder: (name: string) => void;
+  onStartCheckin: () => void;
   orders: ServiceOrderSummary[];
   selectedOrderName: string | null;
 }) {
@@ -273,11 +304,13 @@ function NavigationContent({
         />
         <ActionPanel
           actions={[
+            { icon: Wrench, label: "Nova OS", detail: "Check-in do balcão", soon: "bloco 3.1c" },
             { icon: SearchIcon, label: "Buscar cliente", detail: "Localizar cadastro", target: "customers" },
             { icon: RefreshCw, label: "Atualizar fila", detail: "Recarregar dados", soon: "bloco 3.1b" },
           ]}
           onComingSoon={onComingSoon}
           onNavigate={onNavigate}
+          onStartCheckin={onStartCheckin}
           title="Atalhos de OS"
         />
       </div>
@@ -999,14 +1032,22 @@ function RightRail({
   actions,
   onComingSoon,
   onNavigate,
+  onStartCheckin,
 }: {
   actions: ActionDefinition[];
   onComingSoon: (label: string, block?: string) => void;
   onNavigate: (target: NavigationTarget) => void;
+  onStartCheckin: () => void;
 }) {
   return (
     <aside className="space-y-4">
-      <ActionPanel actions={actions} onComingSoon={onComingSoon} onNavigate={onNavigate} title="Ações rápidas" />
+      <ActionPanel
+        actions={actions}
+        onComingSoon={onComingSoon}
+        onNavigate={onNavigate}
+        onStartCheckin={onStartCheckin}
+        title="Ações rápidas"
+      />
       <Card className="p-4">
         <h2 className="text-lg font-bold text-white">Alertas</h2>
         <div className="mt-4 space-y-3 text-sm">
@@ -1023,11 +1064,13 @@ function ActionPanel({
   actions,
   onComingSoon,
   onNavigate,
+  onStartCheckin,
   title,
 }: {
   actions: ActionDefinition[];
   onComingSoon: (label: string, block?: string) => void;
   onNavigate: (target: NavigationTarget) => void;
+  onStartCheckin?: () => void;
   title: string;
 }) {
   return (
@@ -1035,30 +1078,35 @@ function ActionPanel({
       <h2 className="mb-4 text-lg font-bold text-white">{title}</h2>
       {actions.length ? (
         <div className="grid grid-cols-2 gap-3">
-          {actions.map((action, index) => (
-            <button
-              className="min-h-[96px] rounded-card border border-tec-border/20 bg-white/[0.035] p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
-              key={`${action.label}-${index}`}
-              onClick={() => {
-                if (action.soon) {
-                  onComingSoon(action.label, action.soon);
-                } else if (action.target) {
-                  onNavigate(action.target);
-                }
-              }}
-              title={action.soon ? `Em breve — ${action.soon}` : action.label}
-              type="button"
-            >
-              <action.icon className="mb-3 text-tec-orange" size={22} />
-              <span className="block text-sm font-bold text-white">{action.label}</span>
-              <span className="mt-1 block text-xs text-tec-muted">{action.detail}</span>
-              {action.soon ? (
-                <span className="mt-2 inline-flex rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase text-tec-muted">
-                  Em breve
-                </span>
-              ) : null}
-            </button>
-          ))}
+          {actions.map((action, index) => {
+            const opensCheckin = action.soon === "bloco 3.1c" && onStartCheckin;
+            return (
+              <button
+                className="min-h-[96px] rounded-card border border-tec-border/20 bg-white/[0.035] p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
+                key={`${action.label}-${index}`}
+                onClick={() => {
+                  if (opensCheckin) {
+                    onStartCheckin();
+                  } else if (action.soon) {
+                    onComingSoon(action.label, action.soon);
+                  } else if (action.target) {
+                    onNavigate(action.target);
+                  }
+                }}
+                title={opensCheckin ? action.label : action.soon ? `Em breve — ${action.soon}` : action.label}
+                type="button"
+              >
+                <action.icon className="mb-3 text-tec-orange" size={22} />
+                <span className="block text-sm font-bold text-white">{action.label}</span>
+                <span className="mt-1 block text-xs text-tec-muted">{action.detail}</span>
+                {action.soon && !opensCheckin ? (
+                  <span className="mt-2 inline-flex rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase text-tec-muted">
+                    Em breve
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
       ) : (
         <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4 text-sm text-tec-muted">

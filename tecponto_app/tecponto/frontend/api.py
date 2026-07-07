@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 from urllib.parse import quote
 
 import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime, today
+from frappe.utils.file_manager import save_file
 
 from tecponto_app.tecponto.service_order.print_formats import PF_ETIQUETA_QR, PF_OS_ORCAMENTO, PF_TERMO_ENTRADA
 from tecponto_app.tecponto.workflow import _get_service_order_transitions
@@ -43,6 +46,11 @@ FRONTEND_ALLOWED_ROLES = {
 	"Tecponto Tecnico",
 	"Tecponto Gestor",
 	"Tecponto Diretor",
+}
+CHECKIN_ALLOWED_ROLES = {
+	"System Manager",
+	"Tecponto Atendente",
+	"Tecponto Gestor",
 }
 
 SAFE_SERVICE_ORDER_FIELDS = (
@@ -122,6 +130,13 @@ def _require_frontend_role() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(FRONTEND_ALLOWED_ROLES):
 		return
 	frappe.throw(_("Usuário sem papel operacional Tecponto."), frappe.PermissionError)
+
+
+def _require_checkin_role() -> None:
+	_require_login()
+	if set(frappe.get_roles(frappe.session.user)).intersection(CHECKIN_ALLOWED_ROLES):
+		return
+	frappe.throw(_("Usuário sem permissão para abrir OS no balcão."), frappe.PermissionError)
 
 
 def _initials(full_name: str, fallback: str) -> str:
@@ -275,6 +290,48 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"workflow_actions": _get_visible_workflow_actions(doc),
 		"timeline": _get_service_order_timeline(doc),
 		"print_links": _get_service_order_print_links(doc.name),
+	}
+
+
+@frappe.whitelist()
+def create_service_order_checkin(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_checkin_role()
+	data = _parse_payload(payload)
+	_validate_checkin_payload(data)
+
+	customer_name = _get_or_create_checkin_customer(data["customer"])
+	device_name = _get_or_create_checkin_device(data["device"], customer_name)
+	order = frappe.new_doc("Service Order")
+	order.naming_series = "OS-.YYYY.-.#####"
+	order.customer = customer_name
+	order.customer_device = device_name
+	order.entry_date = now_datetime()
+	order.attendant = frappe.session.user
+	order.workflow_state = "Entrada criada"
+	order.priority = "Normal"
+	order.reported_defect = data["service_order"]["reported_defect"].strip()
+	order.physical_state = data["service_order"]["physical_state"].strip()
+	order.accessories_received = (data["service_order"].get("accessories_received") or "").strip()
+	order.entry_signature = data["entry_signature"]
+	order.insert(ignore_permissions=True)
+
+	photo_url = _save_checkin_photo(order.name, data["entry_photo"])
+	frappe.db.set_value(
+		"Service Order",
+		order.name,
+		{"entry_photos": photo_url},
+		update_modified=True,
+	)
+
+	return {
+		"service_order": {
+			"name": order.name,
+			"workflow_state": "Entrada criada",
+			"customer": _get_customer_detail(customer_name),
+			"device": _get_device_detail(device_name),
+			"print_links": _get_service_order_print_links(order.name),
+		},
+		"entry_photo_url": photo_url,
 	}
 
 
@@ -485,6 +542,116 @@ def _serialize_stock_item(item: dict[str, Any]) -> dict[str, Any]:
 		"warehouse": item.get("warehouse"),
 		"available_qty": float(item.get("available_qty") or 0),
 	}
+
+
+def _parse_payload(payload: str | dict[str, Any] | None) -> dict[str, Any]:
+	if isinstance(payload, dict):
+		return payload
+	if isinstance(payload, str) and payload.strip():
+		return json.loads(payload)
+	frappe.throw(_("Dados do check-in não informados."), frappe.ValidationError)
+
+
+def _validate_checkin_payload(data: dict[str, Any]) -> None:
+	customer = data.get("customer") or {}
+	device = data.get("device") or {}
+	service_order = data.get("service_order") or {}
+	entry_photo = data.get("entry_photo") or {}
+
+	if not customer.get("existing_name") and not (customer.get("customer_name") or "").strip():
+		frappe.throw(_("Informe ou cadastre o cliente."), frappe.ValidationError)
+
+	if not device.get("existing_name"):
+		if not (device.get("brand") or "").strip():
+			frappe.throw(_("Informe a marca do aparelho."), frappe.ValidationError)
+		if not (device.get("model") or "").strip():
+			frappe.throw(_("Informe o modelo do aparelho."), frappe.ValidationError)
+		if not (device.get("imei_serial") or "").strip():
+			frappe.throw(_("IMEI/serial é obrigatório para abrir OS."), frappe.ValidationError)
+
+	if not (service_order.get("reported_defect") or "").strip():
+		frappe.throw(_("Informe o defeito relatado."), frappe.ValidationError)
+	if not (service_order.get("physical_state") or "").strip():
+		frappe.throw(_("Informe o estado físico declarado."), frappe.ValidationError)
+	if not _is_image_data_url(entry_photo.get("data_url")):
+		frappe.throw(_("Anexe ao menos uma foto de entrada."), frappe.ValidationError)
+	if not _is_image_data_url(data.get("entry_signature")):
+		frappe.throw(_("Assinatura de entrada é obrigatória."), frappe.ValidationError)
+
+
+def _get_or_create_checkin_customer(data: dict[str, Any]) -> str:
+	existing_name = (data.get("existing_name") or "").strip()
+	if existing_name:
+		if not frappe.db.exists("Customer", existing_name):
+			frappe.throw(_("Cliente selecionado não existe."), frappe.ValidationError)
+		return existing_name
+
+	customer = frappe.get_doc(
+		{
+			"doctype": "Customer",
+			"customer_name": data["customer_name"].strip(),
+			"customer_type": "Individual",
+			"mobile_no": (data.get("mobile_no") or "").strip(),
+			"email_id": (data.get("email_id") or "").strip(),
+		}
+	)
+	customer.insert(ignore_permissions=True)
+	return customer.name
+
+
+def _get_or_create_checkin_device(data: dict[str, Any], customer_name: str) -> str:
+	existing_name = (data.get("existing_name") or "").strip()
+	if existing_name:
+		device = frappe.db.get_value("Customer Device", existing_name, ["customer", "imei_serial"], as_dict=True)
+		customer = device.customer if device else None
+		if device and not (device.imei_serial or "").strip():
+			frappe.throw(_("Aparelho selecionado não possui IMEI/serial."), frappe.ValidationError)
+		if not customer:
+			frappe.throw(_("Aparelho selecionado não existe."), frappe.ValidationError)
+		if customer != customer_name:
+			frappe.throw(_("O aparelho selecionado não pertence ao cliente informado."), frappe.ValidationError)
+		return existing_name
+
+	device = frappe.get_doc(
+		{
+			"doctype": "Customer Device",
+			"customer": customer_name,
+			"brand": data["brand"].strip(),
+			"model": data["model"].strip(),
+			"color": (data.get("color") or "").strip(),
+			"imei_serial": data["imei_serial"].strip(),
+			"capacity": (data.get("capacity") or "").strip(),
+			"general_state": (data.get("general_state") or "").strip(),
+			"registration_date": today(),
+		}
+	)
+	device.insert(ignore_permissions=True)
+	return device.name
+
+
+def _save_checkin_photo(service_order: str, photo: dict[str, str]) -> str:
+	filename = _safe_filename(photo.get("filename") or f"{service_order}-entrada.png")
+	if "." not in filename:
+		filename = f"{filename}.png"
+	file_doc = save_file(
+		filename,
+		photo["data_url"],
+		"Service Order",
+		service_order,
+		decode=True,
+		is_private=0,
+		df="entry_photos",
+	)
+	return file_doc.file_url
+
+
+def _is_image_data_url(value: str | None) -> bool:
+	return bool(value and isinstance(value, str) and value.startswith("data:image/") and "," in value)
+
+
+def _safe_filename(value: str) -> str:
+	name = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-")
+	return name or "entrada.png"
 
 
 def _serialize_service_row(row: Any) -> dict[str, Any]:
