@@ -56,6 +56,22 @@ export interface ServiceOrderListResponse {
   fields: string[];
 }
 
+export interface ServiceOrderKanbanColumn {
+  state: string;
+  count: number;
+  items: ServiceOrderSummary[];
+}
+
+export interface ServiceOrderKanbanResponse {
+  columns: ServiceOrderKanbanColumn[];
+  fields: string[];
+}
+
+export interface ServiceOrderMoveResponse {
+  item: ServiceOrderSummary;
+  changed: boolean;
+}
+
 export interface ServiceOrderDetailResponse {
   name: string;
   workflow_state: string | null;

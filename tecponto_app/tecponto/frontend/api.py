@@ -17,7 +17,7 @@ from tecponto_app.tecponto.service_order.print_formats import (
 	PF_TERMO_ENTRADA,
 	PF_TERMO_RETIRADA,
 )
-from tecponto_app.tecponto.workflow import _get_service_order_transitions
+from tecponto_app.tecponto.workflow import _get_service_order_transitions, get_service_order_workflow_state_names
 
 
 ROLE_PANELS = (
@@ -67,6 +67,11 @@ STATE_PRONTO_RETIRADA = "Pronto para retirada"
 STATE_ENTREGUE = "Entregue"
 APPROVAL_STATUS_APROVADO = "Aprovado"
 APPROVAL_STATUS_REPROVADO = "Reprovado"
+KANBAN_BLOCKED_TARGETS = {
+	STATE_APROVADO: "Use o fluxo de aprovação para registrar canal, atendente e observação.",
+	STATE_REPROVADO: "Use o fluxo de reprovação para registrar canal e motivo.",
+	STATE_ENTREGUE: "Use o fluxo de retirada para coletar assinatura e validar pagamento.",
+}
 
 SAFE_SERVICE_ORDER_FIELDS = (
 	"name",
@@ -248,6 +253,66 @@ def list_service_orders(limit: int = 20) -> dict[str, Any]:
 		"items": [_serialize_service_order(item) for item in items],
 		"count": len(items),
 		"fields": list(SAFE_SERVICE_ORDER_FIELDS),
+	}
+
+
+@frappe.whitelist()
+def get_service_order_kanban(limit_per_column: int = 18) -> dict[str, Any]:
+	_require_frontend_role()
+	limit = max(1, min(int(limit_per_column or 18), 40))
+	columns = []
+	for state in get_service_order_workflow_state_names():
+		filters = {"workflow_state": state}
+		items = frappe.get_list(
+			"Service Order",
+			fields=list(SAFE_SERVICE_ORDER_FIELDS),
+			filters=filters,
+			order_by="modified desc",
+			limit_page_length=limit,
+		)
+		columns.append(
+			{
+				"state": state,
+				"count": frappe.db.count("Service Order", filters),
+				"items": [_serialize_service_order(item) for item in items],
+			}
+		)
+
+	return {
+		"columns": columns,
+		"fields": list(SAFE_SERVICE_ORDER_FIELDS),
+	}
+
+
+@frappe.whitelist()
+def move_service_order(name: str, target_state: str) -> dict[str, Any]:
+	_require_frontend_role()
+	name = (name or "").strip()
+	target_state = (target_state or "").strip()
+	if not name:
+		frappe.throw(_("Informe a ordem de serviço."), frappe.ValidationError)
+	if target_state not in get_service_order_workflow_state_names():
+		frappe.throw(_("Estado de destino inválido para o Kanban."), frappe.ValidationError)
+
+	doc = frappe.get_doc("Service Order", name)
+	doc.check_permission("read")
+	current_state = doc.get("workflow_state")
+	if current_state == target_state:
+		return {"item": _serialize_service_order(doc.as_dict()), "changed": False}
+	if target_state in KANBAN_BLOCKED_TARGETS:
+		frappe.throw(_(KANBAN_BLOCKED_TARGETS[target_state]), frappe.ValidationError)
+
+	action = _get_allowed_kanban_action(current_state, target_state)
+	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), action)
+	updated = frappe.db.get_value(
+		"Service Order",
+		name,
+		list(SAFE_SERVICE_ORDER_FIELDS),
+		as_dict=True,
+	)
+	return {
+		"item": _serialize_service_order(updated),
+		"changed": True,
 	}
 
 
@@ -839,6 +904,31 @@ def _get_sales_invoice_status(sales_invoice: str | None) -> str | None:
 	if not sales_invoice:
 		return None
 	return frappe.db.get_value("Sales Invoice", sales_invoice, "status")
+
+
+def _get_allowed_kanban_action(current_state: str | None, target_state: str) -> str:
+	user_roles = set(frappe.get_roles(frappe.session.user))
+	matching_transitions = []
+	for transition in _get_service_order_transitions():
+		state, action, next_state, allowed, *rest = transition
+		condition = rest[0] if rest else None
+		if state == current_state and next_state == target_state and condition != "False":
+			matching_transitions.append((action, allowed))
+
+	if not matching_transitions:
+		frappe.throw(
+			_("Transição não permitida no Kanban: {0} → {1}.").format(current_state or "Sem status", target_state),
+			frappe.ValidationError,
+		)
+
+	for action, allowed in matching_transitions:
+		if allowed in user_roles or "System Manager" in user_roles:
+			return action
+
+	frappe.throw(
+		_("Seu papel não permite mover esta OS de {0} para {1}.").format(current_state or "Sem status", target_state),
+		frappe.PermissionError,
+	)
 
 
 def _get_visible_workflow_actions(doc: Any) -> list[dict[str, str]]:

@@ -9,6 +9,7 @@ interface FrappeRpcResponse<T> {
   message: T;
   exc?: string;
   exception?: string;
+  _server_messages?: string;
 }
 
 export async function rpc<T>(method: string, options: RpcOptions = {}): Promise<T> {
@@ -40,8 +41,32 @@ export async function rpc<T>(method: string, options: RpcOptions = {}): Promise<
   const payload = (await response.json().catch(() => ({}))) as FrappeRpcResponse<T>;
 
   if (!response.ok || payload.exc || payload.exception) {
-    throw new Error(payload.exception ?? payload.exc ?? `Falha na API (${response.status})`);
+    throw new Error(extractFrappeErrorMessage(payload) ?? `Falha na API (${response.status})`);
   }
 
   return payload.message;
+}
+
+function extractFrappeErrorMessage<T>(payload: FrappeRpcResponse<T>) {
+  if (payload._server_messages) {
+    try {
+      const messages = JSON.parse(payload._server_messages) as string[];
+      const first = messages
+        .map((message) => JSON.parse(message) as { message?: string })
+        .map((message) => message.message)
+        .find(Boolean);
+      if (first) {
+        return first;
+      }
+    } catch {
+      return payload._server_messages;
+    }
+  }
+  if (payload.exception && !payload.exception.includes("Traceback")) {
+    return payload.exception.split(":").pop()?.trim() || payload.exception;
+  }
+  if (payload.exc && !payload.exc.includes("Traceback")) {
+    return payload.exc;
+  }
+  return null;
 }

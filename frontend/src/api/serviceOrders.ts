@@ -1,5 +1,12 @@
 import { rpc } from "./client";
-import type { BudgetDecisionPayload, PickupPayload, ServiceOrderDetailResponse, ServiceOrderListResponse } from "./types";
+import type {
+  BudgetDecisionPayload,
+  PickupPayload,
+  ServiceOrderDetailResponse,
+  ServiceOrderKanbanResponse,
+  ServiceOrderListResponse,
+  ServiceOrderMoveResponse,
+} from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
 
@@ -9,9 +16,19 @@ export const serviceOrders = {
       query: { limit },
     });
   },
+  kanban(limitPerColumn = 18) {
+    return rpc<ServiceOrderKanbanResponse>(`${API}.get_service_order_kanban`, {
+      query: { limit_per_column: limitPerColumn },
+    });
+  },
   detail(name: string) {
     return rpc<ServiceOrderDetailResponse>(`${API}.get_service_order_detail`, {
       query: { name },
+    });
+  },
+  move(name: string, targetState: string) {
+    return rpc<ServiceOrderMoveResponse>(`${API}.move_service_order`, {
+      body: { name, target_state: targetState },
     });
   },
   decideBudget(name: string, payload: BudgetDecisionPayload) {

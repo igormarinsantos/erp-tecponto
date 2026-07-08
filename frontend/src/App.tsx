@@ -35,6 +35,7 @@ import {
 } from "./api";
 import { CheckinWizard } from "./CheckinWizard";
 import { panelDefinitions, type ActionDefinition } from "./roleConfig";
+import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { BudgetDecisionModal, PickupModal } from "./ServiceOrderFlows";
 import { BadgeStatus, Button, Card, DataTable, MetricCard, Sidebar, Toast, Topbar, type TableColumn } from "./ui";
 
@@ -42,6 +43,8 @@ type LoadState =
   | { status: "loading" }
   | { status: "ready"; boot: BootResponse; metrics: DashboardMetrics; orders: ServiceOrderSummary[] }
   | { status: "error"; message: string };
+type ToastState = { message: string; tone: "success" | "error" };
+type ServiceOrderFlow = "approve" | "reject" | "pickup";
 
 const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> = {
   overview: {
@@ -83,7 +86,8 @@ export function App() {
   const [activeView, setActiveView] = useState<NavigationTarget>("overview");
   const [checkinOpen, setCheckinOpen] = useState(false);
   const [selectedOrderName, setSelectedOrderName] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [pendingOrderFlow, setPendingOrderFlow] = useState<ServiceOrderFlow | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
 
   const load = useCallback(async (options?: { quiet?: boolean }) => {
@@ -110,8 +114,8 @@ export function App() {
     };
   }, []);
 
-  const showToast = useCallback((message: string) => {
-    setToast(message);
+  const showToast = useCallback((message: string, tone: ToastState["tone"] = "success") => {
+    setToast({ message, tone });
     if (toastTimer.current) {
       window.clearTimeout(toastTimer.current);
     }
@@ -122,9 +126,14 @@ export function App() {
     showToast(`${label}: em breve — ${block}`);
   }, [showToast]);
 
-  const openServiceOrder = useCallback((name: string) => {
+  const openServiceOrder = useCallback((name: string, flow: ServiceOrderFlow | null = null) => {
     setSelectedOrderName(name);
+    setPendingOrderFlow(flow);
     setActiveView("service-order-detail");
+  }, []);
+
+  const clearPendingOrderFlow = useCallback(() => {
+    setPendingOrderFlow(null);
   }, []);
 
   const startCheckin = useCallback(() => {
@@ -199,8 +208,11 @@ export function App() {
               onComingSoon={showComingSoon}
               onNavigate={setActiveView}
               onOpenServiceOrder={openServiceOrder}
+              onRefreshData={() => void load({ quiet: true })}
+              initialOrderFlow={pendingOrderFlow}
+              onInitialOrderFlowHandled={clearPendingOrderFlow}
+              onToast={showToast}
               onStartCheckin={startCheckin}
-              orders={state.orders}
               selectedOrderName={selectedOrderName}
             />
           )}
@@ -212,7 +224,7 @@ export function App() {
         onOpenOrder={openServiceOrder}
         open={checkinOpen}
       />
-      {toast ? <Toast message={toast} tone="success" /> : null}
+      {toast ? <Toast message={toast.message} tone={toast.tone} /> : null}
     </div>
   );
 }
@@ -267,27 +279,35 @@ function OverviewContent({
 
 function NavigationContent({
   activeView,
+  initialOrderFlow,
   onComingSoon,
+  onInitialOrderFlowHandled,
   onNavigate,
   onOpenServiceOrder,
+  onRefreshData,
   onStartCheckin,
-  orders,
+  onToast,
   selectedOrderName,
 }: {
   activeView: NavigationTarget;
+  initialOrderFlow: ServiceOrderFlow | null;
   onComingSoon: (label: string, block?: string) => void;
+  onInitialOrderFlowHandled: () => void;
   onNavigate: (target: NavigationTarget) => void;
-  onOpenServiceOrder: (name: string) => void;
+  onOpenServiceOrder: (name: string, flow?: ServiceOrderFlow | null) => void;
+  onRefreshData: () => void;
   onStartCheckin: () => void;
-  orders: ServiceOrderSummary[];
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
   selectedOrderName: string | null;
 }) {
   if (activeView === "service-order-detail") {
     return selectedOrderName ? (
       <ServiceOrderDetail
+        initialFlow={initialOrderFlow}
         name={selectedOrderName}
         onBack={() => onNavigate("service-orders")}
         onComingSoon={onComingSoon}
+        onInitialFlowHandled={onInitialOrderFlowHandled}
       />
     ) : (
       <Card className="p-5 text-sm text-tec-subtle">Selecione uma OS na fila para abrir o detalhe.</Card>
@@ -297,17 +317,17 @@ function NavigationContent({
   if (activeView === "service-orders") {
     return (
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <OperationsTable
-          onComingSoon={onComingSoon}
+        <ServiceOrderKanban
+          onChanged={onRefreshData}
           onOpenOrder={onOpenServiceOrder}
-          orders={orders}
-          title="Ordens de serviço"
+          onOpenWorkflowFlow={onOpenServiceOrder}
+          onToast={onToast}
         />
         <ActionPanel
           actions={[
             { icon: Wrench, label: "Nova OS", detail: "Check-in do balcão", soon: "bloco 3.1c" },
             { icon: SearchIcon, label: "Buscar cliente", detail: "Localizar cadastro", target: "customers" },
-            { icon: RefreshCw, label: "Atualizar fila", detail: "Recarregar dados", soon: "bloco 3.1b" },
+            { icon: Smartphone, label: "Aparelhos", detail: "Buscar IMEI", target: "devices" },
           ]}
           onComingSoon={onComingSoon}
           onNavigate={onNavigate}
@@ -426,13 +446,17 @@ function OperationsTable({
 }
 
 function ServiceOrderDetail({
+  initialFlow,
   name,
   onBack,
   onComingSoon,
+  onInitialFlowHandled,
 }: {
+  initialFlow: ServiceOrderFlow | null;
   name: string;
   onBack: () => void;
   onComingSoon: (label: string, block?: string) => void;
+  onInitialFlowHandled: () => void;
 }) {
   const [state, setState] = useState<
     | { status: "loading" }
@@ -440,6 +464,11 @@ function ServiceOrderDetail({
     | { status: "error"; message: string }
   >({ status: "loading" });
   const [activeFlow, setActiveFlow] = useState<"approve" | "reject" | "pickup" | null>(null);
+  const initialFlowRef = useRef(initialFlow);
+
+  useEffect(() => {
+    initialFlowRef.current = initialFlow;
+  }, [initialFlow]);
 
   useEffect(() => {
     let mounted = true;
@@ -450,6 +479,10 @@ function ServiceOrderDetail({
       .then((detail) => {
         if (mounted) {
           setState({ status: "ready", detail });
+          if (initialFlowRef.current) {
+            setActiveFlow(initialFlowRef.current);
+            onInitialFlowHandled();
+          }
         }
       })
       .catch((error) => {
@@ -460,7 +493,7 @@ function ServiceOrderDetail({
     return () => {
       mounted = false;
     };
-  }, [name]);
+  }, [name, onInitialFlowHandled]);
 
   if (state.status === "loading") {
     return (
