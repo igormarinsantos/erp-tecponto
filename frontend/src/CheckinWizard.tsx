@@ -35,6 +35,24 @@ import { Button, Modal } from "./ui";
 const steps = ["Cliente", "Aparelho", "Dados", "Fotos", "Assinatura"];
 const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname) || window.location.hostname.endsWith(".localhost");
 
+type NewCustomerForm = {
+  customer_name: string;
+  mobile_no: string;
+  custom_cpf: string;
+  custom_rg: string;
+  custom_nao_possui_cpf: boolean;
+  email_id: string;
+};
+
+type NewDeviceForm = {
+  brand: string;
+  model: string;
+  color: string;
+  imei_serial: string;
+  capacity: string;
+  general_state: string;
+};
+
 interface CheckinWizardProps {
   open: boolean;
   onClose: () => void;
@@ -51,12 +69,19 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
   const [customerQuery, setCustomerQuery] = useState("");
   const [customerRows, setCustomerRows] = useState<CustomerSummary[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
-  const [newCustomer, setNewCustomer] = useState({ customer_name: "", mobile_no: "", email_id: "" });
+  const [newCustomer, setNewCustomer] = useState<NewCustomerForm>({
+    customer_name: "",
+    mobile_no: "",
+    custom_cpf: "",
+    custom_rg: "",
+    custom_nao_possui_cpf: false,
+    email_id: "",
+  });
 
   const [deviceQuery, setDeviceQuery] = useState("");
   const [deviceRows, setDeviceRows] = useState<CustomerDeviceSummary[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<CustomerDeviceSummary | null>(null);
-  const [newDevice, setNewDevice] = useState({
+  const [newDevice, setNewDevice] = useState<NewDeviceForm>({
     brand: "",
     model: "",
     color: "",
@@ -83,7 +108,12 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
     setError(null);
   }, [open]);
 
-  const customerReady = Boolean(selectedCustomer || newCustomer.customer_name.trim());
+  const customerReady = Boolean(
+    selectedCustomer ||
+      (newCustomer.customer_name.trim() &&
+        newCustomer.mobile_no.trim() &&
+        (newCustomer.custom_cpf.trim() || (newCustomer.custom_nao_possui_cpf && newCustomer.custom_rg.trim()))),
+  );
   const deviceReady = Boolean(
     selectedDevice
       ? selectedDevice.imei_serial
@@ -122,6 +152,10 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
         : {
             customer_name: newCustomer.customer_name.trim(),
             mobile_no: newCustomer.mobile_no.trim(),
+            custom_whatsapp: newCustomer.mobile_no.trim(),
+            custom_cpf: newCustomer.custom_cpf.trim(),
+            custom_rg: newCustomer.custom_rg.trim(),
+            custom_nao_possui_cpf: newCustomer.custom_nao_possui_cpf,
             email_id: newCustomer.email_id.trim(),
           },
       device: selectedDevice
@@ -260,11 +294,11 @@ function CustomerStep({
 }: {
   customerQuery: string;
   customerRows: CustomerSummary[];
-  newCustomer: { customer_name: string; mobile_no: string; email_id: string };
+  newCustomer: NewCustomerForm;
   onSearch: () => void;
   selectedCustomer: CustomerSummary | null;
   setCustomerQuery: (value: string) => void;
-  setNewCustomer: (value: { customer_name: string; mobile_no: string; email_id: string }) => void;
+  setNewCustomer: (value: NewCustomerForm) => void;
   setSelectedCustomer: (value: CustomerSummary | null) => void;
 }) {
   return (
@@ -281,7 +315,7 @@ function CustomerStep({
                 void onSearch();
               }
             }}
-            placeholder="Nome, telefone ou e-mail"
+            placeholder="Nome, telefone, CPF ou RG"
             value={customerQuery}
           />
           <Button icon={<Search size={17} />} onClick={() => void onSearch()} variant="primary">
@@ -301,7 +335,9 @@ function CustomerStep({
               type="button"
             >
               <span className="block font-bold text-white">{customer.customer_name ?? customer.name}</span>
-              <span className="mt-1 block text-xs text-tec-muted">{[customer.mobile_no, customer.email_id].filter(Boolean).join(" · ") || customer.name}</span>
+              <span className="mt-1 block text-xs text-tec-muted">
+                {[customer.mobile_no, customer.custom_cpf || customer.custom_rg, customer.email_id].filter(Boolean).join(" · ") || customer.name}
+              </span>
             </button>
           ))}
         </div>
@@ -313,6 +349,11 @@ function CustomerStep({
             lines={[
               selectedCustomer.customer_name ?? selectedCustomer.name,
               selectedCustomer.mobile_no ?? "Sem telefone",
+              selectedCustomer.custom_cpf
+                ? `CPF: ${selectedCustomer.custom_cpf}`
+                : selectedCustomer.custom_rg
+                  ? `RG: ${selectedCustomer.custom_rg}`
+                  : "Sem documento",
               selectedCustomer.email_id ?? "Sem e-mail",
             ]}
             onClear={() => setSelectedCustomer(null)}
@@ -329,12 +370,52 @@ function CustomerStep({
             <Field
               autoComplete="tel"
               inputMode="tel"
-              label="Telefone"
+              label="Telefone/WhatsApp"
               onChange={(value) => setNewCustomer({ ...newCustomer, mobile_no: value })}
               placeholder="(11) 99999-9999"
+              required
               type="tel"
               value={newCustomer.mobile_no}
             />
+            <button
+              aria-pressed={newCustomer.custom_nao_possui_cpf}
+              className={`min-h-10 rounded-control border px-3 text-left text-sm font-bold transition ${
+                newCustomer.custom_nao_possui_cpf
+                  ? "border-tec-orange bg-tec-orange text-tec-ink"
+                  : "border-tec-border/25 bg-tec-field text-tec-subtle hover:border-tec-orange/50 hover:text-white"
+              }`}
+              onClick={() =>
+                setNewCustomer({
+                  ...newCustomer,
+                  custom_cpf: "",
+                  custom_nao_possui_cpf: !newCustomer.custom_nao_possui_cpf,
+                })
+              }
+              type="button"
+            >
+              Cliente não possui CPF
+            </button>
+            {newCustomer.custom_nao_possui_cpf ? (
+              <Field
+                autoComplete="off"
+                label="RG"
+                onChange={(value) => setNewCustomer({ ...newCustomer, custom_rg: value })}
+                placeholder="Documento RG"
+                required
+                value={newCustomer.custom_rg}
+              />
+            ) : (
+              <Field
+                autoComplete="off"
+                inputMode="numeric"
+                label="CPF"
+                maxLength={14}
+                onChange={(value) => setNewCustomer({ ...newCustomer, custom_cpf: value })}
+                placeholder="000.000.000-00"
+                required
+                value={newCustomer.custom_cpf}
+              />
+            )}
             <Field
               autoComplete="email"
               inputMode="email"
@@ -364,12 +445,12 @@ function DeviceStep({
 }: {
   deviceQuery: string;
   deviceRows: CustomerDeviceSummary[];
-  newDevice: { brand: string; model: string; color: string; imei_serial: string; capacity: string; general_state: string };
+  newDevice: NewDeviceForm;
   onSearch: () => void;
   selectedCustomer: CustomerSummary | null;
   selectedDevice: CustomerDeviceSummary | null;
   setDeviceQuery: (value: string) => void;
-  setNewDevice: (value: { brand: string; model: string; color: string; imei_serial: string; capacity: string; general_state: string }) => void;
+  setNewDevice: (value: NewDeviceForm) => void;
   setSelectedDevice: (value: CustomerDeviceSummary | null) => void;
 }) {
   return (

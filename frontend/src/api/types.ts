@@ -184,6 +184,10 @@ export interface CheckinPayload {
     existing_name?: string;
     customer_name?: string;
     mobile_no?: string;
+    custom_whatsapp?: string;
+    custom_cpf?: string;
+    custom_rg?: string;
+    custom_nao_possui_cpf?: boolean;
     email_id?: string;
   };
   device: {
@@ -243,6 +247,10 @@ export interface CustomerSummary {
   name: string;
   customer_name: string | null;
   mobile_no: string | null;
+  custom_whatsapp: string | null;
+  custom_cpf: string | null;
+  custom_rg: string | null;
+  custom_nao_possui_cpf: boolean;
   email_id: string | null;
   modified: string;
 }
@@ -261,6 +269,7 @@ export interface CustomerDeviceSummary {
   color: string | null;
   imei_serial: string | null;
   capacity: string | null;
+  photo_url: string | null;
   registration_date: string;
   modified: string;
 }
@@ -269,6 +278,24 @@ export interface CustomerDeviceListResponse {
   items: CustomerDeviceSummary[];
   count: number;
   fields: string[];
+}
+
+export interface CreateCustomerDevicePayload {
+  customer: string;
+  brand: string;
+  model: string;
+  color?: string;
+  imei_serial: string;
+  capacity?: string;
+  general_state?: string;
+  photo?: {
+    data_url: string;
+    filename: string;
+  } | null;
+}
+
+export interface CreateCustomerDeviceResponse {
+  item: CustomerDeviceSummary;
 }
 
 export interface TradeEvaluationSummary {

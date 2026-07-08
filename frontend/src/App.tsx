@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Clock3,
   FileText,
+  Plus,
   Printer,
   RefreshCw,
   Search as SearchIcon,
@@ -34,6 +35,7 @@ import {
   type TradeEvaluationSummary,
 } from "./api";
 import { CheckinWizard } from "./CheckinWizard";
+import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
 import { panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { BudgetDecisionModal, PickupModal } from "./ServiceOrderFlows";
@@ -372,7 +374,7 @@ function NavigationContent({
   }
 
   if (activeView === "devices") {
-    return <DeviceLookup />;
+    return <DeviceLookup onToast={onToast} />;
   }
 
   if (activeView === "trade-ins") {
@@ -929,10 +931,11 @@ function CustomerLookup() {
   );
 }
 
-function DeviceLookup() {
+function DeviceLookup({ onToast }: { onToast: (message: string, tone?: ToastState["tone"]) => void }) {
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<CustomerDeviceSummary[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [registrationOpen, setRegistrationOpen] = useState(false);
 
   const search = useCallback(async (nextQuery: string) => {
     setStatus("loading");
@@ -951,6 +954,18 @@ function DeviceLookup() {
 
   const columns = useMemo<Array<TableColumn<CustomerDeviceSummary>>>(
     () => [
+      {
+        key: "photo",
+        label: "Foto",
+        render: (row) =>
+          row.photo_url ? (
+            <img alt="" className="h-11 w-11 rounded-control object-cover" src={row.photo_url} />
+          ) : (
+            <span className="grid h-11 w-11 place-items-center rounded-control bg-tec-field text-tec-orange">
+              <Smartphone size={18} />
+            </span>
+          ),
+      },
       { key: "name", label: "Cadastro", render: (row) => <span className="font-semibold text-white">{row.name}</span> },
       { key: "customer", label: "Cliente", render: (row) => row.customer ?? "Sem cliente" },
       { key: "model", label: "Aparelho", render: (row) => [row.brand, row.model].filter(Boolean).join(" ") || "Sem modelo" },
@@ -961,20 +976,35 @@ function DeviceLookup() {
   );
 
   return (
-    <LookupCard
-      columns={columns}
-      emptyLabel={status === "error" ? "Falha ao buscar aparelhos." : "Nenhum aparelho encontrado."}
-      onSearch={(event) => {
-        event.preventDefault();
-        void search(query);
-      }}
-      placeholder="Buscar por cliente, modelo ou IMEI"
-      query={query}
-      rows={rows}
-      setQuery={setQuery}
-      status={status}
-      title="Aparelhos"
-    />
+    <>
+      <LookupCard
+        columns={columns}
+        emptyLabel={status === "error" ? "Falha ao buscar aparelhos." : "Nenhum aparelho encontrado."}
+        headerAction={
+          <Button icon={<Plus size={17} />} onClick={() => setRegistrationOpen(true)} variant="primary">
+            Cadastrar aparelho
+          </Button>
+        }
+        onSearch={(event) => {
+          event.preventDefault();
+          void search(query);
+        }}
+        placeholder="Buscar por cliente, modelo ou IMEI"
+        query={query}
+        rows={rows}
+        setQuery={setQuery}
+        status={status}
+        title="Aparelhos"
+      />
+      <DeviceRegistrationModal
+        onClose={() => setRegistrationOpen(false)}
+        onCreated={(device) => {
+          setRows((current) => [device, ...current.filter((row) => row.name !== device.name)]);
+          onToast(`Aparelho ${device.name} cadastrado.`);
+        }}
+        open={registrationOpen}
+      />
+    </>
   );
 }
 
@@ -1104,6 +1134,7 @@ function SalesLookup({
 function LookupCard<T>({
   columns,
   emptyLabel,
+  headerAction,
   onSearch,
   placeholder,
   query,
@@ -1114,6 +1145,7 @@ function LookupCard<T>({
 }: {
   columns: Array<TableColumn<T>>;
   emptyLabel: string;
+  headerAction?: ReactNode;
   onSearch: (event: FormEvent<HTMLFormElement>) => void;
   placeholder: string;
   query: string;
@@ -1139,11 +1171,14 @@ function LookupCard<T>({
           Buscar
         </Button>
       </form>
-      <div className="mb-4 flex items-center gap-3">
-        <h2 className="text-lg font-bold text-white">{title}</h2>
-        <span className="rounded-full bg-tec-orange/20 px-2 py-1 text-xs font-bold text-tec-orange">
-          {status === "loading" ? "..." : rows.length}
-        </span>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-bold text-white">{title}</h2>
+          <span className="rounded-full bg-tec-orange/20 px-2 py-1 text-xs font-bold text-tec-orange">
+            {status === "loading" ? "..." : rows.length}
+          </span>
+        </div>
+        {headerAction}
       </div>
       <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} rows={rows} />
     </Card>

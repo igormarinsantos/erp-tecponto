@@ -5,7 +5,7 @@ Fonte de verdade: `design-system.md` oficial do ERP TecPonto. Estes tokens subst
 ## Base
 - Tipografia principal: `Space Grotesk` via `@fontsource/space-grotesk`, pesos 400/500/600/700.
 - Títulos, números e logo textual usam `--tp-font-display`.
-- Tabelas podem usar `--tp-font-table` com sans neutra para leitura densa.
+- Tabelas também usam `--tp-font-table` com Space Grotesk para manter a identidade visual em todas as telas.
 - Cards usam `12px`; controles e botões usam `14px`; item ativo da lateral usa `16px`.
 - Animações são curtas e respeitam `prefers-reduced-motion`.
 

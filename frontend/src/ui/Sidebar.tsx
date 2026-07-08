@@ -29,7 +29,6 @@ export function Sidebar({ activeItemId, onComingSoon, onNavigate, sections, user
     <aside className="tp-sidebar-desktop fixed inset-y-0 left-0 z-30 w-[var(--tp-sidebar-width)] border-r border-tec-border/20 bg-tec-sidebar p-4">
       <div className="rounded-card border border-tec-border/25 bg-tec-panel p-5">
         <div className="tp-logo text-2xl font-bold leading-none tracking-normal text-white">TECPONTO</div>
-        <div className="mt-2 text-xs font-semibold uppercase text-tec-subtle">Central de operação</div>
       </div>
 
       <nav className="mt-5 space-y-5">

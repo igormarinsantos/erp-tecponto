@@ -11,6 +11,11 @@ from frappe.model.workflow import apply_workflow
 from frappe.utils import flt, now_datetime, today
 from frappe.utils.file_manager import save_file
 
+from tecponto_app.tecponto.customer import (
+	CUSTOMER_NO_CPF_FIELD,
+	assert_existing_customer_is_complete,
+	validate_customer_contact_document,
+)
 from tecponto_app.tecponto.service_order.print_formats import (
 	PF_ETIQUETA_QR,
 	PF_OS_ORCAMENTO,
@@ -91,6 +96,10 @@ SAFE_CUSTOMER_FIELDS = (
 	"name",
 	"customer_name",
 	"mobile_no",
+	"custom_whatsapp",
+	"custom_cpf",
+	"custom_rg",
+	CUSTOMER_NO_CPF_FIELD,
 	"email_id",
 	"modified",
 )
@@ -102,6 +111,7 @@ SAFE_DEVICE_FIELDS = (
 	"color",
 	"imei_serial",
 	"capacity",
+	"photos",
 	"registration_date",
 	"modified",
 )
@@ -557,7 +567,7 @@ def search_customers(query: str = "", limit: int = 12) -> dict[str, Any]:
 	query = (query or "").strip()
 	or_filters = _like_filters(
 		query,
-		("name", "customer_name", "mobile_no", "email_id"),
+		("name", "customer_name", "mobile_no", "custom_whatsapp", "custom_cpf", "custom_rg", "email_id"),
 	)
 	items = frappe.get_all(
 		"Customer",
@@ -594,6 +604,40 @@ def list_customer_devices(query: str = "", limit: int = 12) -> dict[str, Any]:
 		"count": len(items),
 		"fields": list(SAFE_DEVICE_FIELDS),
 	}
+
+
+@frappe.whitelist()
+def create_customer_device(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_checkin_role()
+	data = _parse_payload(payload)
+	customer = (data.get("customer") or "").strip()
+	if not customer:
+		frappe.throw(_("Selecione o cliente do aparelho."), frappe.ValidationError)
+	assert_existing_customer_is_complete(customer)
+	_validate_device_payload(data)
+
+	device = frappe.get_doc(
+		{
+			"doctype": "Customer Device",
+			"customer": customer,
+			"brand": data["brand"].strip(),
+			"model": data["model"].strip(),
+			"color": (data.get("color") or "").strip(),
+			"imei_serial": data["imei_serial"].strip(),
+			"capacity": (data.get("capacity") or "").strip(),
+			"general_state": (data.get("general_state") or "").strip(),
+			"registration_date": today(),
+		}
+	)
+	device.insert(ignore_permissions=True)
+
+	photo = data.get("photo") or {}
+	if _is_image_data_url(photo.get("data_url")):
+		photo_url = _save_customer_device_photo(device.name, photo)
+		frappe.db.set_value("Customer Device", device.name, "photos", photo_url, update_modified=False)
+
+	item = frappe.db.get_value("Customer Device", device.name, list(SAFE_DEVICE_FIELDS), as_dict=True)
+	return {"item": _serialize_customer_device(item)}
 
 
 @frappe.whitelist()
@@ -687,6 +731,10 @@ def _serialize_customer(item: dict[str, Any]) -> dict[str, Any]:
 		"name": item.get("name"),
 		"customer_name": item.get("customer_name"),
 		"mobile_no": item.get("mobile_no"),
+		"custom_whatsapp": item.get("custom_whatsapp"),
+		"custom_cpf": item.get("custom_cpf"),
+		"custom_rg": item.get("custom_rg"),
+		CUSTOMER_NO_CPF_FIELD: bool(item.get(CUSTOMER_NO_CPF_FIELD)),
 		"email_id": item.get("email_id"),
 		"modified": str(item.get("modified") or ""),
 	}
@@ -701,6 +749,7 @@ def _serialize_customer_device(item: dict[str, Any]) -> dict[str, Any]:
 		"color": item.get("color"),
 		"imei_serial": item.get("imei_serial"),
 		"capacity": item.get("capacity"),
+		"photo_url": item.get("photos"),
 		"registration_date": str(item.get("registration_date") or ""),
 		"modified": str(item.get("modified") or ""),
 	}
@@ -745,16 +794,13 @@ def _validate_checkin_payload(data: dict[str, Any]) -> None:
 	service_order = data.get("service_order") or {}
 	entry_photo = data.get("entry_photo") or {}
 
-	if not customer.get("existing_name") and not (customer.get("customer_name") or "").strip():
-		frappe.throw(_("Informe ou cadastre o cliente."), frappe.ValidationError)
+	if customer.get("existing_name"):
+		assert_existing_customer_is_complete(customer["existing_name"])
+	else:
+		validate_customer_contact_document(customer)
 
 	if not device.get("existing_name"):
-		if not (device.get("brand") or "").strip():
-			frappe.throw(_("Informe a marca do aparelho."), frappe.ValidationError)
-		if not (device.get("model") or "").strip():
-			frappe.throw(_("Informe o modelo do aparelho."), frappe.ValidationError)
-		if not (device.get("imei_serial") or "").strip():
-			frappe.throw(_("IMEI/serial é obrigatório para abrir OS."), frappe.ValidationError)
+		_validate_device_payload(device)
 
 	if not (service_order.get("reported_defect") or "").strip():
 		frappe.throw(_("Informe o defeito relatado."), frappe.ValidationError)
@@ -764,6 +810,15 @@ def _validate_checkin_payload(data: dict[str, Any]) -> None:
 		frappe.throw(_("Anexe ao menos uma foto de entrada."), frappe.ValidationError)
 	if not _is_image_data_url(data.get("entry_signature")):
 		frappe.throw(_("Assinatura de entrada é obrigatória."), frappe.ValidationError)
+
+
+def _validate_device_payload(data: dict[str, Any]) -> None:
+	if not (data.get("brand") or "").strip():
+		frappe.throw(_("Informe a marca do aparelho."), frappe.ValidationError)
+	if not (data.get("model") or "").strip():
+		frappe.throw(_("Informe o modelo do aparelho."), frappe.ValidationError)
+	if not (data.get("imei_serial") or "").strip():
+		frappe.throw(_("IMEI/serial é obrigatório para cadastrar aparelho."), frappe.ValidationError)
 
 
 def _get_or_create_checkin_customer(data: dict[str, Any]) -> str:
@@ -779,6 +834,10 @@ def _get_or_create_checkin_customer(data: dict[str, Any]) -> str:
 			"customer_name": data["customer_name"].strip(),
 			"customer_type": "Individual",
 			"mobile_no": (data.get("mobile_no") or "").strip(),
+			"custom_whatsapp": (data.get("custom_whatsapp") or data.get("mobile_no") or "").strip(),
+			"custom_cpf": (data.get("custom_cpf") or "").strip(),
+			"custom_rg": (data.get("custom_rg") or "").strip(),
+			CUSTOMER_NO_CPF_FIELD: 1 if data.get(CUSTOMER_NO_CPF_FIELD) else 0,
 			"email_id": (data.get("email_id") or "").strip(),
 		}
 	)
@@ -832,6 +891,22 @@ def _save_checkin_photo(service_order: str, photo: dict[str, str]) -> str:
 	return file_doc.file_url
 
 
+def _save_customer_device_photo(customer_device: str, photo: dict[str, str]) -> str:
+	filename = _safe_filename(photo.get("filename") or f"{customer_device}-foto.png")
+	if "." not in filename:
+		filename = f"{filename}.png"
+	file_doc = save_file(
+		filename,
+		photo["data_url"],
+		"Customer Device",
+		customer_device,
+		decode=True,
+		is_private=0,
+		df="photos",
+	)
+	return file_doc.file_url
+
+
 def _is_image_data_url(value: str | None) -> bool:
 	return bool(value and isinstance(value, str) and value.startswith("data:image/") and "," in value)
 
@@ -875,7 +950,7 @@ def _get_customer_detail(customer: str | None) -> dict[str, Any] | None:
 	item = frappe.db.get_value(
 		"Customer",
 		customer,
-		["name", "customer_name", "mobile_no", "email_id"],
+		["name", "customer_name", "mobile_no", "custom_whatsapp", "custom_cpf", "custom_rg", CUSTOMER_NO_CPF_FIELD, "email_id"],
 		as_dict=True,
 	)
 	return dict(item) if item else {"name": customer, "customer_name": customer}
@@ -894,7 +969,7 @@ def _get_device_detail(customer_device: str | None) -> dict[str, Any] | None:
 	item = frappe.db.get_value(
 		"Customer Device",
 		customer_device,
-		["name", "customer", "brand", "model", "color", "imei_serial", "capacity"],
+		["name", "customer", "brand", "model", "color", "imei_serial", "capacity", "photos"],
 		as_dict=True,
 	)
 	return dict(item) if item else {"name": customer_device}

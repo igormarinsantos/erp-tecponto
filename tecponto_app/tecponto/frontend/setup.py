@@ -1,6 +1,20 @@
 from __future__ import annotations
 
 import frappe
+from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+
+CUSTOMER_FRONTEND_FIELDS = {
+	"Customer": [
+		{
+			"fieldname": "custom_nao_possui_cpf",
+			"fieldtype": "Check",
+			"insert_after": "custom_cpf",
+			"label": "Não possui CPF",
+			"module": "Tecponto",
+		},
+	]
+}
 
 
 FRONTEND_ROLES = (
@@ -19,6 +33,8 @@ LEGACY_WORKSPACE_DEFAULTS = (
 
 
 def ensure_frontend_foundation() -> None:
+	create_custom_fields(CUSTOMER_FRONTEND_FIELDS, update=True)
+
 	for role in FRONTEND_ROLES:
 		if frappe.db.exists("Role", role):
 			continue

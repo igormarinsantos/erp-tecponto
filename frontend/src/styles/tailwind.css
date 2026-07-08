@@ -19,6 +19,7 @@ body,
   position: relative;
   width: 100%;
   overflow-x: hidden;
+  font-family: var(--tp-font-body);
 }
 
 body {
@@ -70,7 +71,7 @@ h4,
 .tp-metric-value,
 .tp-logo,
 .tp-nav-label {
-  font-family: var(--tp-font-display);
+  font-family: var(--tp-font-display) !important;
 }
 
 .tp-display,

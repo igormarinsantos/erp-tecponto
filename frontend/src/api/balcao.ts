@@ -1,5 +1,7 @@
 import { rpc } from "./client";
 import type {
+  CreateCustomerDevicePayload,
+  CreateCustomerDeviceResponse,
   CustomerDeviceListResponse,
   CustomerSearchResponse,
   DashboardMetrics,
@@ -21,6 +23,11 @@ export const balcao = {
   listDevices(query = "", limit = 12) {
     return rpc<CustomerDeviceListResponse>(`${API}.list_customer_devices`, {
       query: { query, limit },
+    });
+  },
+  createDevice(payload: CreateCustomerDevicePayload) {
+    return rpc<CreateCustomerDeviceResponse>(`${API}.create_customer_device`, {
+      body: { payload },
     });
   },
   listTradeEvaluations(query = "", limit = 12) {

@@ -7,6 +7,8 @@ export type {
   BootResponse,
   CheckinPayload,
   CheckinResponse,
+  CreateCustomerDevicePayload,
+  CreateCustomerDeviceResponse,
   CustomerDeviceListResponse,
   CustomerDeviceSummary,
   CustomerSearchResponse,

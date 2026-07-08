@@ -253,6 +253,9 @@ has_permission = {
 # Hook on document methods and events
 
 doc_events = {
+	"Customer": {
+		"validate": "tecponto_app.tecponto.customer.validate_customer_registration",
+	},
 	"Item": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_item_valuation_defaults",
 	},
