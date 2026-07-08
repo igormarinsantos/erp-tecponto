@@ -1,4 +1,14 @@
-import { type PointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type HTMLInputAutoCompleteAttribute,
+  type HTMLInputTypeAttribute,
+  type PointerEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowRight,
   Camera,
@@ -151,7 +161,7 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
 
   return (
     <Modal className="max-w-5xl" onClose={onClose} open={open} title={created ? "OS criada" : "Nova OS / check-in"}>
-      <div className="max-h-[78vh] overflow-y-auto pr-1">
+      <div>
         {created ? (
           <CheckinSuccess created={created} onClose={onClose} onOpenOrder={onOpenOrder} />
         ) : (
@@ -309,9 +319,31 @@ function CustomerStep({
           />
         ) : (
           <div className="mt-3 space-y-3">
-            <Field label="Nome" onChange={(value) => setNewCustomer({ ...newCustomer, customer_name: value })} required value={newCustomer.customer_name} />
-            <Field label="Telefone" onChange={(value) => setNewCustomer({ ...newCustomer, mobile_no: value })} value={newCustomer.mobile_no} />
-            <Field label="E-mail" onChange={(value) => setNewCustomer({ ...newCustomer, email_id: value })} value={newCustomer.email_id} />
+            <Field
+              autoComplete="name"
+              label="Nome"
+              onChange={(value) => setNewCustomer({ ...newCustomer, customer_name: value })}
+              required
+              value={newCustomer.customer_name}
+            />
+            <Field
+              autoComplete="tel"
+              inputMode="tel"
+              label="Telefone"
+              onChange={(value) => setNewCustomer({ ...newCustomer, mobile_no: value })}
+              placeholder="(11) 99999-9999"
+              type="tel"
+              value={newCustomer.mobile_no}
+            />
+            <Field
+              autoComplete="email"
+              inputMode="email"
+              label="E-mail"
+              onChange={(value) => setNewCustomer({ ...newCustomer, email_id: value })}
+              placeholder="cliente@email.com"
+              type="email"
+              value={newCustomer.email_id}
+            />
           </div>
         )}
       </section>
@@ -401,7 +433,16 @@ function DeviceStep({
             <Field label="Cor" onChange={(value) => setNewDevice({ ...newDevice, color: value })} value={newDevice.color} />
             <Field label="Capacidade" onChange={(value) => setNewDevice({ ...newDevice, capacity: value })} value={newDevice.capacity} />
             <div className="sm:col-span-2">
-              <Field label="IMEI / Serial" onChange={(value) => setNewDevice({ ...newDevice, imei_serial: value })} required value={newDevice.imei_serial} />
+              <Field
+                autoComplete="off"
+                inputMode="numeric"
+                label="IMEI / Serial"
+                maxLength={18}
+                onChange={(value) => setNewDevice({ ...newDevice, imei_serial: value })}
+                placeholder="15 dígitos do IMEI ou serial"
+                required
+                value={newDevice.imei_serial}
+              />
             </div>
             <div className="sm:col-span-2">
               <TextArea label="Estado geral do aparelho" onChange={(value) => setNewDevice({ ...newDevice, general_state: value })} value={newDevice.general_state} />
@@ -678,25 +719,42 @@ function SelectedBox({ lines, onClear }: { lines: string[]; onClear: () => void 
 }
 
 function Field({
+  autoComplete,
+  inputMode,
   label,
+  maxLength,
   onChange,
+  placeholder,
   required,
+  type = "text",
   value,
 }: {
+  autoComplete?: HTMLInputAutoCompleteAttribute;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
   label: string;
+  maxLength?: number;
   onChange: (value: string) => void;
+  placeholder?: string;
   required?: boolean;
+  type?: HTMLInputTypeAttribute;
   value: string;
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-bold uppercase text-tec-muted">
-        {label}
-        {required ? " *" : ""}
+      <span className="mb-1 flex items-center justify-between gap-2 text-xs font-bold uppercase text-tec-muted">
+        <span>{label}</span>
+        <span className={required ? "text-tec-orange" : "text-tec-muted/70"}>{required ? "Obrigatório" : "Opcional"}</span>
       </span>
       <input
+        aria-required={required || undefined}
+        autoComplete={autoComplete}
         className="h-11 w-full rounded-control border border-tec-border/25 bg-tec-field px-3 text-sm text-white outline-none focus:border-tec-orange/70"
+        inputMode={inputMode}
+        maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        required={required}
+        type={type}
         value={value}
       />
     </label>
@@ -716,13 +774,15 @@ function TextArea({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-bold uppercase text-tec-muted">
-        {label}
-        {required ? " *" : ""}
+      <span className="mb-1 flex items-center justify-between gap-2 text-xs font-bold uppercase text-tec-muted">
+        <span>{label}</span>
+        <span className={required ? "text-tec-orange" : "text-tec-muted/70"}>{required ? "Obrigatório" : "Opcional"}</span>
       </span>
       <textarea
+        aria-required={required || undefined}
         className="min-h-[190px] w-full resize-none rounded-control border border-tec-border/25 bg-tec-field p-3 text-sm text-white outline-none focus:border-tec-orange/70"
         onChange={(event) => onChange(event.target.value)}
+        required={required}
         value={value}
       />
     </label>

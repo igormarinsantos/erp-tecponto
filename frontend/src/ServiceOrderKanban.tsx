@@ -12,6 +12,7 @@ interface ServiceOrderKanbanProps {
   onChanged: () => void;
   onOpenWorkflowFlow: (name: string, flow: WorkflowFlow) => void;
   onOpenOrder: (name: string) => void;
+  onShowList: () => void;
   onToast: (message: string, tone?: ToastTone) => void;
 }
 
@@ -25,7 +26,15 @@ interface DraggedCard {
   sourceState: string;
 }
 
-export function ServiceOrderKanban({ onChanged, onOpenOrder, onOpenWorkflowFlow, onToast }: ServiceOrderKanbanProps) {
+const VISIBLE_ITEMS_PER_COLUMN = 4;
+
+export function ServiceOrderKanban({
+  onChanged,
+  onOpenOrder,
+  onOpenWorkflowFlow,
+  onShowList,
+  onToast,
+}: ServiceOrderKanbanProps) {
   const [state, setState] = useState<KanbanState>({ status: "loading" });
   const [dragged, setDragged] = useState<DraggedCard | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -133,7 +142,7 @@ export function ServiceOrderKanban({ onChanged, onOpenOrder, onOpenWorkflowFlow,
         </Button>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-2">
+      <div className="tp-kanban-grid">
         {state.data.columns.map((column) => (
           <KanbanColumn
             column={column}
@@ -147,6 +156,7 @@ export function ServiceOrderKanban({ onChanged, onOpenOrder, onOpenWorkflowFlow,
             onDragStart={(item) => setDragged({ name: item.name, sourceState: column.state })}
             onDrop={() => void moveCard(column.state)}
             onOpenOrder={onOpenOrder}
+            onShowList={onShowList}
             onSetDropTarget={setDropTarget}
           />
         ))}
@@ -163,6 +173,7 @@ function KanbanColumn({
   onDragStart,
   onDrop,
   onOpenOrder,
+  onShowList,
   onSetDropTarget,
 }: {
   column: ServiceOrderKanbanColumn;
@@ -172,15 +183,17 @@ function KanbanColumn({
   onDragStart: (item: ServiceOrderSummary) => void;
   onDrop: () => void;
   onOpenOrder: (name: string) => void;
+  onShowList: () => void;
   onSetDropTarget: (state: string | null) => void;
 }) {
   const tone = statusTone(column.state);
-  const hiddenCount = Math.max(0, column.count - column.items.length);
+  const visibleItems = column.items.slice(0, VISIBLE_ITEMS_PER_COLUMN);
+  const hiddenCount = Math.max(0, column.count - visibleItems.length);
 
   return (
     <section
       className={cx(
-        "flex h-[610px] w-[286px] shrink-0 flex-col rounded-card border bg-tec-panel transition",
+        "flex min-h-[280px] flex-col rounded-card border bg-tec-panel transition",
         tone.border,
         dropTarget === column.state && "border-tec-orange/80 bg-tec-orange/10",
       )}
@@ -213,9 +226,9 @@ function KanbanColumn({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        {column.items.length ? (
-          column.items.map((item) => (
+      <div className="flex-1 space-y-3 p-3">
+        {visibleItems.length ? (
+          visibleItems.map((item) => (
             <KanbanCard
               item={item}
               key={item.name}
@@ -233,8 +246,14 @@ function KanbanColumn({
       </div>
 
       {hiddenCount ? (
-        <footer className="border-t border-tec-border/15 px-3 py-2 text-xs font-semibold text-tec-subtle">
-          +{hiddenCount.toLocaleString("pt-BR")} fora da primeira página
+        <footer className="border-t border-tec-border/15 p-3">
+          <button
+            className="w-full rounded-control border border-tec-border/20 bg-tec-field px-3 py-2 text-xs font-bold text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
+            onClick={onShowList}
+            type="button"
+          >
+            Ver mais (+{hiddenCount.toLocaleString("pt-BR")})
+          </button>
         </footer>
       ) : null}
     </section>

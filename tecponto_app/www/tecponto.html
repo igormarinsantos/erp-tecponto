@@ -8,7 +8,7 @@
 <style>
 	html,
 	body {
-		background: #070b0f;
+		background: #15181b;
 	}
 
 	.navbar,
@@ -17,13 +17,23 @@
 		display: none !important;
 	}
 
+	#page-tecponto,
+	.page-content-wrapper,
+	.page-content-wrapper > .container,
 	.web-page-content {
-		padding: 0 !important;
 		margin: 0 !important;
 		max-width: none !important;
+		padding: 0 !important;
+		width: 100% !important;
+	}
+
+	#tecponto-root {
+		margin: 0 !important;
+		max-width: none !important;
+		width: 100% !important;
 	}
 </style>
-<link rel="stylesheet" href="/assets/tecponto_app/frontend/assets/app.css?v=3.1d-{{ build_version or 'local' }}">
+<link rel="stylesheet" href="/assets/tecponto_app/frontend/assets/app.css?v={{ build_version or 'local' }}">
 {% endblock %}
 
 {% block page_content %}
@@ -34,5 +44,5 @@
 		site: "{{ frappe.local.site }}",
 	};
 </script>
-<script type="module" src="/assets/tecponto_app/frontend/assets/app.js?v=3.1d-{{ build_version or 'local' }}"></script>
+<script type="module" src="/assets/tecponto_app/frontend/assets/app.js?v={{ build_version or 'local' }}"></script>
 {% endblock %}

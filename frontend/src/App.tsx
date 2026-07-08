@@ -45,6 +45,9 @@ type LoadState =
   | { status: "error"; message: string };
 type ToastState = { message: string; tone: "success" | "error" };
 type ServiceOrderFlow = "approve" | "reject" | "pickup";
+type ServiceOrdersViewMode = "list" | "kanban";
+
+const SERVICE_ORDERS_VIEW_KEY = "tecponto.service-orders.view";
 
 const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> = {
   overview: {
@@ -178,7 +181,7 @@ export function App() {
       <Topbar onComingSoon={showComingSoon} onLogout={logout} user={state.boot.user} />
 
       <main className="tp-main-shell p-4">
-        <section className="tp-content-shell mx-auto">
+        <section className="tp-content-shell">
           <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white md:text-4xl">
@@ -213,6 +216,7 @@ export function App() {
               onInitialOrderFlowHandled={clearPendingOrderFlow}
               onToast={showToast}
               onStartCheckin={startCheckin}
+              orders={state.orders}
               selectedOrderName={selectedOrderName}
             />
           )}
@@ -250,7 +254,7 @@ function OverviewContent({
 }) {
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="tp-bento-grid">
         {panel.metrics.map((metric) => (
           <MetricCard
             detail={metric.detail}
@@ -263,7 +267,7 @@ function OverviewContent({
         ))}
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="tp-layout-grid mt-4">
         <OperationsTable
           onComingSoon={onComingSoon}
           onOpenOrder={onOpenServiceOrder}
@@ -287,6 +291,7 @@ function NavigationContent({
   onRefreshData,
   onStartCheckin,
   onToast,
+  orders,
   selectedOrderName,
 }: {
   activeView: NavigationTarget;
@@ -298,8 +303,19 @@ function NavigationContent({
   onRefreshData: () => void;
   onStartCheckin: () => void;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
+  orders: ServiceOrderSummary[];
   selectedOrderName: string | null;
 }) {
+  const [serviceOrdersView, setServiceOrdersView] = useState<ServiceOrdersViewMode>(getStoredServiceOrdersView);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SERVICE_ORDERS_VIEW_KEY, serviceOrdersView);
+    } catch {
+      // Preference persistence is useful, not critical to the workflow.
+    }
+  }, [serviceOrdersView]);
+
   if (activeView === "service-order-detail") {
     return selectedOrderName ? (
       <ServiceOrderDetail
@@ -316,13 +332,26 @@ function NavigationContent({
 
   if (activeView === "service-orders") {
     return (
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <ServiceOrderKanban
-          onChanged={onRefreshData}
-          onOpenOrder={onOpenServiceOrder}
-          onOpenWorkflowFlow={onOpenServiceOrder}
-          onToast={onToast}
-        />
+      <div className="tp-layout-grid">
+        <section className="min-w-0 space-y-4">
+          <ServiceOrderViewToggle onChange={setServiceOrdersView} value={serviceOrdersView} />
+          {serviceOrdersView === "kanban" ? (
+            <ServiceOrderKanban
+              onChanged={onRefreshData}
+              onOpenOrder={onOpenServiceOrder}
+              onOpenWorkflowFlow={onOpenServiceOrder}
+              onShowList={() => setServiceOrdersView("list")}
+              onToast={onToast}
+            />
+          ) : (
+            <OperationsTable
+              onComingSoon={onComingSoon}
+              onOpenOrder={(name) => onOpenServiceOrder(name)}
+              orders={orders}
+              title="Lista de OS"
+            />
+          )}
+        </section>
         <ActionPanel
           actions={[
             { icon: Wrench, label: "Nova OS", detail: "Check-in do balcão", soon: "bloco 3.1c" },
@@ -546,7 +575,7 @@ function ServiceOrderDetail({
         </div>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="tp-layout-grid">
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <IdentityCard
@@ -1055,7 +1084,7 @@ function SalesLookup({
   onNavigate: (target: NavigationTarget) => void;
 }) {
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="tp-layout-grid">
       <Card className="p-4">
         <h2 className="text-lg font-bold text-white">Vendas e acessórios</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1121,6 +1150,50 @@ function LookupCard<T>({
   );
 }
 
+function ServiceOrderViewToggle({
+  onChange,
+  value,
+}: {
+  onChange: (value: ServiceOrdersViewMode) => void;
+  value: ServiceOrdersViewMode;
+}) {
+  const options: Array<{ label: string; value: ServiceOrdersViewMode }> = [
+    { label: "Lista", value: "list" },
+    { label: "Kanban", value: "kanban" },
+  ];
+
+  return (
+    <Card className="p-2">
+      <div className="grid gap-2 sm:inline-grid sm:grid-cols-2">
+        {options.map((option) => (
+          <button
+            aria-pressed={value === option.value}
+            className={`min-h-10 rounded-control px-4 text-sm font-bold transition ${
+              value === option.value
+                ? "bg-tec-orange text-tec-ink shadow-glow"
+                : "bg-tec-field text-tec-subtle hover:text-white"
+            }`}
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function getStoredServiceOrdersView(): ServiceOrdersViewMode {
+  try {
+    const stored = window.localStorage.getItem(SERVICE_ORDERS_VIEW_KEY);
+    return stored === "kanban" || stored === "list" ? stored : "kanban";
+  } catch {
+    return "kanban";
+  }
+}
+
 function RightRail({
   actions,
   onComingSoon,
@@ -1170,7 +1243,7 @@ function ActionPanel({
     <Card className="p-4">
       <h2 className="mb-4 text-lg font-bold text-white">{title}</h2>
       {actions.length ? (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="tp-action-grid">
           {actions.map((action, index) => {
             const opensCheckin = action.soon === "bloco 3.1c" && onStartCheckin;
             return (

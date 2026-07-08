@@ -17,8 +17,13 @@ export function Modal({ children, className, onClose, open, title }: ModalProps)
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
-      <section className={`tp-panel w-full rounded-card ${className ?? "max-w-2xl"}`}>
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-tec-bg p-4">
+      <section
+        aria-label={title}
+        aria-modal="true"
+        className={`tp-panel my-4 w-full rounded-card bg-tec-panel ${className ?? "max-w-2xl"}`}
+        role="dialog"
+      >
         <header className="flex items-center justify-between border-b border-tec-border/20 p-4">
           <h2 className="text-lg font-bold text-white">{title}</h2>
           <Button icon={<X size={18} />} onClick={onClose} variant="ghost">
