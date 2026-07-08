@@ -1,26 +1,32 @@
 # Tecponto Front-End Design Tokens
 
-Tokens extraídos das 5 referências anexadas para a Etapa 3.0.
+Fonte de verdade: `design-system.md` oficial do ERP TecPonto. Estes tokens substituem os valores extraídos das imagens na Etapa 3.0.
 
 ## Base
-- Fundo: preto frio quase naval, com profundidade sutil: `#070b0f`, `#0b1117`, `#0f171d`.
-- Superfícies: cards densos e escuros: `#111a21`, `#17212a`, borda translúcida `rgba(148, 163, 184, 0.16)`.
-- Texto: primário `#f8fafc`, secundário `#c4ccd6`, mutado `#8996a3`.
-- Tipografia principal: `Space Grotesk` self-hosted via `@fontsource/space-grotesk`, pesos 400/500/600/700.
-- Tipografia de tabela: pode usar `Inter`/sans neutra via `--tp-font-table` quando a densidade da tabela pedir leitura mais calma.
-- Raio: `8px` para cards, painéis, botões e pills.
-- Grid: sidebar fixa, topbar de 64px, conteúdo em 12 colunas, gaps de 16px.
+- Tipografia principal: `Space Grotesk` via `@fontsource/space-grotesk`, pesos 400/500/600/700.
+- Títulos, números e logo textual usam `--tp-font-display`.
+- Tabelas podem usar `--tp-font-table` com sans neutra para leitura densa.
+- Cards usam `12px`; controles e botões usam `14px`; item ativo da lateral usa `16px`.
+- Animações são curtas e respeitam `prefers-reduced-motion`.
 
-## Marca e Status
-- Laranja Tecponto: `#ff5b12`, ativo/CTA: `#ff3d00`.
-- WhatsApp/sucesso: `#25d366` e `#22c55e`.
-- Info/execução: `#2f8cff`.
-- Peça/assinatura/pendente: `#b84cff`.
-- Atenção/prazo: `#f5a400`.
-- Crítico/bloqueio: `#ef3737`.
+## Tema Escuro
+- Página: `#15181B` (`--tp-bg`).
+- Cartões: `#1D2125` (`--tp-panel`).
+- Superfícies elevadas e campos: `#24292E` (`--tp-panel-strong`, `--tp-field`).
+- Lateral: `#101214` (`--tp-sidebar`).
+- Texto primário: `#F5F6F7`; texto secundário: `#ADB4BA`.
+- Bordas: grafite com baixa opacidade.
+
+## Marca
+- Laranja TecPonto: `#FE5000`.
+- Laranja digital: `#FF4B00`.
+- Grafite: `#25292C`.
+- Texto sobre botão primário e item ativo: `#202428`.
+- Névoa do tema claro futuro: `#EEEDF6`.
+- Verde `#25D366` é exclusivo para ações relacionadas ao WhatsApp.
 
 ## Componentes
-- Cards de métrica usam ícone em bloco escuro tingido, número grande e legenda compacta.
-- Títulos, logotipo textual e números de cards usam `--tp-font-display` (`Space Grotesk`).
-- Tabelas são densas, com linhas separadas por borda de baixa opacidade e badges coloridos.
-- Sidebar e right rail mantêm a mesma gramática visual em todos os papéis.
+- Botão primário e item ativo: fundo laranja + texto grafite escuro, nunca texto branco pequeno sobre laranja.
+- Campos de busca, inputs, textareas e selects usam `#24292E` no tema escuro.
+- A lateral operacional segue a ordem: Visão geral, Ordens de serviço, Aparelhos, Trocas, Clientes, Peças e estoque, Financeiro quando permitido.
+- A UI evita gradientes decorativos, fundos azulados e cartões sem função operacional.

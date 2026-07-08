@@ -20,7 +20,7 @@ const statusTone: Record<string, BadgeTone> = {
 
 const toneClasses: Record<BadgeTone, string> = {
   orange: "bg-tec-orange/20 text-tec-orange ring-tec-orange/25",
-  green: "bg-tec-green/20 text-tec-green ring-tec-green/25",
+  green: "bg-tec-success/20 text-tec-success ring-tec-success/25",
   blue: "bg-tec-blue/20 text-tec-blue ring-tec-blue/25",
   purple: "bg-tec-purple/20 text-tec-purple ring-tec-purple/25",
   amber: "bg-tec-amber/20 text-tec-amber ring-tec-amber/25",

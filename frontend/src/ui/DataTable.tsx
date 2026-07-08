@@ -20,7 +20,7 @@ export function DataTable<T>({ columns, emptyLabel, onRowClick, rows }: DataTabl
   return (
     <div className="overflow-hidden rounded-card border border-tec-border/20">
       <table className="tp-data-table w-full border-collapse text-left text-sm">
-        <thead className="bg-white/[0.035] text-xs uppercase text-tec-muted">
+        <thead className="bg-tec-field text-xs uppercase text-tec-muted">
           <tr>
             {columns.map((column) => (
               <th className={cx("px-4 py-3 font-semibold", column.className)} key={column.key}>
@@ -35,7 +35,7 @@ export function DataTable<T>({ columns, emptyLabel, onRowClick, rows }: DataTabl
               <tr
                 className={cx(
                   "border-t tp-row-border",
-                  onRowClick ? "cursor-pointer hover:bg-white/[0.025]" : "",
+                  onRowClick ? "cursor-pointer hover:bg-tec-field" : "",
                 )}
                 key={index}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}

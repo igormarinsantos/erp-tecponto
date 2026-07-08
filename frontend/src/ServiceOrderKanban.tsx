@@ -180,7 +180,7 @@ function KanbanColumn({
   return (
     <section
       className={cx(
-        "flex h-[610px] w-[286px] shrink-0 flex-col rounded-card border bg-white/[0.025] transition",
+        "flex h-[610px] w-[286px] shrink-0 flex-col rounded-card border bg-tec-panel transition",
         tone.border,
         dropTarget === column.state && "border-tec-orange/80 bg-tec-orange/10",
       )}
@@ -273,7 +273,7 @@ function KanbanCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-black text-white">{item.name}</p>
+          <p className="truncate text-sm font-bold text-white">{item.name}</p>
           <p className="mt-1 truncate text-sm text-tec-subtle">{item.customer ?? "Cliente não informado"}</p>
         </div>
         <GripVertical className="shrink-0 text-tec-muted transition group-hover:text-tec-orange" size={17} />
@@ -338,9 +338,9 @@ function moveCardLocally(
 function statusTone(status: string) {
   if (["Entregue", "Pronto para retirada", "Teste final", "Aprovado"].includes(status)) {
     return {
-      badge: "bg-tec-green/15 text-tec-green",
-      border: "border-tec-green/25",
-      dot: "bg-tec-green",
+      badge: "bg-tec-success/15 text-tec-success",
+      border: "border-tec-success/25",
+      dot: "bg-tec-success",
     };
   }
   if (["Reprovado", "Orçamento expirado", "Cancelado", "Sem conserto"].includes(status)) {

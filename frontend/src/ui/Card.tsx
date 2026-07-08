@@ -21,7 +21,7 @@ interface MetricCardProps {
 
 const toneClasses = {
   orange: "bg-tec-orange/20 text-tec-orange",
-  green: "bg-tec-green/20 text-tec-green",
+  green: "bg-tec-success/20 text-tec-success",
   blue: "bg-tec-blue/20 text-tec-blue",
   purple: "bg-tec-purple/20 text-tec-purple",
   amber: "bg-tec-amber/20 text-tec-amber",

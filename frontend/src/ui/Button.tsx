@@ -10,9 +10,9 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants: Record<ButtonVariant, string> = {
-  primary: "bg-tec-orange text-white shadow-glow hover:bg-[rgb(var(--tp-orange-strong))]",
-  secondary: "border border-tec-border/30 bg-tec-panel-strong/70 text-tec-text hover:border-tec-orange/50",
-  ghost: "text-tec-subtle hover:bg-white/5 hover:text-tec-text",
+  primary: "bg-tec-orange text-tec-ink shadow-glow hover:bg-tec-digital-orange",
+  secondary: "border border-tec-border/30 bg-tec-field text-tec-text hover:border-tec-orange/50",
+  ghost: "text-tec-subtle hover:bg-tec-field hover:text-tec-text",
   danger: "bg-tec-red/20 text-red-100 ring-1 ring-tec-red/40 hover:bg-tec-red/30",
 };
 

@@ -225,8 +225,8 @@ function StepHeader({ step }: { step: number }) {
             index === step
               ? "border-tec-orange bg-tec-orange/15 text-white"
               : index < step
-                ? "border-tec-green/30 bg-tec-green/10 text-tec-green"
-                : "border-tec-border/20 bg-white/[0.025] text-tec-muted"
+                ? "border-tec-success/30 bg-tec-success/10 text-tec-success"
+                : "border-tec-border/20 bg-tec-panel-strong text-tec-muted"
           }`}
           key={label}
         >
@@ -263,7 +263,7 @@ function CustomerStep({
         <SectionTitle icon={<Search size={18} />} title="Buscar cliente" />
         <div className="mt-3 flex gap-2">
           <input
-            className="h-11 flex-1 rounded-control border border-tec-border/25 bg-white/[0.035] px-4 text-sm text-white outline-none focus:border-tec-orange/70"
+            className="h-11 flex-1 rounded-control border border-tec-border/25 bg-tec-field px-4 text-sm text-white outline-none focus:border-tec-orange/70"
             onChange={(event) => setCustomerQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
@@ -284,7 +284,7 @@ function CustomerStep({
               className={`w-full rounded-card border p-3 text-left text-sm transition ${
                 selectedCustomer?.name === customer.name
                   ? "border-tec-orange bg-tec-orange/10"
-                  : "border-tec-border/20 bg-white/[0.025] hover:border-tec-orange/50"
+                  : "border-tec-border/20 bg-tec-panel-strong hover:border-tec-orange/50"
               }`}
               key={customer.name}
               onClick={() => setSelectedCustomer(customer)}
@@ -346,7 +346,7 @@ function DeviceStep({
         <SectionTitle icon={<Search size={18} />} title="Buscar aparelho" />
         <div className="mt-3 flex gap-2">
           <input
-            className="h-11 flex-1 rounded-control border border-tec-border/25 bg-white/[0.035] px-4 text-sm text-white outline-none focus:border-tec-orange/70"
+            className="h-11 flex-1 rounded-control border border-tec-border/25 bg-tec-field px-4 text-sm text-white outline-none focus:border-tec-orange/70"
             onChange={(event) => setDeviceQuery(event.target.value)}
             placeholder="Modelo, IMEI ou cadastro"
             value={deviceQuery}
@@ -364,7 +364,7 @@ function DeviceStep({
               className={`w-full rounded-card border p-3 text-left text-sm transition ${
                 selectedDevice?.name === device.name
                   ? "border-tec-orange bg-tec-orange/10"
-                  : "border-tec-border/20 bg-white/[0.025] hover:border-tec-orange/50"
+                  : "border-tec-border/20 bg-tec-panel-strong hover:border-tec-orange/50"
               }`}
               key={device.name}
               onClick={() => setSelectedDevice(device)}
@@ -446,12 +446,12 @@ function PhotoStep({
 
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <section className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4">
+      <section className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
         <SectionTitle icon={<Camera size={18} />} title="Foto de entrada" />
         <p className="mt-3 text-sm text-tec-subtle">
           A OS nasce com foto anexada. Sem foto, o motor bloqueia a saída de Entrada criada.
         </p>
-        <label className="mt-5 flex min-h-[140px] cursor-pointer flex-col items-center justify-center rounded-card border border-dashed border-tec-border/35 bg-white/[0.025] p-4 text-center transition hover:border-tec-orange/60">
+        <label className="mt-5 flex min-h-[140px] cursor-pointer flex-col items-center justify-center rounded-card border border-dashed border-tec-border/35 bg-tec-panel-strong p-4 text-center transition hover:border-tec-orange/60">
           <Upload className="text-tec-orange" size={28} />
           <span className="mt-3 text-sm font-bold text-white">Selecionar foto / câmera</span>
           <span className="mt-1 text-xs text-tec-muted">JPG, PNG ou imagem capturada no aparelho</span>
@@ -469,7 +469,7 @@ function PhotoStep({
           </Button>
         ) : null}
       </section>
-      <section className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4">
+      <section className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
         <h3 className="text-sm font-bold text-white">Prévia</h3>
         {photo ? (
           <div className="mt-3">
@@ -589,9 +589,9 @@ function SignatureStep({
           ref={canvasRef}
         />
       </section>
-      <aside className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4">
+      <aside className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
         <h3 className="text-sm font-bold text-white">Status</h3>
-        <p className={`mt-3 text-sm ${signature ? "text-tec-green" : "text-tec-amber"}`}>
+        <p className={`mt-3 text-sm ${signature ? "text-tec-success" : "text-tec-amber"}`}>
           {signature ? "Assinatura capturada." : "Peça para o cliente assinar no quadro ao lado."}
         </p>
         <Button className="mt-5 w-full" icon={<RotateCcw size={17} />} onClick={resetCanvas}>
@@ -613,9 +613,9 @@ function CheckinSuccess({
 }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <section className="rounded-card border border-tec-green/30 bg-tec-green/10 p-5">
-        <CheckCircle2 className="text-tec-green" size={28} />
-        <h3 className="mt-4 text-2xl font-black text-white">{created.service_order.name}</h3>
+      <section className="rounded-card border border-tec-success/30 bg-tec-success/10 p-5">
+        <CheckCircle2 className="text-tec-success" size={28} />
+        <h3 className="mt-4 text-2xl font-bold text-white">{created.service_order.name}</h3>
         <p className="mt-2 text-sm text-tec-subtle">
           OS criada em Entrada criada com foto e assinatura de entrada salvas.
         </p>
@@ -632,12 +632,12 @@ function CheckinSuccess({
           <Button onClick={onClose}>Fechar</Button>
         </div>
       </section>
-      <section className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4">
+      <section className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
         <h3 className="text-sm font-bold text-white">Impressão</h3>
         <div className="mt-3 space-y-2">
           {created.service_order.print_links.map((link) => (
             <a
-              className="flex min-h-11 items-center justify-between gap-3 rounded-card border border-tec-border/20 bg-white/[0.035] px-3 text-sm font-semibold text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
+              className="flex min-h-11 items-center justify-between gap-3 rounded-card border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
               href={link.url}
               key={link.format}
               rel="noreferrer"
@@ -695,7 +695,7 @@ function Field({
         {required ? " *" : ""}
       </span>
       <input
-        className="h-11 w-full rounded-control border border-tec-border/25 bg-white/[0.035] px-3 text-sm text-white outline-none focus:border-tec-orange/70"
+        className="h-11 w-full rounded-control border border-tec-border/25 bg-tec-field px-3 text-sm text-white outline-none focus:border-tec-orange/70"
         onChange={(event) => onChange(event.target.value)}
         value={value}
       />
@@ -721,7 +721,7 @@ function TextArea({
         {required ? " *" : ""}
       </span>
       <textarea
-        className="min-h-[190px] w-full resize-none rounded-control border border-tec-border/25 bg-white/[0.035] p-3 text-sm text-white outline-none focus:border-tec-orange/70"
+        className="min-h-[190px] w-full resize-none rounded-control border border-tec-border/25 bg-tec-field p-3 text-sm text-white outline-none focus:border-tec-orange/70"
         onChange={(event) => onChange(event.target.value)}
         value={value}
       />
@@ -744,13 +744,14 @@ function makeLocalTestPhoto() {
   canvas.height = 540;
   const context = canvas.getContext("2d");
   if (context) {
-    context.fillStyle = "#0b1117";
+    context.fillStyle = "#15181B";
     context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#ff5b12";
+    context.fillStyle = "#FE5000";
     context.fillRect(0, 0, canvas.width, 76);
-    context.fillStyle = "#ffffff";
+    context.fillStyle = "#202428";
     context.font = "bold 34px Space Grotesk, sans-serif";
     context.fillText("TECPONTO - FOTO DE ENTRADA", 32, 50);
+    context.fillStyle = "#F5F6F7";
     context.font = "24px Space Grotesk, sans-serif";
     context.fillText(new Date().toLocaleString("pt-BR"), 32, 140);
     context.fillText("Imagem local para teste automatizado do check-in.", 32, 190);

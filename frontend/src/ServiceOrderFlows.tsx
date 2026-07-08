@@ -79,7 +79,7 @@ export function BudgetDecisionModal({ detail, mode, onClose, onUpdated, open }: 
                   className={`rounded-control border px-3 py-2 text-sm font-bold transition ${
                     channel === nextChannel
                       ? "border-tec-orange bg-tec-orange/20 text-white"
-                      : "border-tec-border/25 bg-white/[0.035] text-tec-subtle hover:border-tec-orange/50"
+                      : "border-tec-border/25 bg-tec-field text-tec-subtle hover:border-tec-orange/50"
                   }`}
                   key={nextChannel}
                   onClick={() => setChannel(nextChannel)}
@@ -99,7 +99,7 @@ export function BudgetDecisionModal({ detail, mode, onClose, onUpdated, open }: 
           />
           {error ? <ErrorBox message={error} /> : null}
         </section>
-        <aside className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4">
+        <aside className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
           <h3 className="text-sm font-bold text-white">Registro no motor</h3>
           <dl className="mt-4 space-y-3 text-sm">
             <FlowLine label="Atendente" value="Usuário logado" />
@@ -184,7 +184,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
       <div className="grid max-h-[78vh] gap-4 overflow-y-auto pr-1 xl:grid-cols-[minmax(0,1fr)_340px]">
         <section className="space-y-4">
           <PickupReview detail={detail} />
-          <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4">
+          <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
             <label className="flex items-start gap-3 text-sm text-tec-subtle">
               <input
                 checked={thirdParty}
@@ -219,7 +219,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
           {error ? <ErrorBox message={error} /> : null}
         </section>
         <aside className="space-y-4">
-          <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4">
+          <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
             <h3 className="text-sm font-bold text-white">Financeiro</h3>
             <dl className="mt-4 space-y-3 text-sm">
               <FlowLine label="Nota" value={detail.finance.sales_invoice ?? "Sem nota"} />
@@ -230,11 +230,11 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
               Se a nota não estiver paga, o motor bloqueia a entrega. Gere a nota e receba o pagamento primeiro.
             </p>
           </div>
-          <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4">
+          <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
             <h3 className="text-sm font-bold text-white">Impressão</h3>
             {termLink ? (
               <a
-                className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-card border border-tec-border/20 bg-white/[0.035] px-3 text-sm font-semibold text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
+                className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-card border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
                 href={termLink.url}
                 rel="noreferrer"
                 target="_blank"
@@ -263,7 +263,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
 
 function BudgetSummary({ detail }: { detail: ServiceOrderDetailResponse }) {
   return (
-    <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4">
+    <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-bold text-white">Orçamento</h3>
@@ -279,7 +279,7 @@ function BudgetSummary({ detail }: { detail: ServiceOrderDetailResponse }) {
 
 function PickupReview({ detail }: { detail: ServiceOrderDetailResponse }) {
   return (
-    <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4">
+    <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
       <div className="mb-4 flex items-center gap-3">
         <FileText className="text-tec-orange" size={20} />
         <div>
@@ -410,7 +410,7 @@ function SignaturePad({
   }
 
   return (
-    <div className="grid gap-4 rounded-card border border-tec-border/20 bg-white/[0.025] p-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+    <div className="grid gap-4 rounded-card border border-tec-border/20 bg-tec-panel-strong p-4 lg:grid-cols-[minmax(0,1fr)_260px]">
       <section>
         <div className="flex items-center gap-3">
           <span className="grid h-9 w-9 place-items-center rounded-card bg-tec-orange/15 text-tec-orange">
@@ -430,7 +430,7 @@ function SignaturePad({
       </section>
       <aside>
         <h4 className="text-sm font-bold text-white">Status</h4>
-        <p className={`mt-3 text-sm ${signature ? "text-tec-green" : "text-tec-amber"}`}>
+        <p className={`mt-3 text-sm ${signature ? "text-tec-success" : "text-tec-amber"}`}>
           {signature ? "Assinatura capturada." : "Assine no quadro para liberar a entrega."}
         </p>
         <Button className="mt-5 w-full" icon={<RotateCcw size={17} />} onClick={resetCanvas}>
@@ -459,7 +459,7 @@ function Field({
         {required ? " *" : ""}
       </span>
       <input
-        className="h-11 w-full rounded-control border border-tec-border/25 bg-white/[0.035] px-3 text-sm text-white outline-none focus:border-tec-orange/70"
+        className="h-11 w-full rounded-control border border-tec-border/25 bg-tec-field px-3 text-sm text-white outline-none focus:border-tec-orange/70"
         onChange={(event) => onChange(event.target.value)}
         value={value}
       />
@@ -487,7 +487,7 @@ function TextArea({
         {required ? " *" : ""}
       </span>
       <textarea
-        className="min-h-[120px] w-full resize-none rounded-control border border-tec-border/25 bg-white/[0.035] p-3 text-sm text-white outline-none focus:border-tec-orange/70"
+        className="min-h-[120px] w-full resize-none rounded-control border border-tec-border/25 bg-tec-field p-3 text-sm text-white outline-none focus:border-tec-orange/70"
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         value={value}

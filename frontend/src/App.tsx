@@ -181,7 +181,7 @@ export function App() {
         <section className="tp-content-shell mx-auto">
           <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
-              <h1 className="text-3xl font-black text-white md:text-4xl">
+              <h1 className="text-3xl font-bold text-white md:text-4xl">
                 {currentView ? currentView.title : panel.title}
               </h1>
               <p className="mt-1 text-sm text-tec-subtle">{currentView ? currentView.subtitle : panel.subtitle}</p>
@@ -536,9 +536,9 @@ function ServiceOrderDetail({
               Voltar para a fila
             </button>
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-2xl font-black text-white">{detail.name}</h2>
+              <h2 className="text-2xl font-bold text-white">{detail.name}</h2>
               <BadgeStatus status={detail.workflow_state} />
-              {detail.priority ? <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-tec-subtle">{detail.priority}</span> : null}
+              {detail.priority ? <span className="rounded-full bg-tec-field px-3 py-1 text-xs text-tec-subtle">{detail.priority}</span> : null}
             </div>
             <p className="mt-2 max-w-3xl text-sm text-tec-subtle">{detail.reported_defect ?? "Sem defeito informado"}</p>
           </div>
@@ -683,13 +683,13 @@ function BudgetLines({
     <div>
       <div className="mb-2 flex items-center justify-between">
         <h4 className="text-sm font-bold text-white">{title}</h4>
-        <span className="rounded-full bg-white/5 px-2 py-1 text-xs text-tec-muted">{lines.length}</span>
+        <span className="rounded-full bg-tec-field px-2 py-1 text-xs text-tec-muted">{lines.length}</span>
       </div>
       <div className="overflow-hidden rounded-card border border-tec-border/20">
         {lines.length ? (
           lines.map((line, index) => (
             <div
-              className="grid gap-3 border-b border-tec-border/15 bg-white/[0.018] p-3 text-sm last:border-0 md:grid-cols-[minmax(0,1fr)_90px_120px_120px]"
+              className="grid gap-3 border-b border-tec-border/15 bg-tec-field/40 p-3 text-sm last:border-0 md:grid-cols-[minmax(0,1fr)_90px_120px_120px]"
               key={`${line.item_code ?? title}-${index}`}
             >
               <div className="min-w-0">
@@ -734,7 +734,7 @@ function WorkflowCard({
         {actions.length ? (
           actions.map((action) => (
             <button
-              className="flex w-full items-center justify-between gap-3 rounded-card border border-tec-border/20 bg-white/[0.035] p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
+              className="flex w-full items-center justify-between gap-3 rounded-card border border-tec-border/20 bg-tec-field p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
               key={`${action.action}-${action.next_state}`}
               onClick={() => {
                 if (action.next_state === "Aprovado") {
@@ -758,7 +758,7 @@ function WorkflowCard({
             </button>
           ))
         ) : (
-          <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4 text-sm text-tec-muted">
+          <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4 text-sm text-tec-muted">
             Nenhuma ação disponível para este papel neste estado.
           </div>
         )}
@@ -844,7 +844,7 @@ function DetailLine({ label, value }: { label: string; value: string }) {
 
 function TotalPill({ label, strong, value }: { label: string; strong?: boolean; value: string }) {
   return (
-    <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-3">
+    <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-3">
       <p className="text-xs text-tec-muted">{label}</p>
       <p className={strong ? "mt-1 font-bold text-white" : "mt-1 font-semibold text-tec-subtle"}>{value}</p>
     </div>
@@ -1099,7 +1099,7 @@ function LookupCard<T>({
         <div className="relative flex-1">
           <SearchIcon className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tec-muted" size={18} />
           <input
-            className="h-11 w-full rounded-control border border-tec-border/25 bg-white/[0.035] pl-11 pr-4 text-sm text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
+            className="h-11 w-full rounded-control border border-tec-border/25 bg-tec-field pl-11 pr-4 text-sm text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
             onChange={(event) => setQuery(event.target.value)}
             placeholder={placeholder}
             type="search"
@@ -1175,7 +1175,7 @@ function ActionPanel({
             const opensCheckin = action.soon === "bloco 3.1c" && onStartCheckin;
             return (
               <button
-                className="min-h-[96px] rounded-card border border-tec-border/20 bg-white/[0.035] p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
+                className="min-h-[96px] rounded-card border border-tec-border/20 bg-tec-field p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
                 key={`${action.label}-${index}`}
                 onClick={() => {
                   if (opensCheckin) {
@@ -1193,7 +1193,7 @@ function ActionPanel({
                 <span className="block text-sm font-bold text-white">{action.label}</span>
                 <span className="mt-1 block text-xs text-tec-muted">{action.detail}</span>
                 {action.soon && !opensCheckin ? (
-                  <span className="mt-2 inline-flex rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase text-tec-muted">
+                  <span className="mt-2 inline-flex rounded-full bg-tec-field px-2 py-1 text-[10px] font-bold uppercase text-tec-muted">
                     Em breve
                   </span>
                 ) : null}
@@ -1202,7 +1202,7 @@ function ActionPanel({
           })}
         </div>
       ) : (
-        <div className="rounded-card border border-tec-border/20 bg-white/[0.025] p-4 text-sm text-tec-muted">
+        <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4 text-sm text-tec-muted">
           Selecione uma ação no painel principal.
         </div>
       )}
@@ -1222,7 +1222,7 @@ function AlertLine({
   const toneClass = {
     red: "bg-tec-red/20 text-tec-red",
     amber: "bg-tec-amber/20 text-tec-amber",
-    green: "bg-tec-green/20 text-tec-green",
+    green: "bg-tec-success/20 text-tec-success",
   }[tone];
 
   return (
@@ -1279,7 +1279,7 @@ function timelineToneClass(tone: ServiceOrderTimelineEvent["tone"]) {
   return {
     amber: "bg-tec-amber/20 text-tec-amber",
     blue: "bg-tec-blue/20 text-tec-blue",
-    green: "bg-tec-green/20 text-tec-green",
+    green: "bg-tec-success/20 text-tec-success",
     orange: "bg-tec-orange/20 text-tec-orange",
     red: "bg-tec-red/20 text-tec-red",
   }[tone];
