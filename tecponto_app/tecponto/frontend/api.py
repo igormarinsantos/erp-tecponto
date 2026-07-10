@@ -214,7 +214,7 @@ def resolve_panel(roles: list[str] | tuple[str, ...] | None = None) -> dict[str,
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_logged_user() -> dict[str, Any]:
 	_require_login()
 	user = frappe.session.user
@@ -234,7 +234,7 @@ def get_logged_user() -> dict[str, Any]:
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_boot() -> dict[str, Any]:
 	return {
 		"user": get_logged_user(),

@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Search as SearchIcon,
   Send,
+  ShieldAlert,
   ShoppingCart,
   Smartphone,
   Tag,
@@ -51,8 +52,11 @@ import {
   type StockItemSummary,
   type TradeEvaluationSummary,
 } from "./api";
+import { login } from "./api/auth";
+import { isAuthRequiredError } from "./api/client";
 import { CheckinWizard } from "./CheckinWizard";
 import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
+import { LoginScreen, type LoginReason } from "./LoginScreen";
 import { panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { BudgetDecisionModal, PickupModal } from "./ServiceOrderFlows";
@@ -75,6 +79,8 @@ import { cx } from "./ui/utils";
 
 type LoadState =
   | { status: "loading" }
+  | { status: "login_required"; reason: LoginReason; message?: string }
+  | { status: "no_role"; boot: BootResponse }
   | { status: "ready"; boot: BootResponse; metrics: DashboardMetrics; orders: ServiceOrderSummary[] }
   | { status: "error"; message: string };
 type ServiceOrderListState =
@@ -250,9 +256,18 @@ export function App() {
       setState({ status: "loading" });
     }
     try {
-      const [boot, orderList, metrics] = await Promise.all([getBoot(), serviceOrders.list(12), balcao.getDashboardMetrics()]);
+      const boot = await getBoot();
+      if (boot.user.panel === "sem_papel") {
+        setState({ status: "no_role", boot });
+        return;
+      }
+      const [orderList, metrics] = await Promise.all([serviceOrders.list(12), balcao.getDashboardMetrics()]);
       setState({ status: "ready", boot, metrics, orders: orderList.items });
     } catch (error) {
+      if (isAuthRequiredError(error)) {
+        setState({ status: "login_required", reason: "guest" });
+        return;
+      }
       setState({ status: "error", message: error instanceof Error ? error.message : "Falha ao carregar" });
     }
   }, []);
@@ -264,6 +279,18 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.tecpontoTheme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    const onSessionExpired = () => {
+      setState({
+        message: "Sua sessão expirou. Entre novamente para continuar.",
+        reason: "expired",
+        status: "login_required",
+      });
+    };
+    window.addEventListener("tecponto:session-expired", onSessionExpired);
+    return () => window.removeEventListener("tecponto:session-expired", onSessionExpired);
+  }, []);
 
   useEffect(() => {
     try {
@@ -516,8 +543,21 @@ export function App() {
     showToast(`OS ${response.service_order.name} criada com foto e assinatura.`);
   }, [load, showToast]);
 
+  const handleLogin = useCallback(async (credentials: { password: string; user: string }) => {
+    await login(credentials);
+    window.location.assign("/tecponto");
+  }, []);
+
   if (state.status === "loading") {
     return <LoadingShell />;
+  }
+
+  if (state.status === "login_required") {
+    return <LoginScreen message={state.message} onLogin={handleLogin} reason={state.reason} />;
+  }
+
+  if (state.status === "no_role") {
+    return <NoRoleScreen boot={state.boot} onLogout={logout} onRetry={() => void load()} />;
   }
 
   if (state.status === "error") {
@@ -3952,6 +3992,34 @@ function LoadingShell() {
         <div className="mx-auto h-12 w-12 animate-spin rounded-full border-2 border-tec-orange border-t-transparent" />
         <p className="mt-4 text-sm font-semibold text-tec-subtle">Carregando Tecponto</p>
       </Card>
+    </main>
+  );
+}
+
+function NoRoleScreen({ boot, onLogout, onRetry }: { boot: BootResponse; onLogout: () => void; onRetry: () => void }) {
+  return (
+    <main className="relative grid min-h-screen place-items-center overflow-hidden bg-tec-bg p-4">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_24%_20%,rgba(254,80,0,0.16),transparent_30%),radial-gradient(circle_at_78%_28%,rgba(245,164,0,0.1),transparent_25%)]" />
+      <section className="relative w-full max-w-2xl rounded-[26px] border border-tec-border/20 bg-tec-panel p-6 text-center shadow-panel md:p-8">
+        <span className="mx-auto grid h-16 w-16 place-items-center rounded-[20px] bg-tec-amber/15 text-tec-amber">
+          <ShieldAlert size={28} />
+        </span>
+        <p className="mt-6 text-xs font-bold uppercase tracking-wide text-tec-orange">Acesso Tecponto</p>
+        <h1 className="mt-2 text-3xl font-bold text-white">Usuário sem papel operacional</h1>
+        <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-tec-subtle">
+          O login de {boot.user.full_name || boot.user.name} está ativo no Frappe, mas ainda não possui Tecponto Atendente, Técnico, Gestor ou Diretor. Nenhum dado de operação foi carregado.
+        </p>
+        <div className="mt-6 rounded-card border border-tec-border/15 bg-tec-field p-4 text-left text-sm text-tec-subtle">
+          <p className="font-bold text-white">Próximo passo</p>
+          <p className="mt-1">Peça ao gestor para vincular um papel operacional Tecponto ao usuário {boot.user.name}.</p>
+        </div>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+          <Button onClick={onRetry} variant="primary">
+            Tentar novamente
+          </Button>
+          <Button onClick={onLogout}>Sair</Button>
+        </div>
+      </section>
     </main>
   );
 }
