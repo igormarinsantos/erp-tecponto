@@ -1,26 +1,44 @@
-import { Bell, LogOut, MessageCircle, Search } from "lucide-react";
+import { useEffect } from "react";
+import { Bell, LogOut, Moon, Search, Sun } from "lucide-react";
 
 import type { LoggedUser } from "../api";
-import { Button } from "./Button";
+import { WhatsAppLogo } from "./WhatsAppLogo";
 
 interface TopbarProps {
-  onComingSoon: (label: string, block?: string) => void;
+  onOpenNotifications: () => void;
+  onOpenSearch: () => void;
+  onToggleTheme: () => void;
+  theme: "dark" | "light";
   user: LoggedUser;
   onLogout: () => void;
 }
 
-export function Topbar({ onComingSoon, onLogout, user }: TopbarProps) {
+export function Topbar({ onLogout, onOpenNotifications, onOpenSearch, onToggleTheme, theme, user }: TopbarProps) {
+  const nextThemeLabel = theme === "dark" ? "tema claro" : "tema escuro";
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        onOpenSearch();
+      }
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [onOpenSearch]);
+
   return (
-    <header className="tp-topbar-shell sticky top-0 z-20 flex h-[var(--tp-topbar-height)] items-center gap-3 border-b border-tec-border/20">
-      <div className="tp-topbar-search relative mr-auto w-full max-w-[540px]">
+    <header className="tp-topbar-shell sticky top-0 z-20 flex h-[var(--tp-topbar-height)] items-center gap-4 border-b border-tec-border/20">
+      <div className="tp-topbar-search relative mr-auto w-full max-w-[620px]">
         <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tec-muted" size={17} />
         <input
           className="h-10 w-full rounded-control border border-tec-border/25 bg-tec-field pl-10 pr-16 text-sm text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
-          onClick={() => onComingSoon("Busca global", "bloco 3.1x")}
-          onFocus={() => onComingSoon("Busca global", "bloco 3.1x")}
+          onClick={onOpenSearch}
+          onFocus={onOpenSearch}
           placeholder="Buscar atendimento, cliente, aparelho, OS, venda..."
           readOnly
-          title="Em breve — bloco 3.1x"
+          title="Abrir busca global"
           type="search"
         />
         <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded bg-tec-panel px-2 py-1 text-[11px] text-tec-muted">
@@ -28,19 +46,20 @@ export function Topbar({ onComingSoon, onLogout, user }: TopbarProps) {
         </kbd>
       </div>
 
-      <Button
-        className="tp-topbar-whatsapp min-h-10 shrink-0 px-3 text-tec-whatsapp"
-        icon={<MessageCircle size={17} />}
-        onClick={() => onComingSoon("WhatsApp", "bloco 3.1x")}
-        title="Em breve — bloco 3.1x"
-        variant="secondary"
+      <a
+        className="tp-topbar-whatsapp inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-4 text-sm font-semibold text-tec-whatsapp transition hover:border-tec-whatsapp/50"
+        href="https://web.whatsapp.com/"
+        rel="noreferrer"
+        target="_blank"
+        title="Abrir WhatsApp Web"
       >
+        <WhatsAppLogo size={18} />
         WhatsApp
-      </Button>
+      </a>
       <button
-        className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full border border-tec-border/25 bg-tec-field text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
-        onClick={() => onComingSoon("Notificações", "bloco 3.1x")}
-        title="Em breve — bloco 3.1x"
+        className="relative grid h-10 w-10 shrink-0 place-items-center rounded-control border border-tec-border/25 bg-tec-field text-tec-subtle transition hover:border-tec-orange/50 hover:text-tec-text"
+        onClick={onOpenNotifications}
+        title="Abrir notificações"
         type="button"
       >
         <Bell size={17} />
@@ -48,7 +67,16 @@ export function Topbar({ onComingSoon, onLogout, user }: TopbarProps) {
           8
         </span>
       </button>
-      <div className="tp-topbar-user min-w-[160px] shrink-0 items-center gap-2 rounded-control border border-tec-border/25 bg-tec-field px-2 py-1.5">
+      <button
+        aria-label={`Alternar para ${nextThemeLabel}`}
+        className="grid h-10 w-10 shrink-0 place-items-center rounded-control border border-tec-border/25 bg-tec-field text-tec-subtle transition hover:border-tec-orange/50 hover:text-tec-text"
+        onClick={onToggleTheme}
+        title={`Alternar para ${nextThemeLabel}`}
+        type="button"
+      >
+        {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+      </button>
+      <div className="tp-topbar-user min-w-[172px] shrink-0 items-center gap-2 rounded-control border border-tec-border/25 bg-tec-field px-2 py-1.5">
         <div className="grid h-8 w-8 place-items-center rounded-full bg-tec-blue text-xs font-bold text-white">
           {user.initials}
         </div>
@@ -58,7 +86,7 @@ export function Topbar({ onComingSoon, onLogout, user }: TopbarProps) {
         </div>
       </div>
       <button
-        className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-tec-border/25 bg-tec-field text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
+        className="grid h-10 w-10 shrink-0 place-items-center rounded-control border border-tec-border/25 bg-tec-field text-tec-subtle transition hover:border-tec-orange/50 hover:text-tec-text"
         onClick={onLogout}
         title="Sair"
         type="button"

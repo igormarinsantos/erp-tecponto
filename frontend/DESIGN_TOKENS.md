@@ -6,6 +6,7 @@ Fonte de verdade: `design-system.md` oficial do ERP TecPonto. Estes tokens subst
 - Tipografia principal: `Space Grotesk` via `@fontsource/space-grotesk`, pesos 400/500/600/700.
 - Títulos, números e logo textual usam `--tp-font-display`.
 - Tabelas também usam `--tp-font-table` com Space Grotesk para manter a identidade visual em todas as telas.
+- Tema claro/escuro é controlado por `data-tecponto-theme` no `:root` e persistido por usuário no navegador.
 - Cards usam `12px`; controles e botões usam `14px`; item ativo da lateral usa `16px`.
 - Animações são curtas e respeitam `prefers-reduced-motion`.
 
@@ -15,7 +16,7 @@ Fonte de verdade: `design-system.md` oficial do ERP TecPonto. Estes tokens subst
 - Superfícies elevadas e campos: `#24292E` (`--tp-panel-strong`, `--tp-field`).
 - Lateral: `#101214` (`--tp-sidebar`).
 - Texto primário: `#F5F6F7`; texto secundário: `#ADB4BA`.
-- Bordas: grafite com baixa opacidade.
+- Bordas: grafite frio `#30363C` translúcido, com opacidade baixa; superfícies até ~25% e divisórias internas abaixo disso.
 
 ## Marca
 - Laranja TecPonto: `#FE5000`.

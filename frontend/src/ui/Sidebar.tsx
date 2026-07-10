@@ -18,16 +18,16 @@ export interface NavSection {
 
 interface SidebarProps {
   activeItemId: NavigationTarget;
-  onComingSoon: (label: string, block?: string) => void;
+  onOpenHelp: () => void;
   onNavigate: (target: NavigationTarget) => void;
   sections: NavSection[];
   user: LoggedUser;
 }
 
-export function Sidebar({ activeItemId, onComingSoon, onNavigate, sections, user }: SidebarProps) {
+export function Sidebar({ activeItemId, onOpenHelp, onNavigate, sections, user }: SidebarProps) {
   return (
     <aside className="tp-sidebar-desktop fixed inset-y-0 left-0 z-30 w-[var(--tp-sidebar-width)] border-r border-tec-border/20 bg-tec-sidebar p-4">
-      <div className="rounded-card border border-tec-border/25 bg-tec-panel p-5">
+      <div className="px-2 py-3">
         <div className="tp-logo text-2xl font-bold leading-none tracking-normal text-white">TECPONTO</div>
       </div>
 
@@ -79,8 +79,8 @@ export function Sidebar({ activeItemId, onComingSoon, onNavigate, sections, user
       <div className="absolute bottom-4 left-4 right-4 space-y-3">
         <button
           className="flex min-h-[44px] w-full items-center gap-3 rounded-control border border-tec-border/25 bg-tec-panel px-4 text-sm font-semibold text-tec-subtle transition hover:bg-tec-field hover:text-white"
-          onClick={() => onComingSoon("Ajuda rápida", "bloco 3.1x")}
-          title="Em breve — bloco 3.1x"
+          onClick={onOpenHelp}
+          title="Abrir ajuda rápida"
           type="button"
         >
           <HelpCircle size={18} />
@@ -88,7 +88,7 @@ export function Sidebar({ activeItemId, onComingSoon, onNavigate, sections, user
         </button>
         <div className="rounded-card border border-tec-border/25 bg-tec-panel p-4">
           <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-full bg-tec-blue text-sm font-bold text-white">
+            <div className="grid aspect-square h-11 min-h-11 w-11 min-w-11 shrink-0 place-items-center overflow-hidden rounded-full bg-tec-blue text-sm font-bold leading-none text-white">
               {user.initials}
             </div>
             <div className="min-w-0">

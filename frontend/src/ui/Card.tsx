@@ -8,7 +8,7 @@ interface CardProps {
 }
 
 export function Card({ children, className }: CardProps) {
-  return <section className={cx("tp-panel rounded-card", className)}>{children}</section>;
+  return <section className={cx("tp-panel rounded-card shadow-panel", className)}>{children}</section>;
 }
 
 interface MetricCardProps {
@@ -20,21 +20,21 @@ interface MetricCardProps {
 }
 
 const toneClasses = {
-  orange: "bg-tec-orange/20 text-tec-orange",
-  green: "bg-tec-success/20 text-tec-success",
-  blue: "bg-tec-blue/20 text-tec-blue",
-  purple: "bg-tec-purple/20 text-tec-purple",
-  amber: "bg-tec-amber/20 text-tec-amber",
-  red: "bg-tec-red/20 text-tec-red",
+  orange: "bg-tec-orange text-tec-ink shadow-glow",
+  green: "bg-tec-success/25 text-tec-success",
+  blue: "bg-tec-blue/25 text-tec-blue",
+  purple: "bg-tec-purple/25 text-tec-purple",
+  amber: "bg-tec-amber/25 text-tec-amber",
+  red: "bg-tec-red/25 text-tec-red",
 };
 
 export function MetricCard({ detail, icon, label, tone = "orange", value }: MetricCardProps) {
   return (
-    <Card className="flex min-h-[104px] items-center gap-4 p-4">
-      <div className={cx("grid h-11 w-11 shrink-0 place-items-center rounded-card", toneClasses[tone])}>{icon}</div>
+    <Card className="flex min-h-[112px] items-center gap-5 p-5">
+      <div className={cx("grid h-14 w-14 shrink-0 place-items-center rounded-card", toneClasses[tone])}>{icon}</div>
       <div className="min-w-0">
         <p className="text-sm font-semibold text-tec-subtle">{label}</p>
-        <p className="tp-metric-value mt-1 text-2xl font-bold text-tec-text">{value}</p>
+        <p className="tp-metric-value mt-1 text-3xl font-bold leading-none text-tec-text">{value}</p>
         {detail ? <p className="mt-1 text-xs text-tec-muted">{detail}</p> : null}
       </div>
     </Card>

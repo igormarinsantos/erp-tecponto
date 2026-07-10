@@ -34,6 +34,11 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+#tecponto-root,
+#tecponto-root :where(button, input, select, textarea, table, th, td, p, span, a, div, section, aside, header, main, h1, h2, h3, h4, h5, h6, label, small, strong, kbd) {
+  font-family: var(--tp-font-body) !important;
+}
+
 button,
 input,
 select,
@@ -42,11 +47,11 @@ textarea {
 }
 
 ::selection {
-  background: rgba(var(--tp-orange), 0.32);
+  background: rgb(var(--tp-orange) / 0.32);
 }
 
 .tp-panel {
-  border: 1px solid rgba(var(--tp-border), 0.28);
+  border: 1px solid rgb(var(--tp-border) / 0.16);
   background: rgb(var(--tp-panel));
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
 }
@@ -60,7 +65,7 @@ textarea {
 }
 
 .tp-row-border {
-  border-color: rgba(var(--tp-border), 0.18);
+  border-color: rgb(var(--tp-border) / 0.18);
 }
 
 .tp-display,
@@ -109,8 +114,8 @@ h4 {
 
 .tp-action-grid {
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr));
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 132px), 1fr));
 }
 
 .tp-kanban-grid {
@@ -120,29 +125,72 @@ h4 {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
 }
 
+.tp-kanban-compact-grid {
+  align-items: stretch;
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.tp-kanban-rail-label {
+  max-height: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: rotate(180deg);
+  writing-mode: vertical-rl;
+}
+
+@keyframes tp-urgent-pulse {
+  0%,
+  100% {
+    border-color: rgb(var(--tp-orange) / 0.42);
+    box-shadow: 0 0 0 0 rgb(var(--tp-orange) / 0);
+  }
+
+  50% {
+    border-color: rgb(var(--tp-orange) / 0.72);
+    box-shadow: 0 0 0 5px rgb(var(--tp-orange) / 0.1);
+  }
+}
+
+.tp-kanban-urgent-rail,
+.tp-kanban-urgent-column {
+  animation: tp-urgent-pulse 1.8s ease-in-out infinite;
+}
+
 .tp-bento-grid > *,
 .tp-layout-grid > *,
 .tp-action-grid > *,
-.tp-kanban-grid > * {
+.tp-kanban-grid > *,
+.tp-kanban-compact-grid > * {
   min-width: 0;
 }
 
 .tp-sidebar-desktop {
   display: block;
+  --tp-panel: 37 41 44;
+  --tp-panel-strong: 37 41 44;
+  --tp-field: 32 36 40;
+  --tp-text: 255 255 255;
+  --tp-subtle: 245 246 247;
+  --tp-muted: 173 180 186;
+  --tp-border: 48 54 60;
 }
 
 .tp-topbar-shell {
   background: rgb(var(--tp-bg));
   margin-left: var(--tp-sidebar-width);
+  margin-right: 0.75rem;
   padding-left: 1rem !important;
-  padding-right: 1rem !important;
-  width: calc(100vw - var(--tp-sidebar-width));
+  padding-right: 1.25rem !important;
+  width: auto;
 }
 
 .tp-main-shell {
   margin-left: var(--tp-sidebar-width);
-  padding: 1.25rem 1rem !important;
-  width: calc(100vw - var(--tp-sidebar-width));
+  margin-right: 0.75rem;
+  padding: 1.25rem 1.25rem 1.25rem 1rem !important;
+  width: auto;
 }
 
 .tp-content-shell {
@@ -162,6 +210,43 @@ h4 {
 
 .tp-topbar-user {
   display: flex;
+}
+
+:root[data-tecponto-theme="dark"] #tecponto-root .border-tec-border\/25 {
+  border-color: rgba(48, 54, 60, 0.55) !important;
+}
+
+:root[data-tecponto-theme="dark"] #tecponto-root .border-tec-border\/20 {
+  border-color: rgba(48, 54, 60, 0.46) !important;
+}
+
+:root[data-tecponto-theme="dark"] #tecponto-root .border-tec-border\/15 {
+  border-color: rgba(48, 54, 60, 0.36) !important;
+}
+
+:root[data-tecponto-theme="dark"] #tecponto-root .border-tec-border\/10 {
+  border-color: rgba(48, 54, 60, 0.28) !important;
+}
+
+:root[data-tecponto-theme="dark"] #tecponto-root .tp-panel {
+  border-color: rgba(48, 54, 60, 0.34);
+}
+
+:root[data-tecponto-theme="light"] #tecponto-root main .text-white,
+:root[data-tecponto-theme="light"] #tecponto-root .tp-topbar-shell .text-white,
+:root[data-tecponto-theme="light"] #tecponto-root [role="dialog"] .text-white,
+:root[data-tecponto-theme="light"] #tecponto-root .tp-panel .text-white {
+  color: rgb(var(--tp-text)) !important;
+}
+
+:root[data-tecponto-theme="light"] #tecponto-root .tp-sidebar-desktop .text-white,
+:root[data-tecponto-theme="light"] #tecponto-root .bg-tec-blue.text-white,
+:root[data-tecponto-theme="light"] #tecponto-root .bg-tec-red.text-white {
+  color: rgb(255 255 255) !important;
+}
+
+:root[data-tecponto-theme="light"] #tecponto-root .shadow-panel {
+  box-shadow: 0 18px 42px rgba(37, 41, 44, 0.12);
 }
 
 @media (min-width: 1536px) {
@@ -189,12 +274,14 @@ h4 {
 
   .tp-topbar-shell {
     margin-left: 0;
+    margin-right: 0;
     padding-left: 1rem !important;
     width: 100%;
   }
 
   .tp-main-shell {
     margin-left: 0;
+    margin-right: 0;
     padding: 1rem !important;
     width: 100%;
   }
@@ -209,6 +296,11 @@ h4 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .tp-kanban-urgent-rail,
+  .tp-kanban-urgent-column {
+    animation: none !important;
+  }
+
   *,
   *::before,
   *::after {

@@ -1,6 +1,8 @@
 export { BadgeStatus } from "./BadgeStatus";
 export { Button } from "./Button";
 export { Card, MetricCard } from "./Card";
+export { ContextMenu } from "./ContextMenu";
+export type { ContextMenuItem } from "./ContextMenu";
 export { DataTable } from "./DataTable";
 export type { TableColumn } from "./DataTable";
 export { Modal } from "./Modal";
@@ -8,3 +10,4 @@ export { Sidebar } from "./Sidebar";
 export type { NavSection } from "./Sidebar";
 export { Toast } from "./Toast";
 export { Topbar } from "./Topbar";
+export { WhatsAppLogo } from "./WhatsAppLogo";

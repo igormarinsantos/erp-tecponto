@@ -1,6 +1,8 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 import { cx } from "./utils";
+
+type RowProps = HTMLAttributes<HTMLTableRowElement> & Record<`data-${string}`, string | number | undefined>;
 
 export interface TableColumn<T> {
   key: string;
@@ -12,18 +14,19 @@ export interface TableColumn<T> {
 interface DataTableProps<T> {
   columns: Array<TableColumn<T>>;
   emptyLabel: string;
+  getRowProps?: (row: T) => RowProps;
   onRowClick?: (row: T) => void;
   rows: T[];
 }
 
-export function DataTable<T>({ columns, emptyLabel, onRowClick, rows }: DataTableProps<T>) {
+export function DataTable<T>({ columns, emptyLabel, getRowProps, onRowClick, rows }: DataTableProps<T>) {
   return (
-    <div className="overflow-hidden rounded-card border border-tec-border/20">
+    <div className="overflow-hidden rounded-card border border-tec-border/15">
       <table className="tp-data-table w-full border-collapse text-left text-sm">
-        <thead className="bg-tec-field text-xs uppercase text-tec-muted">
+        <thead className="bg-tec-field/55 text-xs uppercase text-tec-muted">
           <tr>
             {columns.map((column) => (
-              <th className={cx("px-4 py-3 font-semibold", column.className)} key={column.key}>
+              <th className={cx("px-4 py-3 font-bold", column.className)} key={column.key}>
                 {column.label}
               </th>
             ))}
@@ -31,34 +34,39 @@ export function DataTable<T>({ columns, emptyLabel, onRowClick, rows }: DataTabl
         </thead>
         <tbody>
           {rows.length ? (
-            rows.map((row, index) => (
-              <tr
-                className={cx(
-                  "border-t tp-row-border",
-                  onRowClick ? "cursor-pointer hover:bg-tec-field" : "",
-                )}
-                key={index}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                onKeyDown={
-                  onRowClick
-                    ? (event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          onRowClick(row);
+            rows.map((row, index) => {
+              const rowProps = getRowProps?.(row) ?? {};
+              return (
+                <tr
+                  {...rowProps}
+                  className={cx(
+                    "border-t border-tec-border/10 transition",
+                    onRowClick ? "cursor-pointer hover:bg-tec-field/55" : "",
+                    rowProps.className,
+                  )}
+                  key={index}
+                  onClick={onRowClick ? () => onRowClick(row) : rowProps.onClick}
+                  onKeyDown={
+                    onRowClick
+                      ? (event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onRowClick(row);
+                          }
                         }
-                      }
-                    : undefined
-                }
-                role={onRowClick ? "button" : undefined}
-                tabIndex={onRowClick ? 0 : undefined}
-              >
-                {columns.map((column) => (
-                  <td className={cx("px-4 py-3 align-middle text-tec-subtle", column.className)} key={column.key}>
-                    {column.render(row)}
-                  </td>
-                ))}
-              </tr>
-            ))
+                      : rowProps.onKeyDown
+                  }
+                  role={onRowClick ? "button" : rowProps.role}
+                  tabIndex={onRowClick ? 0 : rowProps.tabIndex}
+                >
+                  {columns.map((column) => (
+                    <td className={cx("px-4 py-3 align-middle text-tec-subtle", column.className)} key={column.key}>
+                      {column.render(row)}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })
           ) : (
             <tr>
               <td className="px-4 py-8 text-center text-tec-muted" colSpan={columns.length}>

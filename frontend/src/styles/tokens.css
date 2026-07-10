@@ -5,7 +5,7 @@
   --tp-panel-strong: 36 41 46;
   --tp-field: 36 41 46;
   --tp-sidebar: 16 18 20;
-  --tp-border: 89 97 104;
+  --tp-border: 48 54 60;
   --tp-text: 245 246 247;
   --tp-muted: 173 180 186;
   --tp-subtle: 218 223 227;
@@ -32,4 +32,30 @@
   --tp-sidebar-width: 272px;
   --tp-topbar-height: 64px;
   --tp-content-gap: 16px;
+}
+
+:root[data-tecponto-theme="dark"] {
+  --tp-bg: 21 24 27;
+  --tp-bg-elevated: 36 41 46;
+  --tp-panel: 29 33 37;
+  --tp-panel-strong: 36 41 46;
+  --tp-field: 36 41 46;
+  --tp-sidebar: 16 18 20;
+  --tp-border: 48 54 60;
+  --tp-text: 245 246 247;
+  --tp-muted: 173 180 186;
+  --tp-subtle: 218 223 227;
+}
+
+:root[data-tecponto-theme="light"] {
+  --tp-bg: 238 237 246;
+  --tp-bg-elevated: 255 255 255;
+  --tp-panel: 255 255 255;
+  --tp-panel-strong: 248 248 252;
+  --tp-field: 248 248 252;
+  --tp-sidebar: 37 41 44;
+  --tp-border: 37 41 44;
+  --tp-text: 37 41 44;
+  --tp-muted: 91 96 101;
+  --tp-subtle: 54 59 64;
 }

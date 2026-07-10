@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   CreditCard,
+  FileText,
   Gauge,
   Grid2X2,
   Handshake,
@@ -36,6 +37,7 @@ export interface ActionDefinition {
   icon: LucideIcon;
   label: string;
   detail: string;
+  externalHref?: string;
   target?: NavigationTarget;
   soon?: string;
 }
@@ -50,7 +52,7 @@ export interface PanelDefinition {
 }
 
 const commonActions: ActionDefinition[] = [
-  { icon: ShoppingCart, label: "Lançar venda", detail: "Balcão", soon: "bloco 3.1x" },
+  { icon: ShoppingCart, label: "Lançar venda", detail: "PDV Tecponto", externalHref: "/app/point-of-sale" },
   { icon: Wrench, label: "Nova OS", detail: "Atendimento", soon: "bloco 3.1c" },
   { icon: Search, label: "Buscar cliente", detail: "Nome, telefone ou IMEI", target: "customers" },
 ];
@@ -64,14 +66,14 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
   atendente: {
     title: "Olá, Atendente Tecponto!",
     subtitle: "Confira os atendimentos e vendas que precisam da sua atenção.",
-    tableTitle: "Atendimentos recentes",
+    tableTitle: "Fila de atendimento",
     nav: [
       {
-        label: "Início",
+        label: "Navegação",
         items: [{ id: "overview", icon: Grid2X2, label: "Visão geral", subtitle: "O que precisa de você" }],
       },
       {
-        label: "Menu principal",
+        label: "Atendimento",
         items: [
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Criar, buscar e acompanhar" },
           { id: "devices", icon: Smartphone, label: "Aparelhos", subtitle: "Aparelhos e acessórios" },
@@ -83,15 +85,15 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
     ],
     metrics: [
       { icon: ShoppingCart, label: "Vendas do dia", tone: "green", value: (metrics) => brl.format(metrics.sales_today_total), detail: "PDV Tecponto" },
-      { icon: Wrench, label: "OS aguardando aprovação", tone: "orange", value: (metrics) => metrics.service_orders.awaiting_approval, detail: "Orçamentos na fila" },
+      { icon: FileText, label: "OS aguardando aprovação", tone: "orange", value: (metrics) => metrics.service_orders.awaiting_approval, detail: "Orçamentos na fila" },
       { icon: ClipboardCheck, label: "Prontas para retirada", tone: "green", value: (metrics) => metrics.service_orders.ready_for_pickup, detail: "Entrega no balcão" },
       { icon: PackageSearch, label: "Aguardando peça", tone: "blue", value: (metrics) => metrics.service_orders.waiting_part, detail: "Reparo pendente" },
     ],
     actions: [
       ...commonActions,
-      { icon: Smartphone, label: "Cadastrar aparelho", detail: "Vincular ao cliente", soon: "bloco 3.1c" },
-      { icon: Handshake, label: "Avaliar troca", detail: "TROQUE", soon: "bloco 3.1x" },
-      { icon: MessageCircle, label: "Enviar WhatsApp", detail: "Contato rápido", soon: "bloco 3.1x" },
+      { icon: Smartphone, label: "Cadastrar aparelho", detail: "Vincular ao cliente", target: "devices" },
+      { icon: Handshake, label: "Avaliar troca", detail: "TROQUE", target: "trade-ins" },
+      { icon: MessageCircle, label: "Enviar WhatsApp", detail: "Contato rápido", externalHref: "https://web.whatsapp.com/" },
     ],
   },
   tecnico: {
@@ -154,7 +156,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
     actions: [
       ...commonActions,
       { icon: ClipboardCheck, label: "Aprovar orçamento", detail: "Pendências", target: "service-orders" },
-      { icon: Gauge, label: "Ver desempenho", detail: "Equipe e loja", soon: "bloco 3.1x" },
+      { icon: Gauge, label: "Ver desempenho", detail: "Equipe e loja", target: "sales" },
     ],
   },
   diretor: {
@@ -182,10 +184,10 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       { icon: Star, label: "Satisfação", tone: "green", value: () => "0,0/5", detail: "Clientes" },
     ],
     actions: [
-      { icon: ShoppingCart, label: "Lançar venda", detail: "PDV", soon: "bloco 3.1x" },
+      { icon: ShoppingCart, label: "Lançar venda", detail: "PDV Tecponto", externalHref: "/app/point-of-sale" },
       { icon: Wrench, label: "Abrir OS", detail: "Atendimento", soon: "bloco 3.1c" },
-      { icon: BarChart3, label: "Ver relatório", detail: "Indicadores", soon: "bloco 3.1x" },
-      { icon: Target, label: "Acompanhar metas", detail: "Resultados", soon: "bloco 3.1x" },
+      { icon: BarChart3, label: "Ver relatório", detail: "Indicadores", target: "sales" },
+      { icon: Target, label: "Acompanhar metas", detail: "Resultados", target: "overview" },
     ],
   },
   sem_papel: {
