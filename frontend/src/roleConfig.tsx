@@ -34,12 +34,14 @@ export interface MetricDefinition {
 }
 
 export interface ActionDefinition {
+  disabledReason?: string;
   icon: LucideIcon;
   label: string;
   detail: string;
   externalHref?: string;
+  opensCheckin?: boolean;
+  pendingLabel?: string;
   target?: NavigationTarget;
-  soon?: string;
 }
 
 export interface PanelDefinition {
@@ -52,8 +54,14 @@ export interface PanelDefinition {
 }
 
 const commonActions: ActionDefinition[] = [
-  { icon: ShoppingCart, label: "Lançar venda", detail: "PDV Tecponto", externalHref: "/app/point-of-sale" },
-  { icon: Wrench, label: "Nova OS", detail: "Atendimento", soon: "bloco 3.1c" },
+  {
+    disabledReason: "Pendente do POS restrito da Fase 3.5. Não liberamos Sales User amplo para o atendente.",
+    icon: ShoppingCart,
+    label: "Lançar venda",
+    detail: "Venda no balcão",
+    pendingLabel: "Pendente 3.5",
+  },
+  { icon: Wrench, label: "Nova OS", detail: "Atendimento", opensCheckin: true },
   { icon: Search, label: "Buscar cliente", detail: "Nome, telefone ou IMEI", target: "customers" },
 ];
 
@@ -184,8 +192,14 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       { icon: Star, label: "Satisfação", tone: "green", value: () => "0,0/5", detail: "Clientes" },
     ],
     actions: [
-      { icon: ShoppingCart, label: "Lançar venda", detail: "PDV Tecponto", externalHref: "/app/point-of-sale" },
-      { icon: Wrench, label: "Abrir OS", detail: "Atendimento", soon: "bloco 3.1c" },
+      {
+        disabledReason: "Pendente do POS restrito da Fase 3.5. Não liberamos Sales User amplo para o diretor.",
+        icon: ShoppingCart,
+        label: "Lançar venda",
+        detail: "Venda no balcão",
+        pendingLabel: "Pendente 3.5",
+      },
+      { icon: Wrench, label: "Abrir OS", detail: "Atendimento", target: "service-orders" },
       { icon: BarChart3, label: "Ver relatório", detail: "Indicadores", target: "sales" },
       { icon: Target, label: "Acompanhar metas", detail: "Resultados", target: "overview" },
     ],

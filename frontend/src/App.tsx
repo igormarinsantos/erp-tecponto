@@ -9,7 +9,6 @@ import {
   Clock3,
   Copy,
   CreditCard,
-  ExternalLink,
   FileText,
   History,
   MoreHorizontal,
@@ -140,8 +139,7 @@ const DASHBOARD_PERIOD_OPTIONS: Array<{ label: string; value: DashboardPeriodMod
   { label: "Últimos 14 dias", value: "14d" },
   { label: "Personalizado", value: "custom" },
 ];
-const POS_ROUTE = "/app/point-of-sale";
-const POS_PROFILE_NAME = "Tecponto Balcão";
+const POS_PENDING_MESSAGE = "Venda no balcão entra na Fase 3.5 com POS restrito, sem Sales User amplo.";
 
 function getThemeStorageKey(userName: string) {
   return `${THEME_STORAGE_PREFIX}${userName}`;
@@ -497,10 +495,11 @@ export function App() {
         onSelect: () => setActiveView("parts-stock"),
       },
       {
-        detail: "Abre o PDV nativo",
+        disabled: true,
+        detail: "Pendente: POS restrito 3.5",
         icon: <ShoppingCart size={17} />,
         label: "Lancar venda",
-        onSelect: () => window.open(POS_ROUTE, "_blank", "noopener,noreferrer"),
+        onSelect: () => undefined,
         separatorBefore: true,
       },
       {
@@ -1278,7 +1277,7 @@ function NavigationContent({
         </section>
         <ActionPanel
           actions={[
-            { icon: Wrench, label: "Nova OS", detail: "Check-in do balcão", soon: "bloco 3.1c" },
+            { icon: Wrench, label: "Nova OS", detail: "Check-in do balcão", opensCheckin: true },
             { icon: SearchIcon, label: "Buscar cliente", detail: "Localizar cadastro", target: "customers" },
             { icon: Smartphone, label: "Aparelhos", detail: "Buscar IMEI", target: "devices" },
           ]}
@@ -1815,7 +1814,7 @@ function ServiceOrderDetail({
                     type="button"
                   >
                     <WhatsAppLogo size={17} />
-                    WhatsApp indisponível
+                    Adicionar telefone
                   </button>
                 )
               }
@@ -2114,7 +2113,6 @@ function NextActionCard({
 }
 
 function nextRecommendedAction(state: string | null): {
-  block: string;
   button: string;
   description: string;
   flow: "approve" | "reject" | "pickup" | null;
@@ -2124,7 +2122,6 @@ function nextRecommendedAction(state: string | null): {
 } {
   if (state === "Aguardando aprovação") {
     return {
-      block: "bloco orçamento",
       button: "Enviar para aprovação",
       description: "O orçamento está pronto. Envie para o cliente analisar e aguarde o retorno.",
       flow: null,
@@ -2135,7 +2132,6 @@ function nextRecommendedAction(state: string | null): {
   }
   if (state === "Pronto para retirada") {
     return {
-      block: "bloco 3.1d",
       button: "Iniciar retirada",
       description: "Confira o serviço executado, colete a assinatura de retirada e finalize a entrega.",
       flow: "pickup",
@@ -2144,7 +2140,6 @@ function nextRecommendedAction(state: string | null): {
     };
   }
   return {
-    block: "bloco 3.1x",
     button: "Atualizar atendimento",
     description: "Revise os dados da OS e avance pelo workflow quando a próxima etapa estiver pronta.",
     flow: null,
@@ -3566,8 +3561,6 @@ function StockLookup() {
 }
 
 function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) => void }) {
-  const openPos = () => window.open(POS_ROUTE, "_blank", "noopener,noreferrer");
-
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.5fr)]">
       <Card className="overflow-hidden p-0">
@@ -3577,23 +3570,23 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
               <ShoppingCart size={25} />
             </span>
             <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-wide text-tec-orange">PDV nativo</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-tec-orange">Pendente 3.5</p>
               <h2 className="mt-1 text-2xl font-bold text-white">Vendas e acessórios</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-tec-subtle">
-                Abra o balcão de venda no perfil {POS_PROFILE_NAME}; ele usa estoque Comercial, serial quando necessário e os meios de pagamento configurados.
+                {POS_PENDING_MESSAGE} Enquanto isso, esta tela serve para consultar cliente e estoque sem abrir permissões indevidas.
               </p>
             </div>
           </div>
-          <Button className="shrink-0" icon={<ExternalLink size={17} />} onClick={openPos} variant="primary">
-            Abrir PDV Tecponto
+          <Button className="shrink-0" disabled title={POS_PENDING_MESSAGE} variant="secondary">
+            POS pendente 3.5
           </Button>
         </div>
         <div className="grid border-t border-tec-border/15 sm:grid-cols-3">
           <SalesRouteCard
-            detail="Venda no balcão"
+            detail="Será liberado com endpoint/perm perfil restrito"
             icon={<CreditCard size={22} />}
             label="PDV Tecponto"
-            onClick={openPos}
+            disabled
           />
           <SalesRouteCard
             detail="Disponibilidade e depósito"
@@ -3630,30 +3623,46 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
 }
 
 function SalesRouteCard({
+  disabled = false,
   detail,
   icon,
   label,
   onClick,
 }: {
+  disabled?: boolean;
   detail: string;
   icon: ReactNode;
   label: string;
-  onClick: () => void;
+  onClick?: () => void;
 }) {
   return (
     <button
-      className="group flex min-h-28 items-center gap-4 border-t border-tec-border/15 p-5 text-left transition hover:bg-tec-field/75 sm:border-l sm:border-t-0 first:sm:border-l-0"
+      className={cx(
+        "group flex min-h-28 items-center gap-4 border-t border-tec-border/15 p-5 text-left transition sm:border-l sm:border-t-0 first:sm:border-l-0",
+        disabled ? "cursor-not-allowed opacity-60" : "hover:bg-tec-field/75",
+      )}
+      disabled={disabled}
       onClick={onClick}
+      title={disabled ? POS_PENDING_MESSAGE : label}
       type="button"
     >
-      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[16px] bg-tec-field text-tec-orange transition group-hover:bg-tec-orange group-hover:text-tec-ink">
+      <span
+        className={cx(
+          "grid h-12 w-12 shrink-0 place-items-center rounded-[16px] bg-tec-field text-tec-orange transition",
+          !disabled && "group-hover:bg-tec-orange group-hover:text-tec-ink",
+        )}
+      >
         {icon}
       </span>
       <span className="min-w-0">
         <span className="block text-base font-bold text-white">{label}</span>
         <span className="mt-1 block text-sm text-tec-subtle">{detail}</span>
       </span>
-      <ArrowRight className="ml-auto shrink-0 text-tec-muted transition group-hover:translate-x-1 group-hover:text-tec-orange" size={18} />
+      {disabled ? (
+        <span className="ml-auto shrink-0 rounded-full bg-tec-field px-2 py-1 text-[10px] font-bold uppercase text-tec-muted">Pendente 3.5</span>
+      ) : (
+        <ArrowRight className="ml-auto shrink-0 text-tec-muted transition group-hover:translate-x-1 group-hover:text-tec-orange" size={18} />
+      )}
     </button>
   );
 }
@@ -3838,8 +3847,12 @@ function ActionPanel({
       {actions.length ? (
         <div className="tp-action-grid">
           {actions.map((action, index) => {
-            const opensCheckin = action.soon === "bloco 3.1c" && onStartCheckin;
-            const disabled = Boolean(action.soon && !opensCheckin && !action.target && !action.externalHref);
+            const opensCheckin = Boolean(action.opensCheckin && onStartCheckin);
+            const disabled = Boolean(
+              action.disabledReason ||
+                (action.opensCheckin && !onStartCheckin) ||
+                (!action.opensCheckin && !action.target && !action.externalHref),
+            );
             const ActionIcon = action.label.includes("WhatsApp") ? WhatsAppLogo : action.icon;
             return (
               <button
@@ -3847,15 +3860,17 @@ function ActionPanel({
                 disabled={disabled}
                 key={`${action.label}-${index}`}
                 onClick={() => {
-                  if (opensCheckin) {
+                  if (action.opensCheckin && onStartCheckin) {
                     onStartCheckin();
+                  } else if (action.disabledReason) {
+                    return;
                   } else if (action.externalHref) {
                     window.open(action.externalHref, "_blank", "noopener,noreferrer");
                   } else if (action.target) {
                     onNavigate(action.target);
                   }
                 }}
-                title={disabled ? "Indisponível nesta tela" : action.label}
+                title={disabled ? action.disabledReason ?? "Ação sem destino configurado para este perfil" : action.label}
                 type="button"
               >
                 <span className="mb-4 grid h-11 w-11 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
@@ -3865,7 +3880,7 @@ function ActionPanel({
                 <span className="mt-1 block text-xs text-tec-muted">{action.detail}</span>
                 {disabled ? (
                   <span className="mt-2 inline-flex rounded-full bg-tec-field px-2 py-1 text-[10px] font-bold uppercase text-tec-muted">
-                    Indisponível
+                    {action.pendingLabel ?? "Sem acesso"}
                   </span>
                 ) : null}
               </button>
