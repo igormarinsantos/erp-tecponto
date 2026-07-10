@@ -263,7 +263,7 @@ def list_service_orders(
 	from_date: str | None = None,
 	to_date: str | None = None,
 ) -> dict[str, Any]:
-	_require_login()
+	_require_frontend_role()
 	limit = max(1, min(int(limit or 20), 100))
 	filters, or_filters = _service_order_search_filters(
 		query=query,
