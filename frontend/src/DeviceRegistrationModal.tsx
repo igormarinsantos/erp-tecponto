@@ -184,7 +184,7 @@ export function DeviceRegistrationModal({ onClose, onCreated, open }: DeviceRegi
             </label>
           </div>
 
-          <label className="mt-3 flex min-h-[120px] cursor-pointer flex-col items-center justify-center rounded-card border border-dashed border-tec-border/35 bg-tec-field p-4 text-center text-sm text-tec-subtle transition hover:border-tec-orange/60">
+          <label className="mt-3 flex min-h-[120px] cursor-pointer flex-col items-center justify-center rounded-card border border-dashed border-tec-border/25 bg-tec-field p-4 text-center text-sm text-tec-subtle transition hover:border-tec-orange/60">
             {photo ? (
               <img alt="Foto do aparelho" className="max-h-44 w-full rounded-card object-cover" src={photo.dataUrl} />
             ) : (
