@@ -420,7 +420,7 @@ function SignaturePad({
         </div>
         <p className="mt-3 text-sm text-tec-subtle">{guidance}</p>
         <canvas
-          className="mt-4 touch-none rounded-card border border-tec-border/30 bg-white"
+          className="mt-4 touch-none rounded-card border border-tec-border/25 bg-white"
           onPointerCancel={end}
           onPointerDown={begin}
           onPointerMove={move}

@@ -1,7 +1,12 @@
 import { rpc } from "./client";
 import type {
+  BudgetItemSearchResponse,
+  BudgetLinePayload,
+  BudgetLineType,
+  BudgetWarehouseListResponse,
   BudgetDecisionPayload,
   PickupPayload,
+  QuoteSendPayload,
   ServiceOrderDetailResponse,
   ServiceOrderKanbanResponse,
   ServiceOrderListResponse,
@@ -10,20 +15,49 @@ import type {
 
 const API = "tecponto_app.tecponto.frontend.api";
 
+export interface ServiceOrderQueryParams extends Record<string, string | number | boolean | undefined> {
+  from_date?: string;
+  limit?: number;
+  query?: string;
+  status?: string;
+  to_date?: string;
+}
+
 export const serviceOrders = {
-  list(limit = 20) {
+  list(params: number | ServiceOrderQueryParams = 20) {
+    const query = typeof params === "number" ? { limit: params } : params;
     return rpc<ServiceOrderListResponse>(`${API}.list_service_orders`, {
-      query: { limit },
+      query,
     });
   },
-  kanban(limitPerColumn = 18) {
+  kanban(limitPerColumn = 18, filters: ServiceOrderQueryParams = {}) {
     return rpc<ServiceOrderKanbanResponse>(`${API}.get_service_order_kanban`, {
-      query: { limit_per_column: limitPerColumn },
+      query: { ...filters, limit_per_column: limitPerColumn },
     });
   },
   detail(name: string) {
     return rpc<ServiceOrderDetailResponse>(`${API}.get_service_order_detail`, {
       query: { name },
+    });
+  },
+  searchBudgetItems(query: string, lineType: BudgetLineType) {
+    return rpc<BudgetItemSearchResponse>(`${API}.search_budget_items`, {
+      query: { line_type: lineType, query },
+    });
+  },
+  listBudgetWarehouses(query = "") {
+    return rpc<BudgetWarehouseListResponse>(`${API}.list_budget_warehouses`, {
+      query: { query },
+    });
+  },
+  addBudgetLine(name: string, payload: BudgetLinePayload) {
+    return rpc<ServiceOrderDetailResponse>(`${API}.add_service_order_budget_line`, {
+      body: { name, payload },
+    });
+  },
+  sendQuote(name: string, payload: QuoteSendPayload) {
+    return rpc<ServiceOrderDetailResponse>(`${API}.send_service_order_quote`, {
+      body: { name, payload },
     });
   },
   move(name: string, targetState: string) {

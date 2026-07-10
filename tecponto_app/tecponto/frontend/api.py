@@ -77,6 +77,13 @@ KANBAN_BLOCKED_TARGETS = {
 	STATE_REPROVADO: "Use o fluxo de reprovação para registrar canal e motivo.",
 	STATE_ENTREGUE: "Use o fluxo de retirada para coletar assinatura e validar pagamento.",
 }
+QUOTE_SEND_CHANNELS = {"WhatsApp", "Telefone", "Presencial", "E-mail"}
+QUOTE_SEND_MEDIUM_BY_CHANNEL = {
+	"WhatsApp": "Chat",
+	"Telefone": "Phone",
+	"Presencial": "Visit",
+	"E-mail": "Email",
+}
 
 SAFE_SERVICE_ORDER_FIELDS = (
 	"name",
@@ -249,41 +256,73 @@ def get_boot() -> dict[str, Any]:
 
 
 @frappe.whitelist()
-def list_service_orders(limit: int = 20) -> dict[str, Any]:
+def list_service_orders(
+	limit: int = 20,
+	query: str | None = None,
+	status: str | None = None,
+	from_date: str | None = None,
+	to_date: str | None = None,
+) -> dict[str, Any]:
 	_require_login()
 	limit = max(1, min(int(limit or 20), 100))
+	filters, or_filters = _service_order_search_filters(
+		query=query,
+		status=status,
+		from_date=from_date,
+		to_date=to_date,
+	)
 	items = frappe.get_list(
 		"Service Order",
 		fields=list(SAFE_SERVICE_ORDER_FIELDS),
+		filters=filters,
+		or_filters=or_filters,
 		order_by="modified desc",
 		limit_page_length=limit,
 	)
+	count = _count_service_orders(filters=filters, or_filters=or_filters)
 
 	return {
 		"items": [_serialize_service_order(item) for item in items],
-		"count": len(items),
+		"count": count,
 		"fields": list(SAFE_SERVICE_ORDER_FIELDS),
 	}
 
 
 @frappe.whitelist()
-def get_service_order_kanban(limit_per_column: int = 18) -> dict[str, Any]:
+def get_service_order_kanban(
+	limit_per_column: int = 18,
+	query: str | None = None,
+	status: str | None = None,
+	from_date: str | None = None,
+	to_date: str | None = None,
+) -> dict[str, Any]:
 	_require_frontend_role()
 	limit = max(1, min(int(limit_per_column or 18), 40))
 	columns = []
 	for state in get_service_order_workflow_state_names():
-		filters = {"workflow_state": state}
-		items = frappe.get_list(
-			"Service Order",
-			fields=list(SAFE_SERVICE_ORDER_FIELDS),
-			filters=filters,
-			order_by="modified desc",
-			limit_page_length=limit,
-		)
+		if status and status != "all" and status != state:
+			items = []
+			count = 0
+		else:
+			filters, or_filters = _service_order_search_filters(
+				query=query,
+				status=state,
+				from_date=from_date,
+				to_date=to_date,
+			)
+			items = frappe.get_list(
+				"Service Order",
+				fields=list(SAFE_SERVICE_ORDER_FIELDS),
+				filters=filters,
+				or_filters=or_filters,
+				order_by="modified desc",
+				limit_page_length=limit,
+			)
+			count = _count_service_orders(filters=filters, or_filters=or_filters)
 		columns.append(
 			{
 				"state": state,
-				"count": frappe.db.count("Service Order", filters),
+				"count": count,
 				"items": [_serialize_service_order(item) for item in items],
 			}
 		)
@@ -401,6 +440,182 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"timeline": _get_service_order_timeline(doc),
 		"print_links": _get_service_order_print_links(doc.name),
 	}
+
+
+@frappe.whitelist()
+def search_budget_items(
+	query: str = "",
+	line_type: str = "service",
+	limit: int = 12,
+) -> dict[str, Any]:
+	_require_attendant_flow_role()
+	line_type = _validate_budget_line_type(line_type)
+	filters: dict[str, Any] = {"disabled": 0}
+	if line_type == "service":
+		filters["is_stock_item"] = 0
+	else:
+		filters["is_stock_item"] = 1
+
+	search = (query or "").strip()
+	or_filters = None
+	if search:
+		like = f"%{search}%"
+		or_filters = [
+			["Item", "name", "like", like],
+			["Item", "item_name", "like", like],
+			["Item", "item_group", "like", like],
+		]
+
+	items = frappe.get_all(
+		"Item",
+		filters=filters,
+		or_filters=or_filters,
+		fields=["name", "item_name", "item_group", "is_stock_item", "standard_rate"],
+		order_by="modified desc",
+		limit_page_length=max(1, min(int(limit or 12), 30)),
+	)
+	return {
+		"items": [
+			{
+				"item_code": item.name,
+				"item_name": item.item_name,
+				"item_group": item.item_group,
+				"is_stock_item": bool(item.is_stock_item),
+				"standard_rate": flt(item.standard_rate or 0),
+				"has_price": flt(item.standard_rate or 0) > 0,
+			}
+			for item in items
+		]
+	}
+
+
+@frappe.whitelist()
+def list_budget_warehouses(query: str = "", limit: int = 12) -> dict[str, Any]:
+	_require_attendant_flow_role()
+	filters: dict[str, Any] = {"is_group": 0, "disabled": 0}
+	search = (query or "").strip()
+	or_filters = None
+	if search:
+		like = f"%{search}%"
+		or_filters = [
+			["Warehouse", "name", "like", like],
+			["Warehouse", "warehouse_name", "like", like],
+		]
+
+	warehouses = frappe.get_all(
+		"Warehouse",
+		filters=filters,
+		or_filters=or_filters,
+		fields=["name", "warehouse_name"],
+		order_by="warehouse_name asc",
+		limit_page_length=max(1, min(int(limit or 12), 30)),
+	)
+	return {"items": [dict(warehouse) for warehouse in warehouses]}
+
+
+@frappe.whitelist()
+def add_service_order_budget_line(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_attendant_flow_role()
+	data = _parse_payload(payload)
+	line_type = _validate_budget_line_type(data.get("type"))
+	item_code = (data.get("item_code") or "").strip()
+	qty = flt(data.get("qty") or 0)
+	rate = flt(data.get("rate") or 0)
+
+	if not item_code:
+		frappe.throw(_("Selecione o item do orçamento."), frappe.ValidationError)
+	if qty <= 0:
+		frappe.throw(_("Quantidade precisa ser maior que zero."), frappe.ValidationError)
+	if rate < 0:
+		frappe.throw(_("Valor unitário não pode ser negativo."), frappe.ValidationError)
+
+	item = frappe.db.get_value(
+		"Item",
+		item_code,
+		["name", "item_name", "is_stock_item", "disabled"],
+		as_dict=True,
+	)
+	if not item or item.disabled:
+		frappe.throw(_("Item do orçamento inválido."), frappe.ValidationError)
+	if line_type == "service" and item.is_stock_item:
+		frappe.throw(_("Serviço do orçamento deve ser um item não estocável."), frappe.ValidationError)
+	if line_type == "part" and not item.is_stock_item:
+		frappe.throw(_("Peça do orçamento deve ser um item de estoque."), frappe.ValidationError)
+
+	doc = frappe.get_doc("Service Order", (name or "").strip())
+	doc.check_permission("write")
+	if line_type == "service":
+		doc.append(
+			"services",
+			{
+				"item_code": item.name,
+				"description": (data.get("description") or item.item_name or item.name).strip(),
+				"qty": qty,
+				"rate": rate,
+			},
+		)
+	else:
+		warehouse = (data.get("warehouse") or "").strip() or _get_default_repair_warehouse()
+		if not warehouse:
+			frappe.throw(_("Informe o estoque da peça."), frappe.ValidationError)
+		if not frappe.db.exists("Warehouse", {"name": warehouse, "is_group": 0, "disabled": 0}):
+			frappe.throw(_("Estoque da peça inválido."), frappe.ValidationError)
+		doc.append(
+			"parts",
+			{
+				"item_code": item.name,
+				"description": (data.get("description") or item.item_name or item.name).strip(),
+				"qty": qty,
+				"warehouse": warehouse,
+				"rate": rate,
+			},
+		)
+
+	doc.save(ignore_permissions=True)
+	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def send_service_order_quote(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_attendant_flow_role()
+	data = _parse_payload(payload)
+	channel = (data.get("channel") or "").strip()
+	notes = (data.get("notes") or "").strip()
+
+	if channel not in QUOTE_SEND_CHANNELS:
+		frappe.throw(_("Canal de envio do orçamento inválido."), frappe.ValidationError)
+
+	doc = frappe.get_doc("Service Order", (name or "").strip())
+	doc.check_permission("read")
+	if doc.get("workflow_state") != STATE_AGUARDANDO_APROVACAO:
+		frappe.throw(_("A OS precisa estar em Aguardando aprovação para enviar orçamento."), frappe.ValidationError)
+	if not (doc.get("services") or doc.get("parts")):
+		frappe.throw(_("Inclua ao menos um serviço ou peça antes de enviar o orçamento."), frappe.ValidationError)
+
+	customer = _get_customer_detail(doc.get("customer")) or {}
+	phone = customer.get("custom_whatsapp") or customer.get("mobile_no") or ""
+	email = customer.get("email_id") or ""
+	communication = frappe.get_doc(
+		{
+			"doctype": "Communication",
+			"subject": f"Orçamento enviado - {doc.name}",
+			"communication_medium": QUOTE_SEND_MEDIUM_BY_CHANNEL[channel],
+			"communication_type": "Communication",
+			"sent_or_received": "Sent",
+			"status": "Linked",
+			"sender": frappe.session.user,
+			"recipients": email if channel == "E-mail" else "",
+			"phone_no": phone if channel in {"WhatsApp", "Telefone"} else "",
+			"content": _quote_send_content(doc, channel, notes),
+			"text_content": _quote_send_text(doc, channel, notes),
+			"communication_date": now_datetime(),
+			"reference_doctype": doc.doctype,
+			"reference_name": doc.name,
+			"user": frappe.session.user,
+		}
+	)
+	communication.insert(ignore_permissions=True)
+	return get_service_order_detail(doc.name)
 
 
 @frappe.whitelist()
@@ -709,6 +924,57 @@ def list_stock_items(query: str = "", limit: int = 12) -> dict[str, Any]:
 	}
 
 
+def _service_order_search_filters(
+	query: str | None = None,
+	status: str | None = None,
+	from_date: str | None = None,
+	to_date: str | None = None,
+) -> tuple[dict[str, Any], list[list[str]]]:
+	filters: dict[str, Any] = {}
+	or_filters: list[list[str]] = []
+
+	status = (status or "").strip()
+	if status and status != "all":
+		filters["workflow_state"] = status
+
+	from_date = (from_date or "").strip()
+	to_date = (to_date or "").strip()
+	if from_date and to_date:
+		filters["modified"] = ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]
+	elif from_date:
+		filters["modified"] = [">=", f"{from_date} 00:00:00"]
+	elif to_date:
+		filters["modified"] = ["<=", f"{to_date} 23:59:59"]
+
+	query = (query or "").strip()[:80]
+	if query:
+		like = f"%{query}%"
+		or_filters = [
+			["Service Order", "name", "like", like],
+			["Service Order", "customer", "like", like],
+			["Service Order", "customer_device", "like", like],
+			["Service Order", "reported_defect", "like", like],
+			["Service Order", "workflow_state", "like", like],
+			["Service Order", "technician", "like", like],
+			["Service Order", "attendant", "like", like],
+			["Service Order", "priority", "like", like],
+		]
+
+	return filters, or_filters
+
+
+def _count_service_orders(filters: dict[str, Any], or_filters: list[list[str]]) -> int:
+	return len(
+		frappe.get_all(
+			"Service Order",
+			filters=filters,
+			or_filters=or_filters,
+			pluck="name",
+			limit_page_length=0,
+		)
+	)
+
+
 def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 	return {
 		"name": item.get("name"),
@@ -786,6 +1052,41 @@ def _parse_payload(payload: str | dict[str, Any] | None) -> dict[str, Any]:
 	if isinstance(payload, str) and payload.strip():
 		return json.loads(payload)
 	frappe.throw(_("Dados do check-in não informados."), frappe.ValidationError)
+
+
+def _validate_budget_line_type(line_type: str | None) -> str:
+	value = (line_type or "").strip()
+	if value not in {"service", "part"}:
+		frappe.throw(_("Tipo de linha de orçamento inválido."), frappe.ValidationError)
+	return value
+
+
+def _get_default_repair_warehouse() -> str | None:
+	return (
+		frappe.db.get_value("Warehouse", {"warehouse_name": ["like", "%Reparo%"], "is_group": 0, "disabled": 0}, "name")
+		or frappe.db.get_value("Warehouse", {"name": ["like", "%Reparo%"], "is_group": 0, "disabled": 0}, "name")
+		or frappe.db.get_value("Warehouse", {"warehouse_name": ["like", "%Peças%"], "is_group": 0, "disabled": 0}, "name")
+		or frappe.db.get_value("Warehouse", {"name": ["like", "%Peças%"], "is_group": 0, "disabled": 0}, "name")
+	)
+
+
+def _quote_send_text(doc: Any, channel: str, notes: str) -> str:
+	customer = _customer_label(doc.get("customer")) or "cliente"
+	total = flt(doc.get("grand_total") or 0)
+	deadline = doc.get("approval_deadline") or "prazo não definido"
+	lines = [
+		f"Orçamento {doc.name} enviado para {customer}.",
+		f"Canal: {channel}.",
+		f"Total: R$ {total:.2f}.",
+		f"Validade: {deadline}.",
+	]
+	if notes:
+		lines.append(f"Observação: {notes}")
+	return "\n".join(lines)
+
+
+def _quote_send_content(doc: Any, channel: str, notes: str) -> str:
+	return frappe.utils.escape_html(_quote_send_text(doc, channel, notes)).replace("\n", "<br>")
 
 
 def _validate_checkin_payload(data: dict[str, Any]) -> None:
@@ -1046,6 +1347,7 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 				"tone": "amber",
 			}
 		)
+	timeline.extend(_get_quote_send_timeline_events(doc))
 	if doc.get("approval_status") and doc.get("approval_status") != "Pendente":
 		timeline.append(
 			{
@@ -1073,6 +1375,43 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 			}
 		)
 	return timeline
+
+
+def _get_quote_send_timeline_events(doc: Any) -> list[dict[str, str]]:
+	communications = frappe.get_all(
+		"Communication",
+		filters={
+			"reference_doctype": doc.doctype,
+			"reference_name": doc.name,
+			"subject": ["like", "Orçamento enviado%"],
+		},
+		fields=["communication_medium", "text_content", "communication_date", "creation"],
+		order_by="communication_date asc, creation asc",
+		limit_page_length=20,
+	)
+	events: list[dict[str, str]] = []
+	for communication in communications:
+		events.append(
+			{
+				"title": "Orçamento enviado",
+				"detail": _quote_send_timeline_detail(communication),
+				"date": str(communication.communication_date or communication.creation or ""),
+				"tone": "amber",
+			}
+		)
+	return events
+
+
+def _quote_send_timeline_detail(communication: Any) -> str:
+	medium_label = {
+		"Chat": "WhatsApp",
+		"Phone": "Telefone",
+		"Visit": "Presencial",
+		"Email": "E-mail",
+	}.get(communication.communication_medium, communication.communication_medium or "Canal registrado")
+	text = (communication.text_content or "").splitlines()
+	note = next((line.replace("Observação:", "").strip() for line in text if line.startswith("Observação:")), "")
+	return f"{medium_label}{f' · {note}' if note else ''}"
 
 
 def _get_service_order_print_links(name: str) -> list[dict[str, str]]:
@@ -1114,10 +1453,23 @@ def _count_overdue_service_orders() -> int:
 	)
 
 
-def contains_sensitive_field(payload: Any) -> list[str]:
+def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple[float, ...] | set[float] | None = None) -> list[str]:
 	found: set[str] = set()
+	forbidden_amounts = {round(flt(value), 4) for value in (forbidden_values or []) if abs(flt(value)) > 0.0001}
 
-	def walk(value: Any) -> None:
+	def matches_forbidden_amount(value: Any) -> bool:
+		if not forbidden_amounts or isinstance(value, bool):
+			return False
+		if isinstance(value, (int, float)):
+			return round(flt(value), 4) in forbidden_amounts
+		if isinstance(value, str):
+			normalized = value.strip().replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
+			if not re.fullmatch(r"-?\d+(\.\d+)?", normalized):
+				return False
+			return round(flt(normalized), 4) in forbidden_amounts
+		return False
+
+	def walk(value: Any, path: str = "") -> None:
 		if isinstance(value, dict):
 			for key, nested in value.items():
 				normalized = key.lower()
@@ -1125,10 +1477,13 @@ def contains_sensitive_field(payload: Any) -> list[str]:
 					found.add(key)
 				if "cost" in normalized or "margin" in normalized or "commission" in normalized:
 					found.add(key)
-				walk(nested)
+				child_path = f"{path}.{key}" if path else str(key)
+				walk(nested, child_path)
 		elif isinstance(value, (list, tuple)):
-			for nested in value:
-				walk(nested)
+			for index, nested in enumerate(value):
+				walk(nested, f"{path}[{index}]")
+		elif matches_forbidden_amount(value):
+			found.add(path or "<root>")
 
 	walk(payload)
 	return sorted(found)

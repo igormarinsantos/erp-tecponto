@@ -143,10 +143,49 @@ export interface ServiceOrderBudgetLine {
   loss_reason?: string | null;
 }
 
+export type BudgetLineType = "service" | "part";
+
+export interface BudgetItemSummary {
+  has_price: boolean;
+  item_code: string;
+  item_name: string | null;
+  item_group: string | null;
+  is_stock_item: boolean;
+  standard_rate: number;
+}
+
+export interface BudgetItemSearchResponse {
+  items: BudgetItemSummary[];
+}
+
+export interface BudgetWarehouseSummary {
+  name: string;
+  warehouse_name: string | null;
+}
+
+export interface BudgetWarehouseListResponse {
+  items: BudgetWarehouseSummary[];
+}
+
+export interface BudgetLinePayload {
+  type: BudgetLineType;
+  item_code: string;
+  description?: string;
+  qty: number;
+  rate: number;
+  warehouse?: string;
+}
+
+export interface QuoteSendPayload {
+  channel: "WhatsApp" | "Telefone" | "Presencial" | "E-mail";
+  notes?: string;
+}
+
 export interface ServiceOrderCustomerDetail {
   name: string;
   customer_name: string | null;
   mobile_no: string | null;
+  custom_whatsapp: string | null;
   email_id: string | null;
 }
 

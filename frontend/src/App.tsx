@@ -2,16 +2,29 @@ import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, use
 import {
   ArrowLeft,
   ArrowRight,
+  BadgeInfo,
+  Box,
+  CalendarClock,
+  CheckCircle2,
   Clock3,
+  Copy,
+  CreditCard,
+  ExternalLink,
   FileText,
+  History,
+  MoreHorizontal,
+  Package,
   Plus,
   Printer,
   RefreshCw,
   Search as SearchIcon,
+  Send,
+  ShoppingCart,
   Smartphone,
   Tag,
   UserRound,
   Wrench,
+  XCircle,
 } from "lucide-react";
 
 import {
@@ -19,15 +32,20 @@ import {
   getBoot,
   logout,
   serviceOrders,
+  type BudgetItemSummary,
+  type BudgetLineType,
+  type BudgetWarehouseSummary,
   type BootResponse,
   type CheckinResponse,
   type CustomerDeviceSummary,
   type CustomerSummary,
   type DashboardMetrics,
   type NavigationTarget,
+  type QuoteSendPayload,
   type ServiceOrderBudgetLine,
   type ServiceOrderDetailResponse,
   type ServiceOrderPrintLink,
+  type ServiceOrderQueryParams,
   type ServiceOrderTimelineEvent,
   type ServiceOrderWorkflowAction,
   type ServiceOrderSummary,
@@ -39,17 +57,145 @@ import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
 import { panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { BudgetDecisionModal, PickupModal } from "./ServiceOrderFlows";
-import { BadgeStatus, Button, Card, DataTable, MetricCard, Sidebar, Toast, Topbar, type TableColumn } from "./ui";
+import {
+  BadgeStatus,
+  Button,
+  Card,
+  ContextMenu,
+  DataTable,
+  MetricCard,
+  Modal,
+  Sidebar,
+  Toast,
+  Topbar,
+  WhatsAppLogo,
+  type ContextMenuItem,
+  type TableColumn,
+} from "./ui";
+import { cx } from "./ui/utils";
 
 type LoadState =
   | { status: "loading" }
   | { status: "ready"; boot: BootResponse; metrics: DashboardMetrics; orders: ServiceOrderSummary[] }
   | { status: "error"; message: string };
+type ServiceOrderListState =
+  | { status: "loading" }
+  | { status: "ready"; count: number; items: ServiceOrderSummary[] }
+  | { status: "error"; message: string };
 type ToastState = { message: string; tone: "success" | "error" };
 type ServiceOrderFlow = "approve" | "reject" | "pickup";
 type ServiceOrdersViewMode = "list" | "kanban";
+type AppTheme = "dark" | "light";
+type ContextMenuKind = "global" | "service-order";
+
+interface TecpontoContextTarget {
+  customer?: string | null;
+  kind: ContextMenuKind;
+  label?: string | null;
+  name?: string | null;
+  workflowState?: string | null;
+}
+
+interface TecpontoContextMenuState {
+  target: TecpontoContextTarget;
+  x: number;
+  y: number;
+}
+type QueueFilter = "all" | "Aguardando aprovação" | "Entrada criada" | "Entregue" | "Reprovado";
+type DashboardPeriodMode = "7d" | "14d" | "custom";
+
+interface DashboardPeriodFilter {
+  mode: DashboardPeriodMode;
+  fromDate: string;
+  toDate: string;
+}
+
+interface ServiceOrderFilterState {
+  period: DashboardPeriodFilter;
+  query: string;
+  status: QueueFilter;
+}
 
 const SERVICE_ORDERS_VIEW_KEY = "tecponto.service-orders.view";
+const THEME_STORAGE_PREFIX = "tecponto.theme.";
+const DEFAULT_DASHBOARD_PERIOD: DashboardPeriodFilter = {
+  fromDate: "",
+  mode: "7d",
+  toDate: "",
+};
+const DEFAULT_SERVICE_ORDER_FILTERS: ServiceOrderFilterState = {
+  period: DEFAULT_DASHBOARD_PERIOD,
+  query: "",
+  status: "all",
+};
+const QUEUE_FILTERS: Array<{ label: string; value: QueueFilter }> = [
+  { label: "Todos", value: "all" },
+  { label: "Aguardando aprovação", value: "Aguardando aprovação" },
+  { label: "Entrada criada", value: "Entrada criada" },
+  { label: "Entregues", value: "Entregue" },
+  { label: "Reprovados", value: "Reprovado" },
+];
+const DASHBOARD_PERIOD_OPTIONS: Array<{ label: string; value: DashboardPeriodMode }> = [
+  { label: "Últimos 7 dias", value: "7d" },
+  { label: "Últimos 14 dias", value: "14d" },
+  { label: "Personalizado", value: "custom" },
+];
+const POS_ROUTE = "/app/point-of-sale";
+const POS_PROFILE_NAME = "Tecponto Balcão";
+
+function getThemeStorageKey(userName: string) {
+  return `${THEME_STORAGE_PREFIX}${userName}`;
+}
+
+function readStoredTheme(userName: string): AppTheme {
+  try {
+    const stored = window.localStorage.getItem(getThemeStorageKey(userName));
+    return stored === "light" ? "light" : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+function readContextTarget(element: HTMLElement | null): TecpontoContextTarget {
+  if (!element || element.dataset.tpContext !== "service-order") {
+    return { kind: "global" };
+  }
+  return {
+    customer: element.dataset.tpCustomer ?? null,
+    kind: "service-order",
+    label: element.dataset.tpLabel ?? element.dataset.tpName ?? null,
+    name: element.dataset.tpName ?? null,
+    workflowState: element.dataset.tpWorkflowState ?? null,
+  };
+}
+
+function contextMenuTitle(target: TecpontoContextTarget) {
+  if (target.kind === "service-order" && target.name) {
+    return target.name;
+  }
+  return "Atalhos Tecponto";
+}
+
+function contextMenuSubtitle(target: TecpontoContextTarget) {
+  if (target.kind === "service-order") {
+    return [target.customer, target.workflowState].filter(Boolean).join(" - ");
+  }
+  return "Clique direito para abrir";
+}
+
+function serviceOrderPrintUrl(name: string, format: string) {
+  return `/printview?doctype=Service%20Order&name=${encodeURIComponent(name)}&format=${encodeURIComponent(format)}&no_letterhead=0`;
+}
+
+function workflowFlowForState(state: string | null | undefined): ServiceOrderFlow | null {
+  if (state === "Aguardando aprovação" || state === "Aguardando aprovaÃ§Ã£o") {
+    return "approve";
+  }
+  if (state === "Pronto para retirada") {
+    return "pickup";
+  }
+  return null;
+}
 
 const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> = {
   overview: {
@@ -90,8 +236,14 @@ export function App() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [activeView, setActiveView] = useState<NavigationTarget>("overview");
   const [checkinOpen, setCheckinOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<TecpontoContextMenuState | null>(null);
   const [selectedOrderName, setSelectedOrderName] = useState<string | null>(null);
   const [pendingOrderFlow, setPendingOrderFlow] = useState<ServiceOrderFlow | null>(null);
+  const [serviceOrdersView, setServiceOrdersView] = useState<ServiceOrdersViewMode>(getStoredServiceOrdersView);
+  const [theme, setTheme] = useState<AppTheme>("dark");
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
 
@@ -112,6 +264,25 @@ export function App() {
   }, [load]);
 
   useEffect(() => {
+    document.documentElement.dataset.tecpontoTheme = theme;
+  }, [theme]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SERVICE_ORDERS_VIEW_KEY, serviceOrdersView);
+    } catch {
+      // Preference persistence is useful, not critical to the workflow.
+    }
+  }, [serviceOrdersView]);
+
+  useEffect(() => {
+    if (state.status !== "ready") {
+      return;
+    }
+    setTheme(readStoredTheme(state.boot.user.name));
+  }, [state]);
+
+  useEffect(() => {
     return () => {
       if (toastTimer.current) {
         window.clearTimeout(toastTimer.current);
@@ -127,9 +298,17 @@ export function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), 3200);
   }, []);
 
-  const showComingSoon = useCallback((label: string, block = "bloco 3.1x") => {
-    showToast(`${label}: em breve — ${block}`);
-  }, [showToast]);
+  const copyToClipboard = useCallback(
+    async (value: string, label: string) => {
+      try {
+        await navigator.clipboard.writeText(value);
+        showToast(`${label} copiado.`);
+      } catch {
+        showToast("Nao foi possivel copiar para a area de transferencia.", "error");
+      }
+    },
+    [showToast],
+  );
 
   const openServiceOrder = useCallback((name: string, flow: ServiceOrderFlow | null = null) => {
     setSelectedOrderName(name);
@@ -144,6 +323,194 @@ export function App() {
   const startCheckin = useCallback(() => {
     setCheckinOpen(true);
   }, []);
+
+  useEffect(() => {
+    const clampMenuPosition = (clientX: number, clientY: number) => ({
+      x: Math.max(12, Math.min(clientX, window.innerWidth - 304)),
+      y: Math.max(12, Math.min(clientY, window.innerHeight - 440)),
+    });
+
+    const onContextMenu = (event: MouseEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const contextSource = target?.closest<HTMLElement>("[data-tp-context]") ?? null;
+      const nativeTarget = target?.closest("input, textarea, select, canvas, [contenteditable='true']");
+      const selectedText = window.getSelection()?.toString();
+      if (!contextSource && (nativeTarget || selectedText)) {
+        return;
+      }
+      event.preventDefault();
+      setContextMenu({
+        ...clampMenuPosition(event.clientX, event.clientY),
+        target: readContextTarget(contextSource),
+      });
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === ".") {
+        event.preventDefault();
+        setContextMenu({
+          ...clampMenuPosition(Math.min(window.innerWidth - 320, 340), 92),
+          target: { kind: "global" },
+        });
+      }
+    };
+
+    document.addEventListener("contextmenu", onContextMenu);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("contextmenu", onContextMenu);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    if (state.status !== "ready") {
+      return;
+    }
+    setTheme((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      try {
+        window.localStorage.setItem(getThemeStorageKey(state.boot.user.name), next);
+      } catch {
+        // Theme preference is local comfort, not business-critical.
+      }
+      return next;
+    });
+  }, [state]);
+
+  const contextMenuItems = useMemo<Array<ContextMenuItem>>(() => {
+    if (!contextMenu) {
+      return [];
+    }
+
+    if (contextMenu.target.kind === "service-order" && contextMenu.target.name) {
+      const orderName = contextMenu.target.name;
+      const flow = workflowFlowForState(contextMenu.target.workflowState);
+      const items: ContextMenuItem[] = [
+        {
+          detail: contextMenu.target.workflowState ?? "Abrir detalhe completo",
+          icon: <Wrench size={17} />,
+          label: "Abrir OS",
+          onSelect: () => openServiceOrder(orderName),
+        },
+        {
+          detail: orderName,
+          icon: <Copy size={17} />,
+          label: "Copiar numero da OS",
+          onSelect: () => void copyToClipboard(orderName, "Numero da OS"),
+        },
+      ];
+
+      if (flow === "approve") {
+        items.push(
+          {
+            detail: "Registra canal, atendente e observacao",
+            icon: <CheckCircle2 size={17} />,
+            label: "Aprovar orcamento",
+            onSelect: () => openServiceOrder(orderName, "approve"),
+            separatorBefore: true,
+          },
+          {
+            detail: "Exige motivo da recusa",
+            icon: <XCircle size={17} />,
+            label: "Reprovar orcamento",
+            onSelect: () => openServiceOrder(orderName, "reject"),
+          },
+        );
+      }
+
+      if (flow === "pickup") {
+        items.push({
+          detail: "Coleta assinatura e terceiro, se houver",
+          icon: <CheckCircle2 size={17} />,
+          label: "Iniciar retirada",
+          onSelect: () => openServiceOrder(orderName, "pickup"),
+          separatorBefore: true,
+        });
+      }
+
+      items.push(
+        {
+          detail: "PDF do check-in",
+          icon: <FileText size={17} />,
+          label: "Termo de entrada",
+          onSelect: () => window.open(serviceOrderPrintUrl(orderName, "Tecponto Termo de Entrada"), "_blank", "noopener,noreferrer"),
+          separatorBefore: true,
+        },
+        {
+          detail: "PDF do orcamento",
+          icon: <Printer size={17} />,
+          label: "Orcamento",
+          onSelect: () => window.open(serviceOrderPrintUrl(orderName, "Tecponto OS Orcamento"), "_blank", "noopener,noreferrer"),
+        },
+        {
+          detail: "Etiqueta do saquinho",
+          icon: <Tag size={17} />,
+          label: "Etiqueta QR",
+          onSelect: () => window.open(serviceOrderPrintUrl(orderName, "Tecponto Etiqueta QR"), "_blank", "noopener,noreferrer"),
+        },
+        {
+          detail: "PDF de entrega",
+          icon: <Printer size={17} />,
+          label: "Termo de retirada",
+          onSelect: () => window.open(serviceOrderPrintUrl(orderName, "Tecponto Termo de Retirada"), "_blank", "noopener,noreferrer"),
+        },
+      );
+      return items;
+    }
+
+    return [
+      {
+        detail: "Fluxo completo de check-in",
+        icon: <Plus size={17} />,
+        label: "Nova OS",
+        onSelect: startCheckin,
+      },
+      {
+        detail: "Cliente, aparelho, OS ou venda",
+        icon: <SearchIcon size={17} />,
+        label: "Busca global",
+        onSelect: () => setGlobalSearchOpen(true),
+      },
+      {
+        detail: "Lista e Kanban",
+        icon: <Wrench size={17} />,
+        label: "Ordens de servico",
+        onSelect: () => setActiveView("service-orders"),
+      },
+      {
+        detail: "Cadastro e historico",
+        icon: <UserRound size={17} />,
+        label: "Clientes",
+        onSelect: () => setActiveView("customers"),
+      },
+      {
+        detail: "Consulta e cadastro avulso",
+        icon: <Smartphone size={17} />,
+        label: "Aparelhos",
+        onSelect: () => setActiveView("devices"),
+      },
+      {
+        detail: "Disponibilidade por deposito",
+        icon: <Package size={17} />,
+        label: "Pecas e estoque",
+        onSelect: () => setActiveView("parts-stock"),
+      },
+      {
+        detail: "Abre o PDV nativo",
+        icon: <ShoppingCart size={17} />,
+        label: "Lancar venda",
+        onSelect: () => window.open(POS_ROUTE, "_blank", "noopener,noreferrer"),
+        separatorBefore: true,
+      },
+      {
+        detail: "Recarrega numeros e filas",
+        icon: <RefreshCw size={17} />,
+        label: "Atualizar dados",
+        onSelect: () => void load({ quiet: true }),
+      },
+    ];
+  }, [contextMenu, copyToClipboard, load, openServiceOrder, startCheckin]);
 
   const handleCheckinCreated = useCallback((response: CheckinResponse) => {
     void load({ quiet: true });
@@ -175,12 +542,19 @@ export function App() {
     <div className="min-h-screen">
       <Sidebar
         activeItemId={activeView === "service-order-detail" ? "service-orders" : activeView}
-        onComingSoon={showComingSoon}
+        onOpenHelp={() => setHelpOpen(true)}
         onNavigate={setActiveView}
         sections={panel.nav}
         user={state.boot.user}
       />
-      <Topbar onComingSoon={showComingSoon} onLogout={logout} user={state.boot.user} />
+      <Topbar
+        onLogout={logout}
+        onOpenNotifications={() => setNotificationsOpen(true)}
+        onOpenSearch={() => setGlobalSearchOpen(true)}
+        onToggleTheme={toggleTheme}
+        theme={theme}
+        user={state.boot.user}
+      />
 
       <main className="tp-main-shell p-4">
         <section className="tp-content-shell">
@@ -191,17 +565,22 @@ export function App() {
               </h1>
               <p className="mt-1 text-sm text-tec-subtle">{currentView ? currentView.subtitle : panel.subtitle}</p>
             </div>
-            <Button icon={<RefreshCw size={18} />} onClick={() => void load()}>
-              Atualizar
-            </Button>
+            <div className="flex flex-wrap items-center gap-2 md:justify-end">
+              {activeView === "service-orders" ? (
+                <ServiceOrderViewToggle onChange={setServiceOrdersView} value={serviceOrdersView} />
+              ) : null}
+              <Button icon={<RefreshCw size={18} />} onClick={() => void load()}>
+                Atualizar
+              </Button>
+            </div>
           </div>
 
           {activeView === "overview" ? (
             <OverviewContent
               actions={panel.actions}
               metrics={state.metrics}
-              onComingSoon={showComingSoon}
               onNavigate={setActiveView}
+              onOpenNotifications={() => setNotificationsOpen(true)}
               onStartCheckin={startCheckin}
               onOpenServiceOrder={openServiceOrder}
               orders={state.orders}
@@ -210,7 +589,6 @@ export function App() {
           ) : (
             <NavigationContent
               activeView={activeView}
-              onComingSoon={showComingSoon}
               onNavigate={setActiveView}
               onOpenServiceOrder={openServiceOrder}
               onRefreshData={() => void load({ quiet: true })}
@@ -219,7 +597,9 @@ export function App() {
               onToast={showToast}
               onStartCheckin={startCheckin}
               orders={state.orders}
+              serviceOrdersView={serviceOrdersView}
               selectedOrderName={selectedOrderName}
+              setServiceOrdersView={setServiceOrdersView}
             />
           )}
         </section>
@@ -230,16 +610,431 @@ export function App() {
         onOpenOrder={openServiceOrder}
         open={checkinOpen}
       />
+      <GlobalSearchModal
+        onClose={() => setGlobalSearchOpen(false)}
+        onNavigate={(target, message) => {
+          setGlobalSearchOpen(false);
+          setActiveView(target);
+          if (message) {
+            showToast(message);
+          }
+        }}
+        onOpenOrder={(name) => {
+          setGlobalSearchOpen(false);
+          openServiceOrder(name);
+        }}
+        open={globalSearchOpen}
+      />
+      <NotificationsModal
+        metrics={state.metrics}
+        onClose={() => setNotificationsOpen(false)}
+        onNavigate={(target) => {
+          setNotificationsOpen(false);
+          setActiveView(target);
+        }}
+        open={notificationsOpen}
+      />
+      <HelpModal
+        onClose={() => setHelpOpen(false)}
+        onNavigate={(target) => {
+          setHelpOpen(false);
+          setActiveView(target);
+        }}
+        onStartCheckin={() => {
+          setHelpOpen(false);
+          setCheckinOpen(true);
+        }}
+        open={helpOpen}
+      />
+      {contextMenu ? (
+        <ContextMenu
+          items={contextMenuItems}
+          onClose={() => setContextMenu(null)}
+          subtitle={contextMenuSubtitle(contextMenu.target)}
+          title={contextMenuTitle(contextMenu.target)}
+          x={contextMenu.x}
+          y={contextMenu.y}
+        />
+      ) : null}
       {toast ? <Toast message={toast.message} tone={toast.tone} /> : null}
     </div>
+  );
+}
+
+type GlobalSearchState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | {
+      status: "ready";
+      customers: CustomerSummary[];
+      devices: CustomerDeviceSummary[];
+      orders: ServiceOrderSummary[];
+      term: string;
+    }
+  | { status: "error"; message: string };
+
+function GlobalSearchModal({
+  onClose,
+  onNavigate,
+  onOpenOrder,
+  open,
+}: {
+  onClose: () => void;
+  onNavigate: (target: NavigationTarget, message?: string) => void;
+  onOpenOrder: (name: string) => void;
+  open: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [searchState, setSearchState] = useState<GlobalSearchState>({ status: "idle" });
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const trimmedQuery = query.trim();
+
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      setSearchState({ status: "idle" });
+      return;
+    }
+
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    if (trimmedQuery.length < 2) {
+      setSearchState({ status: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    setSearchState({ status: "loading" });
+    const timer = window.setTimeout(() => {
+      Promise.all([
+        serviceOrders.list({ limit: 6, query: trimmedQuery }),
+        balcao.searchCustomers(trimmedQuery, 6),
+        balcao.listDevices(trimmedQuery, 6),
+      ])
+        .then(([orders, customers, devices]) => {
+          if (!cancelled) {
+            setSearchState({
+              customers: customers.items,
+              devices: devices.items,
+              orders: orders.items,
+              status: "ready",
+              term: trimmedQuery,
+            });
+          }
+        })
+        .catch((caught) => {
+          if (!cancelled) {
+            setSearchState({
+              message: caught instanceof Error ? caught.message : "Não foi possível buscar agora.",
+              status: "error",
+            });
+          }
+        });
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, trimmedQuery]);
+
+  const totalResults =
+    searchState.status === "ready"
+      ? searchState.orders.length + searchState.customers.length + searchState.devices.length
+      : 0;
+
+  return (
+    <Modal className="max-w-4xl" onClose={onClose} open={open} title="Busca global">
+      <div className="space-y-4">
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tec-muted" size={18} />
+          <input
+            className="h-12 w-full rounded-control border border-tec-border/20 bg-tec-field pl-11 pr-4 text-sm font-semibold text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Digite OS, cliente, telefone, CPF, IMEI ou aparelho..."
+            ref={searchInputRef}
+            type="search"
+            value={query}
+          />
+        </div>
+
+        {searchState.status === "idle" ? (
+          <div className="rounded-card border border-tec-border/15 bg-tec-panel-strong p-4 text-sm text-tec-muted">
+            Digite pelo menos 2 caracteres para buscar OS, clientes e aparelhos.
+          </div>
+        ) : null}
+
+        {searchState.status === "loading" ? (
+          <div className="flex items-center gap-3 rounded-card border border-tec-border/15 bg-tec-panel-strong p-4 text-sm font-semibold text-tec-subtle">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-tec-orange border-t-transparent" />
+            Buscando registros...
+          </div>
+        ) : null}
+
+        {searchState.status === "error" ? (
+          <div className="rounded-card border border-tec-red/30 bg-tec-red/10 p-4 text-sm font-semibold text-red-100">
+            {searchState.message}
+          </div>
+        ) : null}
+
+        {searchState.status === "ready" ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-tec-subtle">
+                {totalResults} resultado{totalResults === 1 ? "" : "s"} para <span className="text-white">{searchState.term}</span>
+              </p>
+              <Button onClick={() => onNavigate("service-orders", `Filtro aberto para ${searchState.term}.`)}>
+                Abrir fila de OS
+              </Button>
+            </div>
+
+            <GlobalSearchSection
+              emptyText="Nenhuma OS encontrada."
+              title="Ordens de serviço"
+            >
+              {searchState.orders.map((order) => (
+                <button
+                  className="flex w-full items-center justify-between gap-4 rounded-control border border-tec-border/15 bg-tec-field/55 px-4 py-3 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+                  key={order.name}
+                  onClick={() => onOpenOrder(order.name)}
+                  type="button"
+                >
+                  <span className="min-w-0">
+                    <span className="block font-bold text-white">{order.name}</span>
+                    <span className="mt-1 block truncate text-sm text-tec-muted">
+                      {order.customer ?? "Cliente não informado"} · {order.reported_defect ?? "Sem defeito informado"}
+                    </span>
+                  </span>
+                  <BadgeStatus status={order.workflow_state} />
+                </button>
+              ))}
+            </GlobalSearchSection>
+
+            <GlobalSearchSection
+              emptyText="Nenhum cliente encontrado."
+              title="Clientes"
+            >
+              {searchState.customers.map((customer) => (
+                <button
+                  className="flex w-full items-center justify-between gap-4 rounded-control border border-tec-border/15 bg-tec-field/55 px-4 py-3 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+                  key={customer.name}
+                  onClick={() => onNavigate("customers", `Cliente localizado: ${customer.customer_name ?? customer.name}`)}
+                  type="button"
+                >
+                  <span className="min-w-0">
+                    <span className="block font-bold text-white">{customer.customer_name ?? customer.name}</span>
+                    <span className="mt-1 block truncate text-sm text-tec-muted">
+                      {[customer.mobile_no, customer.custom_whatsapp, customer.email_id].filter(Boolean).join(" · ") || "Sem contato"}
+                    </span>
+                  </span>
+                  <ArrowRight className="text-tec-muted" size={17} />
+                </button>
+              ))}
+            </GlobalSearchSection>
+
+            <GlobalSearchSection
+              emptyText="Nenhum aparelho encontrado."
+              title="Aparelhos"
+            >
+              {searchState.devices.map((device) => (
+                <button
+                  className="flex w-full items-center justify-between gap-4 rounded-control border border-tec-border/15 bg-tec-field/55 px-4 py-3 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+                  key={device.name}
+                  onClick={() => onNavigate("devices", `Aparelho localizado: ${device.imei_serial ?? device.name}`)}
+                  type="button"
+                >
+                  <span className="min-w-0">
+                    <span className="block font-bold text-white">
+                      {[device.brand, device.model, device.color].filter(Boolean).join(" ") || device.name}
+                    </span>
+                    <span className="mt-1 block truncate text-sm text-tec-muted">
+                      {device.imei_serial ?? "Sem IMEI"} · {device.customer ?? "Cliente não vinculado"}
+                    </span>
+                  </span>
+                  <ArrowRight className="text-tec-muted" size={17} />
+                </button>
+              ))}
+            </GlobalSearchSection>
+          </div>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+function GlobalSearchSection({
+  children,
+  emptyText,
+  title,
+}: {
+  children: ReactNode;
+  emptyText: string;
+  title: string;
+}) {
+  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+
+  return (
+    <section className="rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
+      <h3 className="text-base font-bold text-white">{title}</h3>
+      <div className="mt-3 space-y-2">
+        {hasChildren ? children : <p className="rounded-control bg-tec-field/45 px-4 py-3 text-sm text-tec-muted">{emptyText}</p>}
+      </div>
+    </section>
+  );
+}
+
+function NotificationsModal({
+  metrics,
+  onClose,
+  onNavigate,
+  open,
+}: {
+  metrics: DashboardMetrics;
+  onClose: () => void;
+  onNavigate: (target: NavigationTarget) => void;
+  open: boolean;
+}) {
+  const items = [
+    {
+      action: "Abrir fila",
+      count: metrics.service_orders.awaiting_approval,
+      description: "OS esperando retorno do cliente.",
+      onClick: () => onNavigate("service-orders"),
+      title: "Aprovações pendentes",
+    },
+    {
+      action: "Ver estoque",
+      count: metrics.service_orders.waiting_part,
+      description: "Reparos dependentes de peça.",
+      onClick: () => onNavigate("parts-stock"),
+      title: "Peças aguardando chegada",
+    },
+    {
+      action: "Abrir WhatsApp",
+      count: 8,
+      description: "Abrir WhatsApp Web para atendimento.",
+      href: "https://web.whatsapp.com/",
+      title: "Mensagens do WhatsApp",
+    },
+  ];
+
+  return (
+    <Modal className="max-w-2xl" onClose={onClose} open={open} title="Notificações">
+      <div className="space-y-3">
+        {items.map((item) => (
+          <div className="rounded-card border border-tec-border/15 bg-tec-field/55 p-4" key={item.title}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="font-bold text-white">{item.title}</p>
+                <p className="mt-1 text-sm text-tec-muted">{item.description}</p>
+              </div>
+              <span className="grid h-8 min-w-8 place-items-center rounded-full bg-tec-orange/20 px-2 text-sm font-bold text-tec-orange">
+                {item.count}
+              </span>
+            </div>
+            {item.href ? (
+              <a
+                className="mt-4 inline-flex min-h-9 items-center justify-center rounded-control border border-tec-border/20 bg-tec-panel px-3 text-sm font-bold text-tec-text transition hover:border-tec-whatsapp/50"
+                href={item.href}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {item.action}
+              </a>
+            ) : (
+              <Button className="mt-4" onClick={item.onClick}>
+                {item.action}
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+function HelpModal({
+  onClose,
+  onNavigate,
+  onStartCheckin,
+  open,
+}: {
+  onClose: () => void;
+  onNavigate: (target: NavigationTarget) => void;
+  onStartCheckin: () => void;
+  open: boolean;
+}) {
+  return (
+    <Modal className="max-w-3xl" onClose={onClose} open={open} title="Ajuda rápida">
+      <div className="grid gap-4 md:grid-cols-2">
+        <button
+          className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+          onClick={onStartCheckin}
+          type="button"
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+            <Wrench size={20} />
+          </span>
+          <span className="mt-4 block text-base font-bold text-white">Abrir nova OS</span>
+          <span className="mt-1 block text-sm text-tec-muted">Inicia o check-in com cliente, aparelho, foto e assinatura.</span>
+        </button>
+
+        <button
+          className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+          onClick={() => onNavigate("service-orders")}
+          type="button"
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+            <SearchIcon size={20} />
+          </span>
+          <span className="mt-4 block text-base font-bold text-white">Encontrar uma OS</span>
+          <span className="mt-1 block text-sm text-tec-muted">Abre a fila com busca, filtros e Kanban.</span>
+        </button>
+
+        <button
+          className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+          onClick={() => onNavigate("customers")}
+          type="button"
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+            <UserRound size={20} />
+          </span>
+          <span className="mt-4 block text-base font-bold text-white">Buscar cliente</span>
+          <span className="mt-1 block text-sm text-tec-muted">Consulta por nome, telefone, CPF, RG ou e-mail.</span>
+        </button>
+
+        <button
+          className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+          onClick={() => onNavigate("devices")}
+          type="button"
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+            <Smartphone size={20} />
+          </span>
+          <span className="mt-4 block text-base font-bold text-white">Cadastrar aparelho</span>
+          <span className="mt-1 block text-sm text-tec-muted">Abre a tela de aparelhos com cadastro avulso e foto.</span>
+        </button>
+      </div>
+
+      <div className="mt-5 rounded-card border border-tec-border/15 bg-tec-panel-strong p-4 text-sm text-tec-subtle">
+        Os fluxos críticos continuam sendo validados pelo motor do ERPNext: foto e assinatura no check-in, orçamento aprovado,
+        nota paga na retirada e permissões por papel.
+      </div>
+    </Modal>
   );
 }
 
 function OverviewContent({
   actions,
   metrics,
-  onComingSoon,
   onNavigate,
+  onOpenNotifications,
   onOpenServiceOrder,
   onStartCheckin,
   orders,
@@ -247,15 +1042,20 @@ function OverviewContent({
 }: {
   actions: ActionDefinition[];
   metrics: DashboardMetrics;
-  onComingSoon: (label: string, block?: string) => void;
   onNavigate: (target: NavigationTarget) => void;
+  onOpenNotifications: () => void;
   onOpenServiceOrder: (name: string) => void;
   onStartCheckin: () => void;
   orders: ServiceOrderSummary[];
   panel: (typeof panelDefinitions)[keyof typeof panelDefinitions];
 }) {
+  const [periodFilter, setPeriodFilter] = useState<DashboardPeriodFilter>(DEFAULT_DASHBOARD_PERIOD);
+  const periodOrders = useMemo(() => filterOrdersByDashboardPeriod(orders, periodFilter), [orders, periodFilter]);
+
   return (
     <>
+      <DashboardPeriodControl filter={periodFilter} onChange={setPeriodFilter} resultCount={periodOrders.length} />
+
       <div className="tp-bento-grid">
         {panel.metrics.map((metric) => (
           <MetricCard
@@ -271,22 +1071,98 @@ function OverviewContent({
 
       <div className="tp-layout-grid mt-4">
         <OperationsTable
-          onComingSoon={onComingSoon}
           onOpenOrder={onOpenServiceOrder}
           onShowAll={() => onNavigate("service-orders")}
-          orders={orders}
+          orders={periodOrders}
           title={panel.tableTitle}
         />
-        <RightRail actions={actions} onComingSoon={onComingSoon} onNavigate={onNavigate} onStartCheckin={onStartCheckin} />
+        <RightRail
+          actions={actions}
+          metrics={metrics}
+          onNavigate={onNavigate}
+          onOpenNotifications={onOpenNotifications}
+          onStartCheckin={onStartCheckin}
+        />
       </div>
     </>
+  );
+}
+
+function DashboardPeriodControl({
+  filter,
+  onChange,
+  resultCount,
+}: {
+  filter: DashboardPeriodFilter;
+  onChange: (filter: DashboardPeriodFilter) => void;
+  resultCount: number;
+}) {
+  const updateMode = (mode: DashboardPeriodMode) => {
+    onChange({
+      fromDate: mode === "custom" ? filter.fromDate : "",
+      mode,
+      toDate: mode === "custom" ? filter.toDate : "",
+    });
+  };
+
+  return (
+    <div className="mb-4 flex flex-col gap-3 rounded-card border border-tec-border/20 bg-tec-panel/65 p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex items-center gap-3">
+        <span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+          <Clock3 size={18} />
+        </span>
+        <div>
+          <p className="text-sm font-bold text-white">Período do painel</p>
+          <p className="text-xs text-tec-muted">{resultCount} atendimentos na fila filtrada</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {DASHBOARD_PERIOD_OPTIONS.map((option) => {
+          const selected = filter.mode === option.value;
+          return (
+            <button
+              aria-pressed={selected}
+              className={cx(
+                "min-h-9 rounded-control border px-3 text-xs font-bold transition",
+                selected
+                  ? "border-tec-orange bg-tec-orange text-tec-ink shadow-glow"
+                  : "border-tec-border/20 bg-tec-field/70 text-tec-subtle hover:border-tec-orange/50 hover:text-tec-text",
+              )}
+              key={option.value}
+              onClick={() => updateMode(option.value)}
+              type="button"
+            >
+              {option.label}
+            </button>
+          );
+        })}
+        {filter.mode === "custom" ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              aria-label="Data inicial do período personalizado"
+              className="h-9 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-semibold text-tec-text outline-none focus:border-tec-orange/70"
+              onChange={(event) => onChange({ ...filter, fromDate: event.target.value })}
+              type="date"
+              value={filter.fromDate}
+            />
+            <span className="text-xs font-semibold text-tec-muted">até</span>
+            <input
+              aria-label="Data final do período personalizado"
+              className="h-9 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-semibold text-tec-text outline-none focus:border-tec-orange/70"
+              onChange={(event) => onChange({ ...filter, toDate: event.target.value })}
+              type="date"
+              value={filter.toDate}
+            />
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
 function NavigationContent({
   activeView,
   initialOrderFlow,
-  onComingSoon,
   onInitialOrderFlowHandled,
   onNavigate,
   onOpenServiceOrder,
@@ -294,11 +1170,12 @@ function NavigationContent({
   onStartCheckin,
   onToast,
   orders,
+  serviceOrdersView,
   selectedOrderName,
+  setServiceOrdersView,
 }: {
   activeView: NavigationTarget;
   initialOrderFlow: ServiceOrderFlow | null;
-  onComingSoon: (label: string, block?: string) => void;
   onInitialOrderFlowHandled: () => void;
   onNavigate: (target: NavigationTarget) => void;
   onOpenServiceOrder: (name: string, flow?: ServiceOrderFlow | null) => void;
@@ -306,17 +1183,49 @@ function NavigationContent({
   onStartCheckin: () => void;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   orders: ServiceOrderSummary[];
+  serviceOrdersView: ServiceOrdersViewMode;
   selectedOrderName: string | null;
+  setServiceOrdersView: (value: ServiceOrdersViewMode) => void;
 }) {
-  const [serviceOrdersView, setServiceOrdersView] = useState<ServiceOrdersViewMode>(getStoredServiceOrdersView);
+  const [serviceOrderFilters, setServiceOrderFilters] = useState<ServiceOrderFilterState>(DEFAULT_SERVICE_ORDER_FILTERS);
+  const [serviceOrderListState, setServiceOrderListState] = useState<ServiceOrderListState>({
+    count: orders.length,
+    items: orders,
+    status: "ready",
+  });
+  const serviceOrderQueryParams = useMemo(() => toServiceOrderQueryParams(serviceOrderFilters, 100), [serviceOrderFilters]);
+  const serviceOrderScreenOrders =
+    serviceOrderListState.status === "ready" ? serviceOrderListState.items : filterOrdersForServiceOrderScreen(orders, serviceOrderFilters);
+  const serviceOrderResultCount =
+    serviceOrderListState.status === "ready" ? serviceOrderListState.count : serviceOrderScreenOrders.length;
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(SERVICE_ORDERS_VIEW_KEY, serviceOrdersView);
-    } catch {
-      // Preference persistence is useful, not critical to the workflow.
+    if (activeView !== "service-orders") {
+      return;
     }
-  }, [serviceOrdersView]);
+
+    let cancelled = false;
+    setServiceOrderListState((current) => (current.status === "ready" ? current : { status: "loading" }));
+    serviceOrders
+      .list(serviceOrderQueryParams)
+      .then((response) => {
+        if (!cancelled) {
+          setServiceOrderListState({ count: response.count, items: response.items, status: "ready" });
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setServiceOrderListState({
+            message: error instanceof Error ? error.message : "Falha ao filtrar ordens de serviço.",
+            status: "error",
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, serviceOrderQueryParams]);
 
   if (activeView === "service-order-detail") {
     return selectedOrderName ? (
@@ -324,8 +1233,8 @@ function NavigationContent({
         initialFlow={initialOrderFlow}
         name={selectedOrderName}
         onBack={() => onNavigate("service-orders")}
-        onComingSoon={onComingSoon}
         onInitialFlowHandled={onInitialOrderFlowHandled}
+        onToast={onToast}
       />
     ) : (
       <Card className="p-5 text-sm text-tec-subtle">Selecione uma OS na fila para abrir o detalhe.</Card>
@@ -333,12 +1242,24 @@ function NavigationContent({
   }
 
   if (activeView === "service-orders") {
+    const serviceOrderFilterBar = (
+      <ServiceOrderFilterBar
+        filters={serviceOrderFilters}
+        onChange={setServiceOrderFilters}
+        resultCount={serviceOrderResultCount}
+      />
+    );
+
     return (
       <div className="tp-layout-grid">
         <section className="min-w-0 space-y-4">
-          <ServiceOrderViewToggle onChange={setServiceOrdersView} value={serviceOrdersView} />
+          {serviceOrderListState.status === "error" ? (
+            <Card className="p-4 text-sm font-semibold text-tec-red">{serviceOrderListState.message}</Card>
+          ) : null}
           {serviceOrdersView === "kanban" ? (
             <ServiceOrderKanban
+              filterBar={serviceOrderFilterBar}
+              filters={serviceOrderFilters}
               onChanged={onRefreshData}
               onOpenOrder={onOpenServiceOrder}
               onOpenWorkflowFlow={onOpenServiceOrder}
@@ -347,9 +1268,10 @@ function NavigationContent({
             />
           ) : (
             <OperationsTable
-              onComingSoon={onComingSoon}
+              filterBar={serviceOrderFilterBar}
               onOpenOrder={(name) => onOpenServiceOrder(name)}
-              orders={orders}
+              orders={serviceOrderScreenOrders}
+              showQuickStatusFilters={false}
               title="Lista de OS"
             />
           )}
@@ -360,7 +1282,6 @@ function NavigationContent({
             { icon: SearchIcon, label: "Buscar cliente", detail: "Localizar cadastro", target: "customers" },
             { icon: Smartphone, label: "Aparelhos", detail: "Buscar IMEI", target: "devices" },
           ]}
-          onComingSoon={onComingSoon}
           onNavigate={onNavigate}
           onStartCheckin={onStartCheckin}
           title="Atalhos de OS"
@@ -385,30 +1306,187 @@ function NavigationContent({
     return <StockLookup />;
   }
 
-  return <SalesLookup onComingSoon={onComingSoon} onNavigate={onNavigate} />;
+  return <SalesLookup onNavigate={onNavigate} />;
+}
+
+function ServiceOrderFilterBar({
+  filters,
+  onChange,
+  resultCount,
+}: {
+  filters: ServiceOrderFilterState;
+  onChange: (filters: ServiceOrderFilterState) => void;
+  resultCount: number;
+}) {
+  const updatePeriodMode = (mode: DashboardPeriodMode) => {
+    onChange({
+      ...filters,
+      period: {
+        fromDate: mode === "custom" ? filters.period.fromDate : "",
+        mode,
+        toDate: mode === "custom" ? filters.period.toDate : "",
+      },
+    });
+  };
+  const resetFilters = () => onChange(DEFAULT_SERVICE_ORDER_FILTERS);
+  const hasActiveFilters =
+    filters.query.trim().length > 0 ||
+    filters.status !== "all" ||
+    filters.period.mode !== DEFAULT_SERVICE_ORDER_FILTERS.period.mode ||
+    filters.period.fromDate !== "" ||
+    filters.period.toDate !== "";
+
+  return (
+    <div className="space-y-3 rounded-card bg-tec-field/35 p-3">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="grid gap-3 2xl:grid-cols-[minmax(280px,1fr)_auto]">
+            <label className="relative block min-w-0">
+              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-tec-muted" size={17} />
+              <input
+                className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field pl-10 pr-3 text-sm font-medium text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
+                onChange={(event) => onChange({ ...filters, query: event.target.value })}
+                placeholder="Buscar OS, cliente, IMEI, aparelho ou defeito..."
+                type="search"
+                value={filters.query}
+              />
+            </label>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {DASHBOARD_PERIOD_OPTIONS.map((option) => {
+                const selected = filters.period.mode === option.value;
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className={cx(
+                      "min-h-9 rounded-control border px-3 text-xs font-bold transition",
+                      selected
+                        ? "border-tec-orange bg-tec-orange text-tec-ink shadow-glow"
+                        : "border-tec-border/20 bg-tec-field/70 text-tec-subtle hover:border-tec-orange/50 hover:text-tec-text",
+                    )}
+                    key={option.value}
+                    onClick={() => updatePeriodMode(option.value)}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {filters.period.mode === "custom" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 text-xs font-semibold text-tec-muted">
+                <Clock3 size={14} />
+                Período personalizado
+              </span>
+              <input
+                aria-label="Data inicial do filtro de OS"
+                className="h-9 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-semibold text-tec-text outline-none focus:border-tec-orange/70"
+                onChange={(event) =>
+                  onChange({ ...filters, period: { ...filters.period, fromDate: event.target.value } })
+                }
+                type="date"
+                value={filters.period.fromDate}
+              />
+              <span className="text-xs font-semibold text-tec-muted">até</span>
+              <input
+                aria-label="Data final do filtro de OS"
+                className="h-9 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-semibold text-tec-text outline-none focus:border-tec-orange/70"
+                onChange={(event) =>
+                  onChange({ ...filters, period: { ...filters.period, toDate: event.target.value } })
+                }
+                type="date"
+                value={filters.period.toDate}
+              />
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap gap-2">
+            {QUEUE_FILTERS.map((filter) => {
+              const selected = filters.status === filter.value;
+              return (
+                <button
+                  aria-pressed={selected}
+                  className={cx(
+                    "min-h-8 rounded-full border px-4 text-xs font-bold transition",
+                    selected
+                      ? "border-tec-orange bg-tec-orange text-tec-ink shadow-glow"
+                      : "border-tec-border/20 bg-tec-field/60 text-tec-subtle hover:border-tec-orange/50 hover:text-tec-text",
+                  )}
+                  key={filter.value}
+                  onClick={() => onChange({ ...filters, status: filter.value })}
+                  type="button"
+                >
+                  {filter.label}
+                </button>
+              );
+            })}
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-tec-muted">
+              <span>{resultCount} OS no recorte</span>
+              <button
+                className={cx(
+                  "min-h-8 rounded-control border px-3 text-xs font-bold transition",
+                  hasActiveFilters
+                    ? "border-tec-border/20 bg-tec-field text-tec-text hover:border-tec-orange/50"
+                    : "cursor-not-allowed border-tec-border/10 bg-tec-field/45 text-tec-muted",
+                )}
+                disabled={!hasActiveFilters}
+                onClick={resetFilters}
+                type="button"
+              >
+                Limpar filtros
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function OperationsTable({
-  onComingSoon,
+  filterBar,
   onOpenOrder,
   onShowAll,
   orders,
+  showQuickStatusFilters = true,
   title,
 }: {
-  onComingSoon: (label: string, block?: string) => void;
+  filterBar?: ReactNode;
   onOpenOrder: (name: string) => void;
   onShowAll?: () => void;
   orders: ServiceOrderSummary[];
+  showQuickStatusFilters?: boolean;
   title: string;
 }) {
+  const [activeFilter, setActiveFilter] = useState<QueueFilter>("all");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [tableQuery, setTableQuery] = useState("");
+  const visibleOrders = useMemo(() => {
+    const effectiveQuery = filterBar ? "" : tableQuery.trim();
+    const statusOrders =
+      showQuickStatusFilters && activeFilter !== "all"
+        ? orders.filter((order) => order.workflow_state === activeFilter)
+        : orders;
+    return effectiveQuery
+      ? statusOrders.filter((order) => matchesServiceOrderSearch(order, effectiveQuery))
+      : statusOrders;
+  }, [activeFilter, filterBar, orders, showQuickStatusFilters, tableQuery]);
+
   const columns = useMemo<Array<TableColumn<ServiceOrderSummary>>>(
     () => [
       {
+        className: "w-36 whitespace-nowrap",
         key: "name",
         label: "OS",
         render: (row) => <span className="font-semibold text-white">{row.name}</span>,
       },
       {
+        className: "min-w-40",
         key: "customer",
         label: "Cliente",
         render: (row) => (
@@ -429,6 +1507,11 @@ function OperationsTable({
         render: (row) => <BadgeStatus status={row.workflow_state} />,
       },
       {
+        key: "next_action",
+        label: "Proxima acao",
+        render: (row) => <NextActionPill order={row} />,
+      },
+      {
         key: "responsible",
         label: "Responsável",
         render: (row) => row.technician ?? row.attendant ?? "Não definido",
@@ -438,28 +1521,93 @@ function OperationsTable({
         label: "Atualização",
         render: (row) => formatDate(row.modified),
       },
+      {
+        className: "w-24 text-right",
+        key: "action",
+        label: "",
+        render: (row) => (
+          <button
+            className="inline-flex min-h-8 items-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-bold text-tec-text transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenOrder(row.name);
+            }}
+            title={`Abrir ${row.name}`}
+            type="button"
+          >
+            Abrir
+            <ArrowRight size={14} />
+          </button>
+        ),
+      },
     ],
-    [],
+    [onOpenOrder],
   );
 
   return (
-    <Card className="p-4">
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-bold text-white">{title}</h2>
-          <span className="rounded-full bg-tec-orange/20 px-2 py-1 text-xs font-bold text-tec-orange">
-            {orders.length}
-          </span>
+    <Card className="p-5">
+      <div className="mb-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-bold text-white">{title}</h2>
+            <span className="rounded-full bg-tec-orange/20 px-2 py-1 text-xs font-bold text-tec-orange">
+              {orders.length}
+            </span>
+          </div>
+          {filterBar ? null : (
+            <Button icon={<SearchIcon size={17} />} onClick={() => setSearchOpen((current) => !current)}>
+              {searchOpen ? "Ocultar busca" : "Buscar"}
+            </Button>
+          )}
         </div>
-        <Button icon={<RefreshCw size={17} />} onClick={() => onComingSoon("Filtros da OS", "bloco 3.1b")}>
-          Filtros
-        </Button>
+        {filterBar}
+        {!filterBar && searchOpen ? (
+          <label className="relative block max-w-xl">
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-tec-muted" size={17} />
+            <input
+              className="h-10 w-full rounded-control border border-tec-border/20 bg-tec-field pl-10 pr-3 text-sm font-medium text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
+              onChange={(event) => setTableQuery(event.target.value)}
+              placeholder="Buscar na fila..."
+              type="search"
+              value={tableQuery}
+            />
+          </label>
+        ) : null}
+        {showQuickStatusFilters ? (
+          <div className="flex flex-wrap gap-2">
+            {QUEUE_FILTERS.map((filter) => {
+              const selected = activeFilter === filter.value;
+              return (
+                <button
+                  className={cx(
+                    "min-h-8 rounded-full border px-4 text-xs font-bold transition",
+                    selected
+                      ? "border-tec-orange bg-tec-orange text-tec-ink shadow-glow"
+                      : "border-tec-border/20 bg-tec-field/60 text-tec-subtle hover:border-tec-orange/50 hover:text-tec-text",
+                  )}
+                  key={filter.value}
+                  onClick={() => setActiveFilter(filter.value)}
+                  type="button"
+                >
+                  {filter.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
       <DataTable
         columns={columns}
         emptyLabel="Nenhuma OS encontrada para este papel."
+        getRowProps={(row) => ({
+          "data-tp-context": "service-order",
+          "data-tp-customer": row.customer ?? "",
+          "data-tp-label": row.customer ?? row.name,
+          "data-tp-name": row.name,
+          "data-tp-workflow-state": row.workflow_state ?? "",
+        })}
         onRowClick={(row) => onOpenOrder(row.name)}
-        rows={orders}
+        rows={visibleOrders}
       />
       {onShowAll ? (
         <button
@@ -476,18 +1624,67 @@ function OperationsTable({
   );
 }
 
+function NextActionPill({ order }: { order: ServiceOrderSummary }) {
+  const next = nextActionForOrder(order);
+  return (
+    <span
+      className={cx(
+        "inline-flex min-h-7 items-center rounded-full px-3 text-xs font-bold",
+        next.tone === "orange" && "bg-tec-orange/15 text-tec-orange",
+        next.tone === "blue" && "bg-tec-blue/15 text-tec-blue",
+        next.tone === "green" && "bg-tec-success/15 text-tec-success",
+        next.tone === "amber" && "bg-tec-amber/15 text-tec-amber",
+        next.tone === "muted" && "bg-tec-field text-tec-muted",
+      )}
+    >
+      {next.label}
+    </span>
+  );
+}
+
+function nextActionForOrder(order: ServiceOrderSummary): {
+  label: string;
+  tone: "amber" | "blue" | "green" | "muted" | "orange";
+} {
+  switch (order.workflow_state) {
+    case "Entrada criada":
+      return { label: "Aguardar tecnico", tone: "muted" };
+    case "Em diagnostico":
+    case "Em diagnóstico":
+      return { label: "Diagnosticar", tone: "blue" };
+    case "Aguardando aprovação":
+    case "Aguardando aprovaÃ§Ã£o":
+      return { label: "Cobrar aceite", tone: "amber" };
+    case "Aguardando peça":
+    case "Aguardando peca":
+      return { label: "Acompanhar peca", tone: "orange" };
+    case "Em reparo":
+      return { label: "Acompanhar reparo", tone: "blue" };
+    case "Pronto para retirada":
+      return { label: "Chamar retirada", tone: "green" };
+    case "Entregue":
+      return { label: "Concluida", tone: "muted" };
+    case "Reprovado":
+    case "Orçamento expirado":
+    case "OrÃ§amento expirado":
+      return { label: "Retirada sem reparo", tone: "orange" };
+    default:
+      return { label: "Abrir OS", tone: "muted" };
+  }
+}
+
 function ServiceOrderDetail({
   initialFlow,
   name,
   onBack,
-  onComingSoon,
   onInitialFlowHandled,
+  onToast,
 }: {
   initialFlow: ServiceOrderFlow | null;
   name: string;
   onBack: () => void;
-  onComingSoon: (label: string, block?: string) => void;
   onInitialFlowHandled: () => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
 }) {
   const [state, setState] = useState<
     | { status: "loading" }
@@ -495,6 +1692,10 @@ function ServiceOrderDetail({
     | { status: "error"; message: string }
   >({ status: "loading" });
   const [activeFlow, setActiveFlow] = useState<"approve" | "reject" | "pickup" | null>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [budgetLineType, setBudgetLineType] = useState<BudgetLineType | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [quoteSendOpen, setQuoteSendOpen] = useState(false);
   const initialFlowRef = useRef(initialFlow);
 
   useEffect(() => {
@@ -504,6 +1705,10 @@ function ServiceOrderDetail({
   useEffect(() => {
     let mounted = true;
     setActiveFlow(null);
+    setActionsOpen(false);
+    setBudgetLineType(null);
+    setHistoryOpen(false);
+    setQuoteSendOpen(false);
     setState({ status: "loading" });
     serviceOrders
       .detail(name)
@@ -552,39 +1757,72 @@ function ServiceOrderDetail({
     [detail.device?.brand, detail.device?.model, detail.device?.color].filter(Boolean).join(" ") ||
     detail.device?.name ||
     "Aparelho não vinculado";
+  const whatsappUrl = buildWhatsAppUrl(
+    detail.customer?.custom_whatsapp || detail.customer?.mobile_no,
+    `Olá, ${customerLabel}. Aqui é da Tecponto. Sobre a OS ${detail.name} (${deviceLabel}), podemos falar por aqui?`,
+  );
+
+  async function handleSimpleWorkflowMove(nextState: string) {
+    try {
+      const moveResult = await serviceOrders.move(detail.name, nextState);
+      const updated = await serviceOrders.detail(detail.name);
+      setState({ status: "ready", detail: updated });
+      onToast(moveResult.changed ? `OS movida para ${updated.workflow_state}.` : `OS já estava em ${updated.workflow_state}.`);
+    } catch (caught) {
+      onToast(caught instanceof Error ? caught.message : "Não foi possível avançar o workflow.", "error");
+    }
+  }
+
+  async function refreshServiceOrder(message = "Atendimento atualizado.") {
+    try {
+      const updated = await serviceOrders.detail(detail.name);
+      setState({ status: "ready", detail: updated });
+      onToast(message);
+    } catch (caught) {
+      onToast(caught instanceof Error ? caught.message : "Não foi possível atualizar a OS.", "error");
+    }
+  }
 
   return (
     <div className="space-y-4">
-      <Card className="p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
-            <button
-              className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-tec-subtle hover:text-white"
-              onClick={onBack}
-              type="button"
-            >
-              <ArrowLeft size={17} />
-              Voltar para a fila
-            </button>
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-2xl font-bold text-white">{detail.name}</h2>
-              <BadgeStatus status={detail.workflow_state} />
-              {detail.priority ? <span className="rounded-full bg-tec-field px-3 py-1 text-xs text-tec-subtle">{detail.priority}</span> : null}
-            </div>
-            <p className="mt-2 max-w-3xl text-sm text-tec-subtle">{detail.reported_defect ?? "Sem defeito informado"}</p>
-          </div>
-          <PrintLinks links={detail.print_links} />
-        </div>
-      </Card>
+      <ServiceOrderHero
+        detail={detail}
+        onBack={onBack}
+        onOpenActions={() => setActionsOpen(true)}
+        onOpenBudgetEditor={setBudgetLineType}
+      />
 
-      <div className="tp-layout-grid">
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_330px]">
+        <div className="min-w-0 space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
             <IdentityCard
+              action={
+                whatsappUrl ? (
+                  <a
+                    className="mt-4 inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-whatsapp/35 bg-tec-whatsapp/10 px-4 text-sm font-bold text-tec-whatsapp transition hover:bg-tec-whatsapp/20"
+                    href={whatsappUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <WhatsAppLogo size={17} />
+                    Abrir WhatsApp
+                  </a>
+                ) : (
+                  <button
+                    className="mt-4 inline-flex min-h-10 cursor-not-allowed items-center justify-center gap-2 rounded-control border border-tec-border/15 bg-tec-field/55 px-4 text-sm font-bold text-tec-muted opacity-70"
+                    disabled
+                    title="Cadastre um telefone ou WhatsApp no cliente para abrir conversa contextual."
+                    type="button"
+                  >
+                    <WhatsAppLogo size={17} />
+                    WhatsApp indisponível
+                  </button>
+                )
+              }
               icon={<UserRound size={20} />}
               lines={[
                 ["Cliente", customerLabel],
-                ["Telefone", detail.customer?.mobile_no ?? "Não informado"],
+                ["Telefone", detail.customer?.custom_whatsapp || detail.customer?.mobile_no || "Não informado"],
                 ["E-mail", detail.customer?.email_id ?? "Não informado"],
                 ["Atendente", detail.attendant ?? "Não definido"],
               ]}
@@ -602,27 +1840,25 @@ function ServiceOrderDetail({
             />
           </div>
 
-          <BudgetCard detail={detail} />
-          <TimelineCard events={detail.timeline} />
+          <BudgetCard detail={detail} onOpenBudgetEditor={setBudgetLineType} />
+          <TimelineCard events={detail.timeline} onOpenHistory={() => setHistoryOpen(true)} />
         </div>
 
         <aside className="space-y-4">
+          <NextActionCard
+            detail={detail}
+            onOpenFlow={setActiveFlow}
+            onOpenQuoteSend={() => setQuoteSendOpen(true)}
+            onRefresh={() => void refreshServiceOrder()}
+          />
           <WorkflowCard
             actions={detail.workflow_actions}
             detail={detail}
-            onComingSoon={onComingSoon}
             onOpenFlow={setActiveFlow}
+            onOpenHistory={() => setHistoryOpen(true)}
+            onSimpleMove={handleSimpleWorkflowMove}
           />
-          <Card className="p-4">
-            <h3 className="text-base font-bold text-white">Atendimento</h3>
-            <dl className="mt-4 space-y-3 text-sm">
-              <DetailLine label="Entrada" value={formatDate(detail.entry_date)} />
-              <DetailLine label="Prazo de aprovação" value={detail.approval_deadline ? formatDate(detail.approval_deadline) : "Não definido"} />
-              <DetailLine label="Técnico" value={detail.technician ?? "Não definido"} />
-              <DetailLine label="Garantia até" value={detail.warranty.warranty_expiry || "Não aplicada"} />
-              <DetailLine label="Atualização" value={formatDate(detail.modified)} />
-            </dl>
-          </Card>
+          <ServiceOrderAttendanceCard detail={detail} />
         </aside>
       </div>
       <BudgetDecisionModal
@@ -645,50 +1881,361 @@ function ServiceOrderDetail({
         onUpdated={(updated) => setState({ status: "ready", detail: updated })}
         open={activeFlow === "pickup"}
       />
+      <BudgetLineModal
+        detail={detail}
+        lineType={budgetLineType}
+        onClose={() => setBudgetLineType(null)}
+        onToast={onToast}
+        onUpdated={(updated) => setState({ status: "ready", detail: updated })}
+      />
+      <QuoteSendModal
+        detail={detail}
+        onClose={() => setQuoteSendOpen(false)}
+        onToast={onToast}
+        onUpdated={(updated) => setState({ status: "ready", detail: updated })}
+        open={quoteSendOpen}
+      />
+      <ServiceOrderHistoryModal detail={detail} onClose={() => setHistoryOpen(false)} open={historyOpen} />
+      <ServiceOrderActionsModal
+        detail={detail}
+        onClose={() => setActionsOpen(false)}
+        onOpenBudgetEditor={(type) => {
+          setActionsOpen(false);
+          setBudgetLineType(type);
+        }}
+        onOpenHistory={() => {
+          setActionsOpen(false);
+          setHistoryOpen(true);
+        }}
+        onOpenQuoteSend={() => {
+          setActionsOpen(false);
+          setQuoteSendOpen(true);
+        }}
+        onRefresh={() => void refreshServiceOrder("OS atualizada.")}
+        open={actionsOpen}
+      />
     </div>
   );
 }
 
-function IdentityCard({
-  icon,
-  lines,
-  title,
+function ServiceOrderHero({
+  detail,
+  onBack,
+  onOpenActions,
+  onOpenBudgetEditor,
 }: {
-  icon: ReactNode;
-  lines: Array<[string, string]>;
-  title: string;
+  detail: ServiceOrderDetailResponse;
+  onBack: () => void;
+  onOpenActions: () => void;
+  onOpenBudgetEditor: (type: BudgetLineType) => void;
 }) {
   return (
-    <Card className="p-4">
-      <div className="mb-4 flex items-center gap-3">
-        <span className="grid h-10 w-10 place-items-center rounded-card bg-tec-orange/15 text-tec-orange">{icon}</span>
-        <h3 className="text-base font-bold text-white">{title}</h3>
+    <Card className="overflow-hidden p-0">
+      <div className="border-b border-tec-border/10 bg-tec-panel-strong/55 p-5">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0">
+            <button
+              className="mb-4 inline-flex items-center gap-2 text-sm font-bold text-tec-subtle transition hover:text-white"
+              onClick={onBack}
+              type="button"
+            >
+              <ArrowLeft size={17} />
+              Voltar para a fila
+            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="tp-display text-3xl font-bold leading-tight text-white">{detail.name}</h2>
+              <BadgeStatus status={detail.workflow_state} />
+              {detail.priority ? (
+                <span className="rounded-full border border-tec-border/15 bg-tec-field px-3 py-1 text-xs font-bold text-tec-subtle">
+                  {detail.priority}
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-3 max-w-4xl text-sm font-medium text-tec-subtle">
+              {detail.reported_defect ?? "Sem defeito informado"}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+            <Button
+              icon={<Plus size={17} />}
+              onClick={() => onOpenBudgetEditor("service")}
+              variant="primary"
+            >
+              Cadastrar orçamento
+            </Button>
+            <PrintPrimaryLink links={detail.print_links} />
+            <button
+              className="grid h-10 w-10 place-items-center rounded-control border border-tec-border/15 bg-tec-field text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
+              onClick={onOpenActions}
+              title="Ações da OS"
+              type="button"
+            >
+              <MoreHorizontal size={18} />
+            </button>
+          </div>
+        </div>
       </div>
-      <dl className="space-y-3 text-sm">
-        {lines.map(([label, value]) => (
-          <DetailLine key={label} label={label} value={value} />
+      <WorkflowStepper detail={detail} />
+    </Card>
+  );
+}
+
+const SERVICE_ORDER_STEPS = ["Entrada", "Diagnóstico", "Orçamento", "Aprovação", "Execução", "Retirada"];
+
+function WorkflowStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
+  const activeIndex = serviceOrderStepIndex(detail.workflow_state);
+  const subtitles = serviceOrderStepSubtitles(detail, activeIndex);
+
+  return (
+    <div className="grid gap-2 p-4 md:grid-cols-6">
+      {SERVICE_ORDER_STEPS.map((step, index) => {
+        const done = index < activeIndex;
+        const active = index === activeIndex;
+        return (
+          <div
+            className={cx(
+              "relative rounded-control border p-3 transition",
+              active
+                ? "border-tec-orange/60 bg-tec-orange/10 shadow-glow"
+                : done
+                  ? "border-tec-success/20 bg-tec-success/5"
+                  : "border-tec-border/10 bg-tec-field/35",
+            )}
+            key={step}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={cx(
+                  "grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold",
+                  active
+                    ? "bg-tec-orange text-tec-ink"
+                    : done
+                      ? "bg-tec-success/20 text-tec-success"
+                      : "bg-tec-field text-tec-muted",
+                )}
+              >
+                {done ? <CheckCircle2 size={15} /> : index + 1}
+              </span>
+              <span>
+                <span className={cx("block text-xs font-bold", active ? "text-tec-orange" : done ? "text-tec-success" : "text-tec-muted")}>
+                  {step}
+                </span>
+                <span className="mt-0.5 block text-[11px] font-semibold text-tec-muted">{subtitles[index]}</span>
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function serviceOrderStepIndex(state: string | null) {
+  if (state === "Entrada criada") {
+    return 0;
+  }
+  if (state === "Em diagnóstico") {
+    return 1;
+  }
+  if (["Aguardando aprovação", "Aprovado", "Reprovado", "Orçamento expirado"].includes(state ?? "")) {
+    return 3;
+  }
+  if (["Aguardando peça", "Em reparo", "Teste final", "Sem conserto"].includes(state ?? "")) {
+    return 4;
+  }
+  if (["Pronto para retirada", "Entregue", "Cancelado"].includes(state ?? "")) {
+    return 5;
+  }
+  return 2;
+}
+
+function serviceOrderStepSubtitles(detail: ServiceOrderDetailResponse, activeIndex: number) {
+  return SERVICE_ORDER_STEPS.map((step, index) => {
+    if (step === "Entrada") {
+      return formatDate(detail.entry_date);
+    }
+    if (index < activeIndex) {
+      return "Concluída";
+    }
+    if (index === activeIndex) {
+      return step === "Aprovação" ? "Pendente" : "Em andamento";
+    }
+    return "Pendente";
+  });
+}
+
+function NextActionCard({
+  detail,
+  onOpenFlow,
+  onOpenQuoteSend,
+  onRefresh,
+}: {
+  detail: ServiceOrderDetailResponse;
+  onOpenFlow: (flow: "approve" | "reject" | "pickup") => void;
+  onOpenQuoteSend: () => void;
+  onRefresh: () => void;
+}) {
+  const action = nextRecommendedAction(detail.workflow_state);
+  const isQuoteSendAction = action.kind === "quote-send";
+  const buttonIcon = action.flow ? <ArrowRight size={17} /> : isQuoteSendAction ? <Send size={17} /> : <RefreshCw size={17} />;
+
+  return (
+    <Card className="border-tec-orange/25 bg-tec-orange/5 p-5">
+      <div className="flex items-start gap-3">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-card bg-tec-orange text-tec-ink shadow-glow">
+          <Send size={20} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-tec-orange">Próxima ação recomendada</p>
+          <h3 className="mt-1 text-xl font-bold text-white">{action.title}</h3>
+          <p className="mt-2 text-sm text-tec-subtle">{action.description}</p>
+        </div>
+      </div>
+      <Button
+        className="mt-5 w-full"
+        icon={buttonIcon}
+        onClick={() => {
+          if (action.flow) {
+            onOpenFlow(action.flow);
+          } else if (isQuoteSendAction) {
+            onOpenQuoteSend();
+          } else {
+            onRefresh();
+          }
+        }}
+        variant="primary"
+      >
+        {action.button}
+      </Button>
+      <p className="mt-3 text-xs font-medium text-tec-muted">{action.hint}</p>
+    </Card>
+  );
+}
+
+function nextRecommendedAction(state: string | null): {
+  block: string;
+  button: string;
+  description: string;
+  flow: "approve" | "reject" | "pickup" | null;
+  hint: string;
+  kind?: "quote-send";
+  title: string;
+} {
+  if (state === "Aguardando aprovação") {
+    return {
+      block: "bloco orçamento",
+      button: "Enviar para aprovação",
+      description: "O orçamento está pronto. Envie para o cliente analisar e aguarde o retorno.",
+      flow: null,
+      hint: "Dica: você pode adicionar observações antes de enviar ao cliente.",
+      kind: "quote-send",
+      title: "Enviar para aprovação",
+    };
+  }
+  if (state === "Pronto para retirada") {
+    return {
+      block: "bloco 3.1d",
+      button: "Iniciar retirada",
+      description: "Confira o serviço executado, colete a assinatura de retirada e finalize a entrega.",
+      flow: "pickup",
+      hint: "O motor ainda bloqueia a entrega se a nota não estiver paga.",
+      title: "Coletar assinatura e entregar",
+    };
+  }
+  return {
+    block: "bloco 3.1x",
+    button: "Atualizar atendimento",
+    description: "Revise os dados da OS e avance pelo workflow quando a próxima etapa estiver pronta.",
+    flow: null,
+    hint: "Ações críticas continuam validadas pelo motor do ERPNext.",
+    title: "Manter OS atualizada",
+  };
+}
+
+function ServiceOrderAttendanceCard({ detail }: { detail: ServiceOrderDetailResponse }) {
+  const rows: Array<[ReactNode, string, string]> = [
+    [<CalendarClock size={15} />, "Entrada", formatDate(detail.entry_date)],
+    [
+      <Clock3 size={15} />,
+      "Prazo de aprovação",
+      detail.approval_deadline ? formatDate(detail.approval_deadline) : "Não definido",
+    ],
+    [<UserRound size={15} />, "Técnico", detail.technician ?? "Não definido"],
+    [<BadgeInfo size={15} />, "Garantia até", detail.warranty.warranty_expiry || "Não aplicada"],
+    [<RefreshCw size={15} />, "Atualização", formatDate(detail.modified)],
+  ];
+
+  return (
+    <Card className="p-5">
+      <h3 className="text-lg font-bold text-white">Atendimento</h3>
+      <dl className="mt-4 space-y-3 text-sm">
+        {rows.map(([icon, label, value]) => (
+          <div className="flex items-start justify-between gap-3 rounded-control bg-tec-field/45 px-3 py-2" key={label}>
+            <dt className="flex min-w-0 items-center gap-2 font-semibold text-tec-muted">
+              <span className="text-tec-orange">{icon}</span>
+              {label}
+            </dt>
+            <dd className="max-w-[50%] text-right font-bold text-tec-subtle">{value}</dd>
+          </div>
         ))}
       </dl>
     </Card>
   );
 }
 
-function BudgetCard({ detail }: { detail: ServiceOrderDetailResponse }) {
+function IdentityCard({
+  action,
+  icon,
+  lines,
+  title,
+}: {
+  action?: ReactNode;
+  icon: ReactNode;
+  lines: Array<[string, string]>;
+  title: string;
+}) {
   return (
-    <Card className="p-4">
-      <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+    <Card className="p-5">
+      <div className="mb-5 flex items-center gap-3">
+        <span className="grid h-11 w-11 place-items-center rounded-card bg-tec-orange/10 text-tec-orange">{icon}</span>
+        <h3 className="text-lg font-bold text-white">{title}</h3>
+      </div>
+      <dl className="space-y-3.5 text-sm">
+        {lines.map(([label, value]) => (
+          <DetailLine key={label} label={label} value={value} />
+        ))}
+      </dl>
+      {action}
+    </Card>
+  );
+}
+
+function BudgetCard({
+  detail,
+  onOpenBudgetEditor,
+}: {
+  detail: ServiceOrderDetailResponse;
+  onOpenBudgetEditor: (type: BudgetLineType) => void;
+}) {
+  return (
+    <Card className="p-5">
+      <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
-          <h3 className="text-base font-bold text-white">Orçamento</h3>
+          <h3 className="text-xl font-bold text-white">Orçamento</h3>
           <p className="text-xs text-tec-muted">
             Versão {detail.totals.budget_version} · {detail.totals.quote_locked ? "travado" : "em edição"}
           </p>
         </div>
-        <span className="tp-metric-value text-2xl font-bold text-white">{formatCurrency(detail.totals.grand_total)}</span>
+        <div className="text-left md:text-right">
+          <p className="text-xs font-semibold uppercase text-tec-muted">Total do orçamento</p>
+          <span className="tp-metric-value text-3xl font-bold text-tec-orange">{formatCurrency(detail.totals.grand_total)}</span>
+        </div>
       </div>
 
-      <BudgetLines lines={detail.services} title="Serviços" type="service" />
+      <BudgetLines lines={detail.services} onOpenBudgetEditor={onOpenBudgetEditor} title="Serviços" type="service" />
       <div className="mt-4">
-        <BudgetLines lines={detail.parts} title="Peças" type="part" />
+        <BudgetLines lines={detail.parts} onOpenBudgetEditor={onOpenBudgetEditor} title="Peças" type="part" />
       </div>
 
       <div className="mt-5 grid gap-3 border-t border-tec-border/20 pt-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
@@ -703,18 +2250,31 @@ function BudgetCard({ detail }: { detail: ServiceOrderDetailResponse }) {
 
 function BudgetLines({
   lines,
+  onOpenBudgetEditor,
   title,
   type,
 }: {
   lines: ServiceOrderBudgetLine[];
+  onOpenBudgetEditor: (type: BudgetLineType) => void;
   title: string;
-  type: "service" | "part";
+  type: BudgetLineType;
 }) {
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
         <h4 className="text-sm font-bold text-white">{title}</h4>
-        <span className="rounded-full bg-tec-field px-2 py-1 text-xs text-tec-muted">{lines.length}</span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-tec-field px-2 py-1 text-xs text-tec-muted">{lines.length}</span>
+          {lines.length ? (
+            <button
+              className="rounded-full border border-tec-border/15 bg-tec-field px-3 py-1 text-xs font-bold text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
+              onClick={() => onOpenBudgetEditor(type)}
+              type="button"
+            >
+              Adicionar
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="overflow-hidden rounded-card border border-tec-border/20">
         {lines.length ? (
@@ -737,55 +2297,528 @@ function BudgetLines({
             </div>
           ))
         ) : (
-          <p className="p-3 text-sm text-tec-muted">Nenhuma linha registrada.</p>
+          <BudgetEmptyState onOpenBudgetEditor={onOpenBudgetEditor} type={type} />
         )}
       </div>
     </div>
   );
 }
 
+function BudgetEmptyState({
+  onOpenBudgetEditor,
+  type,
+}: {
+  onOpenBudgetEditor: (type: BudgetLineType) => void;
+  type: BudgetLineType;
+}) {
+  const isService = type === "service";
+  const Icon = isService ? Wrench : Box;
+  const title = isService ? "Nenhum serviço adicionado." : "Nenhuma peça adicionada.";
+  const description = isService ? "Adicione serviços para compor o orçamento." : "Adicione peças para compor o orçamento.";
+  const action = isService ? "Adicionar serviço" : "Adicionar peça";
+
+  return (
+    <div className="flex flex-col gap-4 bg-tec-field/35 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-start gap-3">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-card bg-tec-orange/10 text-tec-orange">
+          <Icon size={20} />
+        </span>
+        <div>
+          <p className="font-bold text-white">{title}</p>
+          <p className="mt-1 text-sm text-tec-muted">{description}</p>
+        </div>
+      </div>
+      <Button icon={<Plus size={16} />} onClick={() => onOpenBudgetEditor(type)} variant="secondary">
+        {action}
+      </Button>
+    </div>
+  );
+}
+
+function BudgetLineModal({
+  detail,
+  lineType,
+  onClose,
+  onToast,
+  onUpdated,
+}: {
+  detail: ServiceOrderDetailResponse;
+  lineType: BudgetLineType | null;
+  onClose: () => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+  onUpdated: (detail: ServiceOrderDetailResponse) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<BudgetItemSummary[]>([]);
+  const [selectedItem, setSelectedItem] = useState<BudgetItemSummary | null>(null);
+  const [warehouses, setWarehouses] = useState<BudgetWarehouseSummary[]>([]);
+  const [warehouse, setWarehouse] = useState("");
+  const [description, setDescription] = useState("");
+  const [qty, setQty] = useState("1");
+  const [rate, setRate] = useState("");
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!lineType) {
+      return;
+    }
+    setQuery("");
+    setItems([]);
+    setSelectedItem(null);
+    setDescription("");
+    setQty("1");
+    setRate("");
+    setWarehouse("");
+    setError(null);
+    setSubmitting(false);
+  }, [lineType, detail.name]);
+
+  useEffect(() => {
+    if (!lineType) {
+      return;
+    }
+    let cancelled = false;
+    setLoadingItems(true);
+    serviceOrders
+      .searchBudgetItems(query, lineType)
+      .then((response) => {
+        if (!cancelled) {
+          setItems(response.items);
+        }
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : "Falha ao buscar itens.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingItems(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [query, lineType]);
+
+  useEffect(() => {
+    if (lineType !== "part") {
+      return;
+    }
+    let cancelled = false;
+    serviceOrders
+      .listBudgetWarehouses()
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+        setWarehouses(response.items);
+        const repairWarehouse =
+          response.items.find((item) => /reparo|peças|pecas/i.test(`${item.name} ${item.warehouse_name ?? ""}`)) ?? response.items[0];
+        setWarehouse(repairWarehouse?.name ?? "");
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : "Falha ao carregar estoques.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lineType]);
+
+  if (!lineType) {
+    return null;
+  }
+
+  const activeLineType = lineType;
+  const isService = activeLineType === "service";
+  const title = isService ? `Adicionar serviço em ${detail.name}` : `Adicionar peça em ${detail.name}`;
+  const parsedQty = Number(qty.replace(",", "."));
+  const parsedRate = Number(rate.replace(",", "."));
+  const canSubmit = Boolean(selectedItem) && parsedQty > 0 && parsedRate >= 0 && (isService || Boolean(warehouse));
+
+  function selectItem(item: BudgetItemSummary) {
+    setSelectedItem(item);
+    setDescription(item.item_name ?? item.item_code);
+    setRate(String(item.standard_rate || 0));
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    if (!selectedItem) {
+      setError("Selecione um item para o orçamento.");
+      return;
+    }
+    if (!canSubmit) {
+      setError("Confira item, quantidade, valor e estoque antes de salvar.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const updated = await serviceOrders.addBudgetLine(detail.name, {
+        description: description.trim(),
+        item_code: selectedItem.item_code,
+        qty: parsedQty,
+        rate: parsedRate,
+        type: activeLineType,
+        warehouse: isService ? undefined : warehouse,
+      });
+      onUpdated(updated);
+      onToast(`${isService ? "Serviço" : "Peça"} adicionado ao orçamento.`);
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Falha ao salvar a linha do orçamento.");
+      onToast("Não foi possível salvar o orçamento. Confira as regras do motor.", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal className="max-w-5xl" onClose={onClose} open={Boolean(lineType)} title={title}>
+      <form className="grid max-h-[78vh] gap-4 overflow-y-auto pr-1 lg:grid-cols-[minmax(0,1fr)_320px]" onSubmit={submit}>
+        <section className="space-y-4">
+          <label className="block">
+            <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Buscar item</span>
+            <input
+              autoFocus
+              className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-4 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={isService ? "Buscar serviço por nome ou código..." : "Buscar peça por nome, código ou grupo..."}
+              value={query}
+            />
+          </label>
+
+          <div className="rounded-card border border-tec-border/15 bg-tec-field/45">
+            {loadingItems ? (
+              <p className="p-4 text-sm font-semibold text-tec-subtle">Buscando itens...</p>
+            ) : items.length ? (
+              <div className="divide-y divide-tec-border/10">
+                {items.map((item) => {
+                  const selected = selectedItem?.item_code === item.item_code;
+                  return (
+                    <button
+                      className={cx(
+                        "flex w-full items-center justify-between gap-3 p-3 text-left transition hover:bg-tec-orange/10",
+                        selected ? "bg-tec-orange/15" : "",
+                      )}
+                      key={item.item_code}
+                      onClick={() => selectItem(item)}
+                      type="button"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-bold text-white">{item.item_name ?? item.item_code}</span>
+                        <span className="mt-1 block truncate text-xs text-tec-muted">
+                          {item.item_code} · {item.item_group ?? "Sem grupo"}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-sm font-bold text-tec-orange">{formatCurrency(item.standard_rate)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="p-4 text-sm font-semibold text-tec-subtle">Nenhum item encontrado para esse tipo.</p>
+            )}
+          </div>
+        </section>
+
+        <aside className="space-y-4 rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
+          <div>
+            <p className="text-xs font-bold uppercase text-tec-muted">Linha selecionada</p>
+            <p className="mt-1 text-lg font-bold text-white">{selectedItem?.item_name ?? "Nenhum item"}</p>
+      <p className="mt-1 text-xs text-tec-muted">{budgetLineTypeDescription(activeLineType)}</p>
+          </div>
+
+          <label className="block">
+            <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Descrição</span>
+            <textarea
+              className="min-h-20 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 py-2 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70"
+              onChange={(event) => setDescription(event.target.value)}
+              value={description}
+            />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Quantidade</span>
+              <input
+                className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70"
+                min="0.01"
+                onChange={(event) => setQty(event.target.value)}
+                step="0.01"
+                type="number"
+                value={qty}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Valor unitário</span>
+              <input
+                className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70"
+                min="0"
+                onChange={(event) => setRate(event.target.value)}
+                step="0.01"
+                type="number"
+                value={rate}
+              />
+            </label>
+          </div>
+
+          {!isService ? (
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Estoque da peça</span>
+              <select
+                className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70"
+                onChange={(event) => setWarehouse(event.target.value)}
+                value={warehouse}
+              >
+                {warehouses.map((item) => (
+                  <option key={item.name} value={item.name}>
+                    {item.warehouse_name ?? item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          <div className="rounded-card border border-tec-border/10 bg-tec-field/55 p-3">
+            <p className="text-xs font-bold uppercase text-tec-muted">Subtotal</p>
+            <p className="tp-metric-value mt-1 text-2xl font-bold text-tec-orange">
+              {formatCurrency(Number.isFinite(parsedQty * parsedRate) ? parsedQty * parsedRate : 0)}
+            </p>
+          </div>
+
+          {error ? (
+            <p className="rounded-card border border-tec-red/25 bg-tec-red/10 p-3 text-sm font-semibold text-tec-red">{error}</p>
+          ) : null}
+
+          <Button className="w-full" disabled={!canSubmit || submitting} icon={<Plus size={17} />} type="submit" variant="primary">
+            {submitting ? "Salvando..." : `Salvar ${isService ? "serviço" : "peça"}`}
+          </Button>
+        </aside>
+      </form>
+    </Modal>
+  );
+}
+
+const QUOTE_SEND_CHANNELS: QuoteSendPayload["channel"][] = ["WhatsApp", "Telefone", "Presencial", "E-mail"];
+
+function QuoteSendModal({
+  detail,
+  onClose,
+  onToast,
+  onUpdated,
+  open,
+}: {
+  detail: ServiceOrderDetailResponse;
+  onClose: () => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+  onUpdated: (detail: ServiceOrderDetailResponse) => void;
+  open: boolean;
+}) {
+  const [channel, setChannel] = useState<QuoteSendPayload["channel"]>("WhatsApp");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setChannel("WhatsApp");
+    setNotes("");
+    setSubmitting(false);
+    setError(null);
+  }, [open, detail.name]);
+
+  const quoteLink = detail.print_links.find((link) => link.label.toLowerCase().includes("orçamento"));
+  const customerPhone = detail.customer?.mobile_no ?? "Sem telefone";
+  const customerEmail = detail.customer?.email_id ?? "Sem e-mail";
+  const canSubmit = detail.services.length + detail.parts.length > 0 && !submitting;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    if (!canSubmit) {
+      setError("Inclua ao menos um serviço ou peça antes de enviar.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const updated = await serviceOrders.sendQuote(detail.name, {
+        channel,
+        notes: notes.trim(),
+      });
+      onUpdated(updated);
+      onToast(`Envio do orçamento registrado por ${channel}.`);
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Falha ao registrar envio do orçamento.");
+      onToast("Não foi possível registrar o envio do orçamento.", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal className="max-w-4xl" onClose={onClose} open={open} title={`Enviar orçamento ${detail.name}`}>
+      <form className="grid max-h-[78vh] gap-4 overflow-y-auto pr-1 lg:grid-cols-[minmax(0,1fr)_300px]" onSubmit={submit}>
+        <section className="space-y-4">
+          <div className="rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
+            <p className="text-xs font-bold uppercase text-tec-muted">Canal de envio</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {QUOTE_SEND_CHANNELS.map((nextChannel) => {
+                const selected = channel === nextChannel;
+                return (
+                  <button
+                    className={cx(
+                      "rounded-control border px-3 py-2 text-sm font-bold transition",
+                      selected
+                        ? "border-tec-orange bg-tec-orange text-tec-ink shadow-glow"
+                        : "border-tec-border/20 bg-tec-field text-tec-subtle hover:border-tec-orange/50 hover:text-white",
+                    )}
+                    key={nextChannel}
+                    onClick={() => setChannel(nextChannel)}
+                    type="button"
+                  >
+                    {nextChannel}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <label className="block">
+            <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Observação para o histórico</span>
+            <textarea
+              className="min-h-28 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 py-2 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70"
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Ex.: enviado pelo WhatsApp do balcão, cliente pediu retorno até amanhã."
+              value={notes}
+            />
+          </label>
+
+          <div className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4">
+            <h3 className="text-sm font-bold text-white">Mensagem registrada</h3>
+            <p className="mt-2 text-sm text-tec-subtle">
+              O sistema vai registrar o envio no histórico da OS com canal, atendente, data, total e validade do orçamento.
+            </p>
+            {quoteLink ? (
+              <a
+                className="mt-4 inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-4 text-sm font-bold text-tec-text transition hover:border-tec-orange/50"
+                href={quoteLink.url}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <Printer size={17} />
+                Abrir PDF do orçamento
+              </a>
+            ) : null}
+          </div>
+
+          {error ? (
+            <p className="rounded-card border border-tec-red/25 bg-tec-red/10 p-3 text-sm font-semibold text-tec-red">{error}</p>
+          ) : null}
+        </section>
+
+        <aside className="space-y-4 rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
+          <div>
+            <p className="text-xs font-bold uppercase text-tec-muted">Resumo</p>
+            <p className="tp-metric-value mt-1 text-3xl font-bold text-tec-orange">{formatCurrency(detail.totals.grand_total)}</p>
+          </div>
+          <dl className="space-y-3 text-sm">
+            <DetailLine label="Cliente" value={detail.customer?.customer_name ?? detail.customer?.name ?? "Não informado"} />
+            <DetailLine label="Telefone" value={customerPhone} />
+            <DetailLine label="E-mail" value={customerEmail} />
+            <DetailLine label="Validade" value={detail.approval_deadline ? formatDate(detail.approval_deadline) : "Não definida"} />
+            <DetailLine label="Versão" value={`Orçamento v${detail.totals.budget_version}`} />
+          </dl>
+          <Button className="w-full" disabled={!canSubmit} icon={<Send size={17} />} type="submit" variant="primary">
+            {submitting ? "Registrando..." : "Registrar envio"}
+          </Button>
+        </aside>
+      </form>
+    </Modal>
+  );
+}
+
+function budgetLineTypeDescription(lineType: BudgetLineType) {
+  return lineType === "service"
+    ? "Mão de obra entra no orçamento e pode gerar comissão quando a OS for fechada."
+    : "Peça entra só no orçamento; reserva e baixa continuam acontecendo no uso da peça.";
+}
+
 function WorkflowCard({
   actions,
   detail,
-  onComingSoon,
   onOpenFlow,
+  onOpenHistory,
+  onSimpleMove,
 }: {
   actions: ServiceOrderWorkflowAction[];
   detail: ServiceOrderDetailResponse;
-  onComingSoon: (label: string, block?: string) => void;
   onOpenFlow: (flow: "approve" | "reject" | "pickup") => void;
+  onOpenHistory: () => void;
+  onSimpleMove: (nextState: string) => Promise<void>;
 }) {
+  const [movingTo, setMovingTo] = useState<string | null>(null);
+
+  async function handleAction(action: ServiceOrderWorkflowAction) {
+    if (action.next_state === "Aprovado") {
+      onOpenFlow("approve");
+      return;
+    }
+    if (action.next_state === "Reprovado") {
+      onOpenFlow("reject");
+      return;
+    }
+    if (action.next_state === "Entregue") {
+      onOpenFlow("pickup");
+      return;
+    }
+
+    setMovingTo(action.next_state);
+    try {
+      await onSimpleMove(action.next_state);
+    } finally {
+      setMovingTo(null);
+    }
+  }
+
   return (
-    <Card className="p-4">
+    <Card className="p-5">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-base font-bold text-white">Ações do workflow</h3>
+        <h3 className="text-lg font-bold text-white">Ações do workflow</h3>
         <BadgeStatus status={detail.workflow_state} />
       </div>
       <div className="mt-4 space-y-3">
         {actions.length ? (
           actions.map((action) => (
             <button
-              className="flex w-full items-center justify-between gap-3 rounded-card border border-tec-border/20 bg-tec-field p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
+              className="group flex w-full items-center justify-between gap-3 rounded-card border border-tec-border/15 bg-tec-field/75 p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
+              disabled={Boolean(movingTo)}
               key={`${action.action}-${action.next_state}`}
-              onClick={() => {
-                if (action.next_state === "Aprovado") {
-                  onOpenFlow("approve");
-                } else if (action.next_state === "Reprovado") {
-                  onOpenFlow("reject");
-                } else if (action.next_state === "Entregue") {
-                  onOpenFlow("pickup");
-                } else {
-                  onComingSoon(`${action.action} ${detail.name}`, "bloco 3.1x");
-                }
-              }}
+              onClick={() => void handleAction(action)}
               title={workflowActionTitle(action)}
               type="button"
             >
-              <span>
-                <span className="block text-sm font-bold text-white">{workflowActionLabel(action)}</span>
-                <span className="mt-1 block text-xs text-tec-muted">Vai para {action.next_state}</span>
+              <span className="flex min-w-0 items-center gap-3">
+                <span className={cx("grid h-9 w-9 shrink-0 place-items-center rounded-control", workflowActionIconTone(action))}>
+                  {workflowActionIcon(action)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-white">
+                    {movingTo === action.next_state ? "Atualizando..." : workflowActionLabel(action)}
+                  </span>
+                  <span className="mt-1 block text-xs text-tec-muted">{workflowActionDescription(action)}</span>
+                </span>
               </span>
-              <ArrowRight className="text-tec-orange" size={17} />
+              <ArrowRight className="shrink-0 text-tec-orange transition group-hover:translate-x-0.5" size={17} />
             </button>
           ))
         ) : (
@@ -793,6 +2826,22 @@ function WorkflowCard({
             Nenhuma ação disponível para este papel neste estado.
           </div>
         )}
+        <button
+          className="flex w-full items-center justify-between gap-3 rounded-card border border-tec-border/10 bg-tec-panel-strong/70 p-3 text-left transition hover:border-tec-orange/40 hover:bg-tec-field"
+          onClick={onOpenHistory}
+          type="button"
+        >
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-control bg-tec-blue/15 text-tec-blue">
+              <History size={18} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-bold text-white">Ver todo o histórico da OS</span>
+              <span className="mt-1 block text-xs text-tec-muted">Linha do tempo completa e eventos técnicos</span>
+            </span>
+          </span>
+          <ArrowRight className="text-tec-orange" size={17} />
+        </button>
       </div>
     </Card>
   );
@@ -800,35 +2849,87 @@ function WorkflowCard({
 
 function workflowActionLabel(action: ServiceOrderWorkflowAction) {
   if (action.next_state === "Aprovado") {
-    return "Aprovar";
+    return "Aprovar orçamento";
   }
   if (action.next_state === "Reprovado") {
-    return "Reprovar";
+    return "Reprovar orçamento";
   }
   if (action.next_state === "Entregue") {
-    return "Entregar";
+    return "Entregar aparelho";
   }
   return action.action;
+}
+
+function workflowActionDescription(action: ServiceOrderWorkflowAction) {
+  if (action.next_state === "Aprovado") {
+    return "Aprovar e seguir para execução";
+  }
+  if (action.next_state === "Reprovado") {
+    return "Devolver para revisão";
+  }
+  if (action.next_state === "Entregue") {
+    return "Coletar assinatura e finalizar entrega";
+  }
+  return `Vai para ${action.next_state}`;
+}
+
+function workflowActionIcon(action: ServiceOrderWorkflowAction) {
+  if (action.next_state === "Aprovado") {
+    return <CheckCircle2 size={18} />;
+  }
+  if (action.next_state === "Reprovado") {
+    return <XCircle size={18} />;
+  }
+  if (action.next_state === "Entregue") {
+    return <Package size={18} />;
+  }
+  return <ArrowRight size={18} />;
+}
+
+function workflowActionIconTone(action: ServiceOrderWorkflowAction) {
+  if (action.next_state === "Aprovado") {
+    return "bg-tec-success/15 text-tec-success";
+  }
+  if (action.next_state === "Reprovado") {
+    return "bg-tec-red/15 text-tec-red";
+  }
+  return "bg-tec-orange/10 text-tec-orange";
 }
 
 function workflowActionTitle(action: ServiceOrderWorkflowAction) {
   if (["Aprovado", "Reprovado", "Entregue"].includes(action.next_state)) {
     return `Abrir fluxo para ${workflowActionLabel(action).toLowerCase()}`;
   }
-  return "Ação ainda não disponível neste bloco";
+  return `Mover OS para ${action.next_state}`;
 }
 
-function TimelineCard({ events }: { events: ServiceOrderTimelineEvent[] }) {
+function TimelineCard({
+  events,
+  onOpenHistory,
+}: {
+  events: ServiceOrderTimelineEvent[];
+  onOpenHistory: () => void;
+}) {
   return (
-    <Card className="p-4">
-      <h3 className="text-base font-bold text-white">Histórico</h3>
-      <div className="mt-4 space-y-4">
+    <Card className="p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-xl font-bold text-white">Histórico da OS</h3>
+        <button
+          className="text-sm font-bold text-tec-orange transition hover:text-tec-digital-orange"
+          onClick={onOpenHistory}
+          type="button"
+        >
+          Ver todos os eventos
+        </button>
+      </div>
+      <div className="mt-5 space-y-0">
         {events.map((event, index) => (
-          <div className="flex gap-3" key={`${event.title}-${index}`}>
+          <div className="relative flex gap-3 pb-5 last:pb-0" key={`${event.title}-${index}`}>
+            {index < events.length - 1 ? <span className="absolute left-4 top-9 h-[calc(100%-2.25rem)] w-px bg-tec-border/15" /> : null}
             <span className={`mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full ${timelineToneClass(event.tone)}`}>
               <Clock3 size={15} />
             </span>
-            <div className="min-w-0 border-b border-tec-border/15 pb-4 last:border-0 last:pb-0">
+            <div className="min-w-0 rounded-card bg-tec-field/35 px-4 py-3">
               <p className="font-semibold text-white">{event.title}</p>
               <p className="mt-1 text-sm text-tec-subtle">{event.detail ?? "Sem detalhe"}</p>
               <p className="mt-1 text-xs text-tec-muted">{event.date ? formatDate(event.date) : "Sem data"}</p>
@@ -840,6 +2941,233 @@ function TimelineCard({ events }: { events: ServiceOrderTimelineEvent[] }) {
   );
 }
 
+function ServiceOrderHistoryModal({
+  detail,
+  onClose,
+  open,
+}: {
+  detail: ServiceOrderDetailResponse;
+  onClose: () => void;
+  open: boolean;
+}) {
+  const customerLabel = detail.customer?.customer_name ?? detail.customer?.name ?? "Cliente não informado";
+  const deviceLabel =
+    [detail.device?.brand, detail.device?.model, detail.device?.color].filter(Boolean).join(" ") ||
+    detail.device?.name ||
+    "Aparelho não vinculado";
+
+  return (
+    <Modal className="max-w-5xl" onClose={onClose} open={open} title={`Histórico completo ${detail.name}`}>
+      <div className="grid max-h-[78vh] gap-4 overflow-y-auto pr-1 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="space-y-3">
+          {detail.timeline.length ? (
+            detail.timeline.map((event, index) => (
+              <div className="relative flex gap-3 pb-4 last:pb-0" key={`${event.title}-${event.date}-${index}`}>
+                {index < detail.timeline.length - 1 ? (
+                  <span className="absolute left-5 top-11 h-[calc(100%-2.5rem)] w-px bg-tec-border/15" />
+                ) : null}
+                <span className={`mt-1 grid h-10 w-10 shrink-0 place-items-center rounded-full ${timelineToneClass(event.tone)}`}>
+                  {timelineIcon(event.tone)}
+                </span>
+                <div className="min-w-0 flex-1 rounded-card border border-tec-border/15 bg-tec-field/50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-base font-bold text-white">{event.title}</p>
+                      <p className="mt-1 text-sm text-tec-subtle">{event.detail ?? "Sem detalhe"}</p>
+                    </div>
+                    <span className="rounded-full bg-tec-panel-strong px-3 py-1 text-xs font-bold text-tec-muted">
+                      {event.date ? formatDate(event.date) : "Sem data"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-card border border-tec-border/15 bg-tec-field/50 p-4 text-sm font-semibold text-tec-subtle">
+              Nenhum evento registrado para esta OS.
+            </div>
+          )}
+        </section>
+
+        <aside className="space-y-4">
+          <div className="rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
+            <h3 className="text-sm font-bold text-white">Resumo da OS</h3>
+            <dl className="mt-4 space-y-3 text-sm">
+              <DetailLine label="Status atual" value={detail.workflow_state ?? "Sem status"} />
+              <DetailLine label="Cliente" value={customerLabel} />
+              <DetailLine label="Aparelho" value={deviceLabel} />
+              <DetailLine label="Entrada" value={formatDate(detail.entry_date)} />
+              <DetailLine label="Atualização" value={formatDate(detail.modified)} />
+            </dl>
+          </div>
+
+          <div className="rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
+            <h3 className="text-sm font-bold text-white">Orçamento</h3>
+            <dl className="mt-4 space-y-3 text-sm">
+              <DetailLine label="Versão" value={`v${detail.totals.budget_version}`} />
+              <DetailLine label="Trava" value={detail.totals.quote_locked ? "Travado" : "Em edição"} />
+              <DetailLine label="Total" value={formatCurrency(detail.totals.grand_total)} />
+              <DetailLine label="Prazo" value={detail.approval_deadline ? formatDate(detail.approval_deadline) : "Não definido"} />
+            </dl>
+          </div>
+
+          <div className="rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
+            <h3 className="text-sm font-bold text-white">Impressos</h3>
+            <div className="mt-3 space-y-2">
+              {detail.print_links.map((link) => (
+                <a
+                  className="flex min-h-10 items-center justify-between gap-3 rounded-control border border-tec-border/15 bg-tec-field px-3 text-sm font-bold text-tec-text transition hover:border-tec-orange/50"
+                  href={link.url}
+                  key={link.label}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {link.label}
+                  <Printer size={16} />
+                </a>
+              ))}
+            </div>
+          </div>
+        </aside>
+      </div>
+    </Modal>
+  );
+}
+
+function timelineIcon(tone: ServiceOrderTimelineEvent["tone"]) {
+  if (tone === "green") {
+    return <CheckCircle2 size={16} />;
+  }
+  if (tone === "red") {
+    return <XCircle size={16} />;
+  }
+  if (tone === "amber" || tone === "orange") {
+    return <Clock3 size={16} />;
+  }
+  return <History size={16} />;
+}
+
+function ServiceOrderActionsModal({
+  detail,
+  onClose,
+  onOpenBudgetEditor,
+  onOpenHistory,
+  onOpenQuoteSend,
+  onRefresh,
+  open,
+}: {
+  detail: ServiceOrderDetailResponse;
+  onClose: () => void;
+  onOpenBudgetEditor: (type: BudgetLineType) => void;
+  onOpenHistory: () => void;
+  onOpenQuoteSend: () => void;
+  onRefresh: () => void;
+  open: boolean;
+}) {
+  const hasBudget = detail.services.length + detail.parts.length > 0;
+  const canSendQuote = detail.workflow_state === "Aguardando aprovação" && hasBudget;
+
+  return (
+    <Modal className="max-w-3xl" onClose={onClose} open={open} title={`Ações da OS ${detail.name}`}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <button
+          className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+          onClick={() => onOpenBudgetEditor("service")}
+          type="button"
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+            <Wrench size={20} />
+          </span>
+          <span className="mt-4 block text-base font-bold text-white">Adicionar serviço</span>
+          <span className="mt-1 block text-sm text-tec-muted">Inclui mão de obra no orçamento desta OS.</span>
+        </button>
+
+        <button
+          className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+          onClick={() => onOpenBudgetEditor("part")}
+          type="button"
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+            <Package size={20} />
+          </span>
+          <span className="mt-4 block text-base font-bold text-white">Adicionar peça</span>
+          <span className="mt-1 block text-sm text-tec-muted">Inclui peça do estoque de reparo no orçamento.</span>
+        </button>
+
+        <button
+          className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10 disabled:cursor-not-allowed disabled:opacity-55"
+          disabled={!canSendQuote}
+          onClick={onOpenQuoteSend}
+          title={canSendQuote ? "Enviar orçamento ao cliente" : "Disponível quando a OS estiver aguardando aprovação com orçamento cadastrado"}
+          type="button"
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+            <Send size={20} />
+          </span>
+          <span className="mt-4 block text-base font-bold text-white">Enviar orçamento</span>
+          <span className="mt-1 block text-sm text-tec-muted">Registra o envio por WhatsApp, telefone, presencial ou e-mail.</span>
+        </button>
+
+        <button
+          className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+          onClick={onOpenHistory}
+          type="button"
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+            <History size={20} />
+          </span>
+          <span className="mt-4 block text-base font-bold text-white">Ver histórico completo</span>
+          <span className="mt-1 block text-sm text-tec-muted">Abre a linha do tempo, orçamento, status e impressos da OS.</span>
+        </button>
+      </div>
+
+      <div className="mt-5 rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-base font-bold text-white">Impressos da OS</h3>
+            <p className="mt-1 text-sm text-tec-muted">Documentos oficiais gerados pelo motor de impressão.</p>
+          </div>
+          <Button icon={<RefreshCw size={16} />} onClick={onRefresh}>
+            Atualizar OS
+          </Button>
+        </div>
+        <div className="mt-4">
+          <PrintLinks links={detail.print_links} />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function PrintPrimaryLink({ links }: { links: ServiceOrderPrintLink[] }) {
+  const primary = links.find((link) => link.label.toLowerCase().includes("orçamento")) ?? links[0];
+  if (!primary) {
+    return (
+      <button
+        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-4 text-sm font-semibold text-tec-text transition hover:border-tec-orange/50"
+        disabled
+        type="button"
+      >
+        <Printer size={17} />
+        Imprimir
+      </button>
+    );
+  }
+
+  return (
+    <a
+      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-4 text-sm font-semibold text-tec-text transition hover:border-tec-orange/50 hover:text-white"
+      href={primary.url}
+      rel="noreferrer"
+      target="_blank"
+      title={`Abrir ${primary.label}`}
+    >
+      <Printer size={17} />
+      Imprimir
+    </a>
+  );
+}
+
 function PrintLinks({ links }: { links: ServiceOrderPrintLink[] }) {
   const icons = [FileText, Printer, Tag];
   return (
@@ -848,7 +3176,7 @@ function PrintLinks({ links }: { links: ServiceOrderPrintLink[] }) {
         const Icon = icons[index] ?? Printer;
         return (
           <a
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-border/30 bg-tec-panel-strong/70 px-4 text-sm font-semibold text-tec-text transition hover:border-tec-orange/50"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-border/20 bg-tec-panel-strong/70 px-4 text-sm font-semibold text-tec-text transition hover:border-tec-orange/50"
             href={link.url}
             key={link.format}
             rel="noreferrer"
@@ -877,7 +3205,7 @@ function TotalPill({ label, strong, value }: { label: string; strong?: boolean; 
   return (
     <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-3">
       <p className="text-xs text-tec-muted">{label}</p>
-      <p className={strong ? "mt-1 font-bold text-white" : "mt-1 font-semibold text-tec-subtle"}>{value}</p>
+      <p className={strong ? "tp-metric-value mt-1 text-lg font-bold text-tec-orange" : "mt-1 font-semibold text-tec-subtle"}>{value}</p>
     </div>
   );
 }
@@ -885,6 +3213,7 @@ function TotalPill({ label, strong, value }: { label: string; strong?: boolean; 
 function CustomerLookup() {
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<CustomerSummary[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const search = useCallback(async (nextQuery: string) => {
@@ -914,26 +3243,31 @@ function CustomerLookup() {
   );
 
   return (
-    <LookupCard
-      columns={columns}
-      emptyLabel={status === "error" ? "Falha ao buscar clientes." : "Nenhum cliente encontrado."}
-      onSearch={(event) => {
-        event.preventDefault();
-        void search(query);
-      }}
-      placeholder="Buscar cliente por nome, telefone ou e-mail"
-      query={query}
-      rows={rows}
-      setQuery={setQuery}
-      status={status}
-      title="Clientes"
-    />
+    <>
+      <LookupCard
+        columns={columns}
+        emptyLabel={status === "error" ? "Falha ao buscar clientes." : "Nenhum cliente encontrado."}
+        onRowClick={setSelectedCustomer}
+        onSearch={(event) => {
+          event.preventDefault();
+          void search(query);
+        }}
+        placeholder="Buscar cliente por nome, telefone ou e-mail"
+        query={query}
+        rows={rows}
+        setQuery={setQuery}
+        status={status}
+        title="Clientes"
+      />
+      <CustomerDetailModal customer={selectedCustomer} onClose={() => setSelectedCustomer(null)} />
+    </>
   );
 }
 
 function DeviceLookup({ onToast }: { onToast: (message: string, tone?: ToastState["tone"]) => void }) {
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<CustomerDeviceSummary[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState<CustomerDeviceSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [registrationOpen, setRegistrationOpen] = useState(false);
 
@@ -989,6 +3323,7 @@ function DeviceLookup({ onToast }: { onToast: (message: string, tone?: ToastStat
           event.preventDefault();
           void search(query);
         }}
+        onRowClick={setSelectedDevice}
         placeholder="Buscar por cliente, modelo ou IMEI"
         query={query}
         rows={rows}
@@ -1004,13 +3339,97 @@ function DeviceLookup({ onToast }: { onToast: (message: string, tone?: ToastStat
         }}
         open={registrationOpen}
       />
+      <DeviceDetailModal device={selectedDevice} onClose={() => setSelectedDevice(null)} />
     </>
+  );
+}
+
+function CustomerDetailModal({ customer, onClose }: { customer: CustomerSummary | null; onClose: () => void }) {
+  const label = customer?.customer_name ?? customer?.name ?? "Cliente";
+  const whatsappUrl = customer
+    ? buildWhatsAppUrl(customer.custom_whatsapp || customer.mobile_no, `Olá, ${label}. Aqui é da Tecponto. Podemos falar por aqui?`)
+    : null;
+
+  return (
+    <Modal className="max-w-2xl" onClose={onClose} open={Boolean(customer)} title="Detalhe do cliente">
+      {customer ? (
+        <div className="space-y-4">
+          <Card className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-2xl font-bold text-white">{label}</p>
+                <p className="mt-1 text-sm text-tec-muted">{customer.name}</p>
+              </div>
+              {whatsappUrl ? (
+                <a
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-whatsapp/35 bg-tec-whatsapp/10 px-4 text-sm font-bold text-tec-whatsapp transition hover:bg-tec-whatsapp/20"
+                  href={whatsappUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <WhatsAppLogo size={17} />
+                  WhatsApp
+                </a>
+              ) : null}
+            </div>
+            <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+              <DetailPill label="Telefone" value={customer.custom_whatsapp || customer.mobile_no || "Não informado"} />
+              <DetailPill label="E-mail" value={customer.email_id || "Não informado"} />
+              <DetailPill label="CPF" value={customer.custom_nao_possui_cpf ? "Não possui" : customer.custom_cpf || "Não informado"} />
+              <DetailPill label="RG" value={customer.custom_rg || "Não informado"} />
+            </dl>
+          </Card>
+        </div>
+      ) : null}
+    </Modal>
+  );
+}
+
+function DeviceDetailModal({ device, onClose }: { device: CustomerDeviceSummary | null; onClose: () => void }) {
+  const deviceLabel = device ? [device.brand, device.model, device.color].filter(Boolean).join(" ") || device.name : "Aparelho";
+
+  return (
+    <Modal className="max-w-2xl" onClose={onClose} open={Boolean(device)} title="Detalhe do aparelho">
+      {device ? (
+        <Card className="p-5">
+          <div className="flex flex-col gap-4 sm:flex-row">
+            {device.photo_url ? (
+              <img alt="" className="h-28 w-28 rounded-card object-cover" src={device.photo_url} />
+            ) : (
+              <span className="grid h-28 w-28 place-items-center rounded-card bg-tec-field text-tec-orange">
+                <Smartphone size={34} />
+              </span>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-2xl font-bold text-white">{deviceLabel}</p>
+              <p className="mt-1 text-sm text-tec-muted">{device.name}</p>
+              <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+                <DetailPill label="Cliente" value={device.customer || "Sem cliente"} />
+                <DetailPill label="IMEI / Serial" value={device.imei_serial || "Não informado"} />
+                <DetailPill label="Capacidade" value={device.capacity || "Não informada"} />
+                <DetailPill label="Cadastro" value={formatDate(device.registration_date)} />
+              </dl>
+            </div>
+          </div>
+        </Card>
+      ) : null}
+    </Modal>
+  );
+}
+
+function DetailPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-card border border-tec-border/15 bg-tec-field/55 p-3">
+      <dt className="text-xs font-bold uppercase text-tec-muted">{label}</dt>
+      <dd className="mt-1 break-words text-sm font-semibold text-tec-text">{value}</dd>
+    </div>
   );
 }
 
 function TradeLookup() {
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<TradeEvaluationSummary[]>([]);
+  const [selectedTrade, setSelectedTrade] = useState<TradeEvaluationSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const search = useCallback(async (nextQuery: string) => {
@@ -1040,20 +3459,60 @@ function TradeLookup() {
   );
 
   return (
-    <LookupCard
-      columns={columns}
-      emptyLabel={status === "error" ? "Falha ao buscar trocas." : "Nenhuma avaliação encontrada."}
-      onSearch={(event) => {
-        event.preventDefault();
-        void search(query);
-      }}
-      placeholder="Buscar por cliente, aparelho ou IMEI"
-      query={query}
-      rows={rows}
-      setQuery={setQuery}
-      status={status}
-      title="Trocas"
-    />
+    <>
+      <LookupCard
+        columns={columns}
+        emptyLabel={status === "error" ? "Falha ao buscar trocas." : "Nenhuma avaliação encontrada."}
+        onRowClick={setSelectedTrade}
+        onSearch={(event) => {
+          event.preventDefault();
+          void search(query);
+        }}
+        placeholder="Buscar por cliente, aparelho ou IMEI"
+        query={query}
+        rows={rows}
+        setQuery={setQuery}
+        status={status}
+        title="Trocas"
+      />
+      <TradeEvaluationDetailModal evaluation={selectedTrade} onClose={() => setSelectedTrade(null)} />
+    </>
+  );
+}
+
+function TradeEvaluationDetailModal({
+  evaluation,
+  onClose,
+}: {
+  evaluation: TradeEvaluationSummary | null;
+  onClose: () => void;
+}) {
+  const deviceLabel = evaluation
+    ? evaluation.evaluated_device_desc || [evaluation.device_type, evaluation.model].filter(Boolean).join(" ") || "Aparelho avaliado"
+    : "Aparelho avaliado";
+
+  return (
+    <Modal className="max-w-2xl" onClose={onClose} open={Boolean(evaluation)} title="Detalhe da avaliação">
+      {evaluation ? (
+        <Card className="p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-2xl font-bold text-white">{evaluation.name}</p>
+              <p className="mt-1 text-sm text-tec-muted">{evaluation.customer || "Cliente não informado"}</p>
+            </div>
+            <BadgeStatus status={evaluation.workflow_state} />
+          </div>
+          <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+            <DetailPill label="Aparelho" value={deviceLabel} />
+            <DetailPill label="IMEI / Serial" value={evaluation.imei || "Não informado"} />
+            <DetailPill label="Estado físico" value={evaluation.physical_state || "Não informado"} />
+            <DetailPill label="Destino" value={evaluation.destination || "Não definido"} />
+            <DetailPill label="Tipo" value={evaluation.device_type || "Não definido"} />
+            <DetailPill label="Atualização" value={formatDate(evaluation.modified)} />
+          </dl>
+        </Card>
+      ) : null}
+    </Modal>
   );
 }
 
@@ -1106,27 +3565,104 @@ function StockLookup() {
   );
 }
 
-function SalesLookup({
-  onComingSoon,
-  onNavigate,
-}: {
-  onComingSoon: (label: string, block?: string) => void;
-  onNavigate: (target: NavigationTarget) => void;
-}) {
+function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) => void }) {
+  const openPos = () => window.open(POS_ROUTE, "_blank", "noopener,noreferrer");
+
   return (
-    <div className="tp-layout-grid">
-      <Card className="p-4">
-        <h2 className="text-lg font-bold text-white">Vendas e acessórios</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <Button icon={<SearchIcon size={17} />} onClick={() => onNavigate("parts-stock")} variant="secondary">
-            Consultar item
-          </Button>
-          <Button icon={<SearchIcon size={17} />} onClick={() => onNavigate("customers")} variant="secondary">
-            Buscar cliente
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.5fr)]">
+      <Card className="overflow-hidden p-0">
+        <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 gap-4">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-[18px] bg-tec-orange text-tec-ink shadow-glow">
+              <ShoppingCart size={25} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase tracking-wide text-tec-orange">PDV nativo</p>
+              <h2 className="mt-1 text-2xl font-bold text-white">Vendas e acessórios</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-tec-subtle">
+                Abra o balcão de venda no perfil {POS_PROFILE_NAME}; ele usa estoque Comercial, serial quando necessário e os meios de pagamento configurados.
+              </p>
+            </div>
+          </div>
+          <Button className="shrink-0" icon={<ExternalLink size={17} />} onClick={openPos} variant="primary">
+            Abrir PDV Tecponto
           </Button>
         </div>
+        <div className="grid border-t border-tec-border/15 sm:grid-cols-3">
+          <SalesRouteCard
+            detail="Venda no balcão"
+            icon={<CreditCard size={22} />}
+            label="PDV Tecponto"
+            onClick={openPos}
+          />
+          <SalesRouteCard
+            detail="Disponibilidade e depósito"
+            icon={<Package size={22} />}
+            label="Consultar item"
+            onClick={() => onNavigate("parts-stock")}
+          />
+          <SalesRouteCard
+            detail="Nome, telefone ou IMEI"
+            icon={<SearchIcon size={22} />}
+            label="Buscar cliente"
+            onClick={() => onNavigate("customers")}
+          />
+        </div>
       </Card>
-      <ActionPanel actions={[]} onComingSoon={onComingSoon} onNavigate={onNavigate} title="Atalhos" />
+      <Card className="p-5">
+        <div className="flex items-center gap-3">
+          <span className="grid h-11 w-11 place-items-center rounded-[15px] bg-tec-orange/15 text-tec-orange">
+            <BadgeInfo size={21} />
+          </span>
+          <div>
+            <h3 className="text-lg font-bold text-white">Fluxo recomendado</h3>
+            <p className="text-sm text-tec-subtle">Use o POS para vender e esta tela para consultar antes de abrir a venda.</p>
+          </div>
+        </div>
+        <div className="mt-5 space-y-3">
+          <SalesChecklistItem icon={<Package size={16} />} label="Confirmar estoque Comercial" />
+          <SalesChecklistItem icon={<UserRound size={16} />} label="Selecionar ou cadastrar cliente" />
+          <SalesChecklistItem icon={<CreditCard size={16} />} label="Finalizar pagamento no PDV" />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function SalesRouteCard({
+  detail,
+  icon,
+  label,
+  onClick,
+}: {
+  detail: string;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="group flex min-h-28 items-center gap-4 border-t border-tec-border/15 p-5 text-left transition hover:bg-tec-field/75 sm:border-l sm:border-t-0 first:sm:border-l-0"
+      onClick={onClick}
+      type="button"
+    >
+      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[16px] bg-tec-field text-tec-orange transition group-hover:bg-tec-orange group-hover:text-tec-ink">
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-base font-bold text-white">{label}</span>
+        <span className="mt-1 block text-sm text-tec-subtle">{detail}</span>
+      </span>
+      <ArrowRight className="ml-auto shrink-0 text-tec-muted transition group-hover:translate-x-1 group-hover:text-tec-orange" size={18} />
+    </button>
+  );
+}
+
+function SalesChecklistItem({ icon, label }: { icon: ReactNode; label: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-[16px] border border-tec-border/15 bg-tec-field/55 px-3 py-3 text-sm font-semibold text-tec-text">
+      <span className="grid h-8 w-8 place-items-center rounded-[12px] bg-tec-orange/15 text-tec-orange">{icon}</span>
+      {label}
     </div>
   );
 }
@@ -1136,6 +3672,7 @@ function LookupCard<T>({
   emptyLabel,
   headerAction,
   onSearch,
+  onRowClick,
   placeholder,
   query,
   rows,
@@ -1147,6 +3684,7 @@ function LookupCard<T>({
   emptyLabel: string;
   headerAction?: ReactNode;
   onSearch: (event: FormEvent<HTMLFormElement>) => void;
+  onRowClick?: (row: T) => void;
   placeholder: string;
   query: string;
   rows: T[];
@@ -1180,7 +3718,7 @@ function LookupCard<T>({
         </div>
         {headerAction}
       </div>
-      <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} rows={rows} />
+      <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} onRowClick={onRowClick} rows={rows} />
     </Card>
   );
 }
@@ -1198,25 +3736,23 @@ function ServiceOrderViewToggle({
   ];
 
   return (
-    <Card className="p-2">
-      <div className="grid gap-2 sm:inline-grid sm:grid-cols-2">
-        {options.map((option) => (
-          <button
-            aria-pressed={value === option.value}
-            className={`min-h-10 rounded-control px-4 text-sm font-bold transition ${
-              value === option.value
-                ? "bg-tec-orange text-tec-ink shadow-glow"
-                : "bg-tec-field text-tec-subtle hover:text-white"
-            }`}
-            key={option.value}
-            onClick={() => onChange(option.value)}
-            type="button"
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-    </Card>
+    <div className="inline-grid grid-cols-2 gap-1 rounded-control border border-tec-border/15 bg-tec-field/70 p-1">
+      {options.map((option) => (
+        <button
+          aria-pressed={value === option.value}
+          className={`min-h-10 rounded-[12px] px-4 text-sm font-bold transition ${
+            value === option.value
+              ? "bg-tec-orange text-tec-ink shadow-glow"
+              : "text-tec-subtle hover:bg-tec-panel-strong/75 hover:text-white"
+          }`}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          type="button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -1231,31 +3767,55 @@ function getStoredServiceOrdersView(): ServiceOrdersViewMode {
 
 function RightRail({
   actions,
-  onComingSoon,
+  metrics,
   onNavigate,
+  onOpenNotifications,
   onStartCheckin,
 }: {
   actions: ActionDefinition[];
-  onComingSoon: (label: string, block?: string) => void;
+  metrics: DashboardMetrics;
   onNavigate: (target: NavigationTarget) => void;
+  onOpenNotifications: () => void;
   onStartCheckin: () => void;
 }) {
   return (
     <aside className="space-y-4">
       <ActionPanel
         actions={actions}
-        onComingSoon={onComingSoon}
         onNavigate={onNavigate}
         onStartCheckin={onStartCheckin}
         title="Ações rápidas"
       />
-      <Card className="p-4">
-        <h2 className="text-lg font-bold text-white">Alertas</h2>
+      <Card className="p-5">
+        <h2 className="text-xl font-bold text-white">Próximas ações</h2>
         <div className="mt-4 space-y-3 text-sm">
-          <AlertLine onComingSoon={onComingSoon} tone="red" title="Aprovações pendentes" />
-          <AlertLine onComingSoon={onComingSoon} tone="amber" title="Peças aguardando chegada" />
-          <AlertLine onComingSoon={onComingSoon} tone="green" title="Mensagens do WhatsApp" />
+          <AlertLine
+            count={metrics.service_orders.awaiting_approval}
+            onClick={() => onNavigate("service-orders")}
+            tone="orange"
+            title="Aprovações pendentes"
+          />
+          <AlertLine
+            count={metrics.service_orders.waiting_part}
+            onClick={() => onNavigate("parts-stock")}
+            tone="amber"
+            title="Peças aguardando chegada"
+          />
+          <AlertLine
+            count={8}
+            href="https://web.whatsapp.com/"
+            tone="green"
+            title="Mensagens do WhatsApp"
+          />
         </div>
+        <button
+          className="mx-auto mt-5 flex items-center gap-2 text-sm font-bold text-tec-orange hover:text-tec-digital-orange"
+          onClick={onOpenNotifications}
+          type="button"
+        >
+          Ver todas as ações
+          <ArrowRight size={16} />
+        </button>
       </Card>
     </aside>
   );
@@ -1263,46 +3823,49 @@ function RightRail({
 
 function ActionPanel({
   actions,
-  onComingSoon,
   onNavigate,
   onStartCheckin,
   title,
 }: {
   actions: ActionDefinition[];
-  onComingSoon: (label: string, block?: string) => void;
   onNavigate: (target: NavigationTarget) => void;
   onStartCheckin?: () => void;
   title: string;
 }) {
   return (
-    <Card className="p-4">
-      <h2 className="mb-4 text-lg font-bold text-white">{title}</h2>
+    <Card className="p-5">
+      <h2 className="mb-4 text-xl font-bold text-white">{title}</h2>
       {actions.length ? (
         <div className="tp-action-grid">
           {actions.map((action, index) => {
             const opensCheckin = action.soon === "bloco 3.1c" && onStartCheckin;
+            const disabled = Boolean(action.soon && !opensCheckin && !action.target && !action.externalHref);
+            const ActionIcon = action.label.includes("WhatsApp") ? WhatsAppLogo : action.icon;
             return (
               <button
-                className="min-h-[96px] rounded-card border border-tec-border/20 bg-tec-field p-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
+                className="min-h-[112px] rounded-card border border-tec-border/20 bg-tec-field/75 p-4 text-left shadow-sm transition hover:border-tec-orange/50 hover:bg-tec-orange/10 disabled:cursor-not-allowed disabled:opacity-55"
+                disabled={disabled}
                 key={`${action.label}-${index}`}
                 onClick={() => {
                   if (opensCheckin) {
                     onStartCheckin();
-                  } else if (action.soon) {
-                    onComingSoon(action.label, action.soon);
+                  } else if (action.externalHref) {
+                    window.open(action.externalHref, "_blank", "noopener,noreferrer");
                   } else if (action.target) {
                     onNavigate(action.target);
                   }
                 }}
-                title={opensCheckin ? action.label : action.soon ? `Em breve — ${action.soon}` : action.label}
+                title={disabled ? "Indisponível nesta tela" : action.label}
                 type="button"
               >
-                <action.icon className="mb-3 text-tec-orange" size={22} />
+                <span className="mb-4 grid h-11 w-11 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+                  <ActionIcon size={26} />
+                </span>
                 <span className="block text-sm font-bold text-white">{action.label}</span>
                 <span className="mt-1 block text-xs text-tec-muted">{action.detail}</span>
-                {action.soon && !opensCheckin ? (
+                {disabled ? (
                   <span className="mt-2 inline-flex rounded-full bg-tec-field px-2 py-1 text-[10px] font-bold uppercase text-tec-muted">
-                    Em breve
+                    Indisponível
                   </span>
                 ) : null}
               </button>
@@ -1319,32 +3882,50 @@ function ActionPanel({
 }
 
 function AlertLine({
-  onComingSoon,
+  count,
+  href,
+  onClick,
   title,
   tone,
 }: {
-  onComingSoon: (label: string, block?: string) => void;
+  count: number;
+  href?: string;
+  onClick?: () => void;
   title: string;
-  tone: "red" | "amber" | "green";
+  tone: "orange" | "amber" | "green";
 }) {
   const toneClass = {
-    red: "bg-tec-red/20 text-tec-red",
-    amber: "bg-tec-amber/20 text-tec-amber",
-    green: "bg-tec-success/20 text-tec-success",
+    orange: "bg-tec-orange",
+    amber: "bg-tec-amber",
+    green: "bg-tec-success",
   }[tone];
 
-  return (
-    <button
-      className="flex w-full items-center justify-between border-b border-tec-border/20 pb-3 text-left last:border-0 last:pb-0"
-      onClick={() => onComingSoon(title, "bloco 3.1x")}
-      title={`Em breve — bloco 3.1x`}
-      type="button"
-    >
-      <span className="flex items-center gap-3 text-tec-subtle">
+  const content = (
+    <>
+      <span className="flex min-w-0 items-center gap-3 text-tec-subtle">
         <span className={`h-2.5 w-2.5 rounded-full ${toneClass}`} />
-        {title}
+        <span className="truncate">{title}</span>
       </span>
-      <span className="text-xs font-bold text-tec-orange">Ver</span>
+      <span className="flex items-center gap-3">
+        <span className="rounded-full bg-tec-orange/20 px-2 py-1 text-xs font-bold text-tec-orange">{count}</span>
+        <ArrowRight size={15} className="text-tec-muted" />
+      </span>
+    </>
+  );
+
+  const className = "flex w-full items-center justify-between gap-3 rounded-control px-1 py-1.5 text-left transition hover:bg-tec-field/55";
+
+  if (href) {
+    return (
+      <a className={className} href={href} rel="noreferrer" target="_blank" title={`Abrir ${title}`}>
+        {content}
+      </a>
+    );
+  }
+
+  return (
+    <button className={className} onClick={onClick} title={`Abrir ${title}`} type="button">
+      {content}
     </button>
   );
 }
@@ -1376,11 +3957,154 @@ function formatDate(value: string) {
   }).format(date);
 }
 
+function filterOrdersByDashboardPeriod(orders: ServiceOrderSummary[], filter: DashboardPeriodFilter) {
+  const bounds = getDashboardPeriodBounds(filter);
+  if (!bounds) {
+    return orders;
+  }
+
+  return orders.filter((order) => {
+    const date = parseFrappeDate(order.modified);
+    return date ? date >= bounds.start && date <= bounds.end : false;
+  });
+}
+
+function filterOrdersForServiceOrderScreen(orders: ServiceOrderSummary[], filters: ServiceOrderFilterState) {
+  return filterOrdersByDashboardPeriod(orders, filters.period).filter((order) => {
+    if (filters.status !== "all" && order.workflow_state !== filters.status) {
+      return false;
+    }
+    return matchesServiceOrderSearch(order, filters.query);
+  });
+}
+
+function toServiceOrderQueryParams(filters: ServiceOrderFilterState, limit: number): ServiceOrderQueryParams {
+  const params: ServiceOrderQueryParams = { limit };
+  const query = filters.query.trim();
+  if (query) {
+    params.query = query;
+  }
+  if (filters.status !== "all") {
+    params.status = filters.status;
+  }
+
+  if (filters.period.mode === "custom") {
+    if (filters.period.fromDate) {
+      params.from_date = filters.period.fromDate;
+    }
+    if (filters.period.toDate) {
+      params.to_date = filters.period.toDate;
+    }
+  } else {
+    const bounds = getDashboardPeriodBounds(filters.period);
+    if (bounds) {
+      params.from_date = formatDateInputValue(bounds.start);
+      params.to_date = formatDateInputValue(bounds.end);
+    }
+  }
+
+  return params;
+}
+
+function matchesServiceOrderSearch(order: ServiceOrderSummary, query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return normalizeSearchText(
+    [
+      order.name,
+      order.customer,
+      order.customer_device,
+      order.reported_defect,
+      order.workflow_state,
+      order.technician,
+      order.attendant,
+      order.priority,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  ).includes(normalizedQuery);
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function getDashboardPeriodBounds(filter: DashboardPeriodFilter) {
+  const now = new Date();
+  const end = endOfDay(filter.mode === "custom" && filter.toDate ? parseDateInput(filter.toDate) : now);
+  let start: Date | null;
+
+  if (filter.mode === "custom") {
+    start = filter.fromDate ? startOfDay(parseDateInput(filter.fromDate)) : null;
+  } else {
+    start = startOfDay(addCalendarDays(now, filter.mode === "14d" ? -13 : -6));
+  }
+
+  if (!start && !filter.toDate) {
+    return null;
+  }
+
+  return {
+    end,
+    start: start ?? startOfDay(new Date(0)),
+  };
+}
+
+function parseFrappeDate(value: string) {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value.replace(" ", "T"));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseDateInput(value: string) {
+  const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+  return new Date(year, month - 1, day);
+}
+
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function endOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
+function addCalendarDays(date: Date, days: number) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", {
     currency: "BRL",
     style: "currency",
   }).format(value || 0);
+}
+
+function buildWhatsAppUrl(phone: string | null | undefined, message: string) {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  if (!digits) {
+    return null;
+  }
+  const normalized = digits.startsWith("55") ? digits : `55${digits}`;
+  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
 }
 
 function timelineToneClass(tone: ServiceOrderTimelineEvent["tone"]) {

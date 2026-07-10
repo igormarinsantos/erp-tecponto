@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.utils import add_days, now_datetime
+from frappe.utils import add_days, flt, now_datetime
 
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
@@ -13,6 +13,7 @@ from tecponto_app.tecponto.frontend.api import (
 	list_stock_items,
 	list_trade_evaluations,
 	resolve_panel,
+	search_budget_items,
 	search_customers,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
@@ -26,6 +27,8 @@ TEST_USERS = {
 }
 
 DETAIL_DEMO_MARKER = "Fase 3.1b demo detail"
+BUDGET_COST_GUARD_ITEM = "TP-FRONT-COST-GUARD"
+BUDGET_COST_GUARD_VALUATION = 9876.54
 
 
 def run_foundation_checks() -> dict:
@@ -39,6 +42,7 @@ def run_foundation_checks() -> dict:
 		navigation_check = _check_attendant_navigation_apis(users["Tecponto Atendente"])
 		metrics_check = _check_dashboard_metrics(users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
+		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 
 		return {
 			"status": "ok",
@@ -48,6 +52,7 @@ def run_foundation_checks() -> dict:
 			"navigation_apis": navigation_check,
 			"dashboard_metrics": metrics_check,
 			"sensitive_guard": guard_check,
+			"budget_cost_guard": budget_cost_guard,
 		}
 	finally:
 		frappe.set_user(previous_user)
@@ -432,3 +437,67 @@ def _check_sensitive_guard(user: str) -> dict:
 		],
 		"leaked_fields": leaks,
 	}
+
+
+def _check_budget_item_cost_guard(user: str) -> dict:
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		item_code = _get_or_create_budget_cost_guard_item()
+		frappe.db.commit()
+
+		frappe.set_user(user)
+		payload = search_budget_items(query=item_code, line_type="part", limit=5)
+		leaks = contains_sensitive_field(payload, forbidden_values={BUDGET_COST_GUARD_VALUATION})
+		if leaks:
+			raise AssertionError(f"Custo de item vazou na busca de orÃ§amento: {', '.join(leaks)}")
+
+		item = next((entry for entry in payload["items"] if entry["item_code"] == item_code), None)
+		if not item:
+			raise AssertionError("Item sentinela de custo nÃ£o retornou na busca de orÃ§amento.")
+		if flt(item.get("standard_rate")) != 0:
+			raise AssertionError("Item sem preÃ§o de venda deveria retornar standard_rate 0, sem fallback de custo.")
+		if item.get("has_price"):
+			raise AssertionError("Item sem preÃ§o de venda deveria retornar has_price=false.")
+
+		return {
+			"user": user,
+			"checked_payload": "search_budget_items",
+			"item": item_code,
+			"cost_value_checked": True,
+			"returned_standard_rate": item.get("standard_rate"),
+			"has_price": item.get("has_price"),
+			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _get_or_create_budget_cost_guard_item() -> str:
+	item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
+	stock_uom = frappe.db.get_value("UOM", {"enabled": 1}, "name") or frappe.db.get_value("UOM", {}, "name") or "Nos"
+	if frappe.db.exists("Item", BUDGET_COST_GUARD_ITEM):
+		item = frappe.get_doc("Item", BUDGET_COST_GUARD_ITEM)
+	else:
+		item = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": BUDGET_COST_GUARD_ITEM,
+				"item_name": "Sentinela guard custo frontend",
+				"item_group": item_group,
+				"stock_uom": stock_uom,
+				"is_stock_item": 1,
+				"disabled": 0,
+			}
+		)
+	item.disabled = 0
+	item.is_stock_item = 1
+	item.item_group = item_group
+	item.stock_uom = stock_uom
+	item.standard_rate = 0
+	item.valuation_rate = BUDGET_COST_GUARD_VALUATION
+	if item.is_new():
+		item.insert(ignore_permissions=True)
+	else:
+		item.save(ignore_permissions=True)
+	return item.name
