@@ -36,6 +36,7 @@ venv.bak/
 node_modules/
 jspm_packages/
 tecponto_app/public/frontend/
+artifacts/
 
 # IDEs and editors
 .vscode/
