@@ -349,6 +349,36 @@ export function App() {
     setCheckinOpen(true);
   }, []);
 
+  const toggleNotifications = useCallback(() => {
+    setNotificationsOpen((current) => !current);
+  }, []);
+
+  useEffect(() => {
+    if (!notificationsOpen) {
+      return;
+    }
+
+    const closeFromOutside = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("[data-tp-notifications]")) {
+        return;
+      }
+      setNotificationsOpen(false);
+    };
+    const closeWithEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setNotificationsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeFromOutside);
+    window.addEventListener("keydown", closeWithEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeFromOutside);
+      window.removeEventListener("keydown", closeWithEscape);
+    };
+  }, [notificationsOpen]);
+
   useEffect(() => {
     const clampMenuPosition = (clientX: number, clientY: number) => ({
       x: Math.max(12, Math.min(clientX, window.innerWidth - 304)),
@@ -581,6 +611,7 @@ export function App() {
     <div className="min-h-screen">
       <Sidebar
         activeItemId={activeView === "service-order-detail" ? "service-orders" : activeView}
+        onLogout={logout}
         onOpenHelp={() => setHelpOpen(true)}
         onNavigate={setActiveView}
         sections={panel.nav}
@@ -588,7 +619,7 @@ export function App() {
       />
       <Topbar
         onLogout={logout}
-        onOpenNotifications={() => setNotificationsOpen(true)}
+        onOpenNotifications={toggleNotifications}
         onOpenSearch={() => setGlobalSearchOpen(true)}
         onToggleTheme={toggleTheme}
         theme={theme}
@@ -664,7 +695,7 @@ export function App() {
         }}
         open={globalSearchOpen}
       />
-      <NotificationsModal
+      <NotificationsPanel
         metrics={state.metrics}
         onClose={() => setNotificationsOpen(false)}
         onNavigate={(target) => {
@@ -928,7 +959,7 @@ function GlobalSearchSection({
   );
 }
 
-function NotificationsModal({
+function NotificationsPanel({
   metrics,
   onClose,
   onNavigate,
@@ -963,11 +994,32 @@ function NotificationsModal({
     },
   ];
 
+  if (!open) {
+    return null;
+  }
+
   return (
-    <Modal className="max-w-2xl" onClose={onClose} open={open} title="Notificações">
-      <div className="space-y-3">
+    <section
+      className="fixed right-5 top-[calc(var(--tp-topbar-height)+0.75rem)] z-40 w-[min(380px,calc(100vw-1.5rem))] rounded-card border border-tec-border/20 bg-tec-panel-strong p-3 shadow-panel"
+      data-tp-notifications="panel"
+      role="menu"
+    >
+      <div className="mb-2 flex items-start justify-between gap-3 px-1">
+        <div>
+          <h2 className="text-base font-bold text-white">Notificações</h2>
+          <p className="mt-1 text-xs text-tec-muted">Ações que precisam de atenção no balcão.</p>
+        </div>
+        <button
+          className="rounded-control px-2 py-1 text-xs font-bold text-tec-muted transition hover:bg-tec-field hover:text-white"
+          onClick={onClose}
+          type="button"
+        >
+          Fechar
+        </button>
+      </div>
+      <div className="space-y-2">
         {items.map((item) => (
-          <div className="rounded-card border border-tec-border/15 bg-tec-field/55 p-4" key={item.title}>
+          <div className="rounded-card border border-tec-border/15 bg-tec-field/55 p-3" key={item.title}>
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="font-bold text-white">{item.title}</p>
@@ -979,7 +1031,7 @@ function NotificationsModal({
             </div>
             {item.href ? (
               <a
-                className="mt-4 inline-flex min-h-9 items-center justify-center rounded-control border border-tec-border/20 bg-tec-panel px-3 text-sm font-bold text-tec-text transition hover:border-tec-whatsapp/50"
+                className="mt-3 inline-flex min-h-9 items-center justify-center rounded-control border border-tec-border/20 bg-tec-panel px-3 text-sm font-bold text-tec-text transition hover:border-tec-whatsapp/50"
                 href={item.href}
                 rel="noreferrer"
                 target="_blank"
@@ -987,14 +1039,14 @@ function NotificationsModal({
                 {item.action}
               </a>
             ) : (
-              <Button className="mt-4" onClick={item.onClick}>
+              <Button className="mt-3" onClick={item.onClick}>
                 {item.action}
               </Button>
             )}
           </div>
         ))}
       </div>
-    </Modal>
+    </section>
   );
 }
 
@@ -1519,43 +1571,63 @@ function OperationsTable({
   const columns = useMemo<Array<TableColumn<ServiceOrderSummary>>>(
     () => [
       {
-        className: "w-36 whitespace-nowrap",
+        className: "w-[132px] whitespace-nowrap",
         key: "name",
         label: "OS",
         render: (row) => <span className="font-semibold text-white">{row.name}</span>,
       },
       {
-        className: "min-w-40",
+        className: "w-[190px]",
         key: "customer",
         label: "Cliente",
         render: (row) => (
-          <span>
-            <span className="block text-white">{row.customer ?? "Cliente não informado"}</span>
-            <span className="block text-xs text-tec-muted">{row.customer_device ?? "Aparelho não vinculado"}</span>
+          <span className="block min-w-0">
+            <span className="block truncate text-white" title={row.customer ?? "Cliente nao informado"}>
+              {row.customer ?? "Cliente nao informado"}
+            </span>
+            <span className="block truncate text-xs text-tec-muted" title={row.customer_device ?? "Aparelho nao vinculado"}>
+              {row.customer_device ?? "Aparelho nao vinculado"}
+            </span>
           </span>
         ),
       },
       {
+        className: "w-[270px]",
         key: "description",
         label: "Descrição",
-        render: (row) => row.reported_defect ?? "Sem descrição",
+        render: (row) => {
+          const description = compactServiceOrderDescription(row.reported_defect);
+          return (
+            <span className="block truncate text-tec-subtle" title={row.reported_defect ?? "Sem descricao"}>
+              {description}
+            </span>
+          );
+        },
       },
       {
+        className: "w-[150px]",
         key: "status",
         label: "Status",
         render: (row) => <BadgeStatus status={row.workflow_state} />,
       },
       {
+        className: "w-[142px]",
         key: "next_action",
         label: "Proxima acao",
         render: (row) => <NextActionPill order={row} />,
       },
       {
+        className: "w-[160px]",
         key: "responsible",
         label: "Responsável",
-        render: (row) => row.technician ?? row.attendant ?? "Não definido",
+        render: (row) => (
+          <span className="block truncate" title={row.technician ?? row.attendant ?? "Nao definido"}>
+            {row.technician ?? row.attendant ?? "Nao definido"}
+          </span>
+        ),
       },
       {
+        className: "w-[102px] whitespace-nowrap",
         key: "updated",
         label: "Atualização",
         render: (row) => formatDate(row.modified),
@@ -1668,7 +1740,7 @@ function NextActionPill({ order }: { order: ServiceOrderSummary }) {
   return (
     <span
       className={cx(
-        "inline-flex min-h-7 items-center rounded-full px-3 text-xs font-bold",
+        "inline-flex min-h-7 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold",
         next.tone === "orange" && "bg-tec-orange/15 text-tec-orange",
         next.tone === "blue" && "bg-tec-blue/15 text-tec-blue",
         next.tone === "green" && "bg-tec-success/15 text-tec-success",
@@ -4038,6 +4110,22 @@ function formatDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function compactServiceOrderDescription(value?: string | null) {
+  const fallback = "Sem descricao";
+  const text = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return fallback;
+  }
+
+  const firstSentence = text.split(/[.!?]\s+/)[0] || text;
+  const summary = firstSentence
+    .replace(/^Cliente relata\s+/i, "")
+    .replace(/^Observações adicionais:\s*/i, "")
+    .trim();
+  const normalized = summary || text;
+  return normalized.length > 88 ? `${normalized.slice(0, 85).trimEnd()}...` : normalized;
 }
 
 function filterOrdersByDashboardPeriod(orders: ServiceOrderSummary[], filter: DashboardPeriodFilter) {

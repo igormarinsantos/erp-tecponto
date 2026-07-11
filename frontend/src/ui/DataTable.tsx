@@ -21,8 +21,8 @@ interface DataTableProps<T> {
 
 export function DataTable<T>({ columns, emptyLabel, getRowProps, onRowClick, rows }: DataTableProps<T>) {
   return (
-    <div className="overflow-hidden rounded-card border border-tec-border/15">
-      <table className="tp-data-table w-full border-collapse text-left text-sm">
+    <div className="overflow-x-auto rounded-card border border-tec-border/15">
+      <table className="tp-data-table min-w-[1100px] w-full table-fixed border-collapse text-left text-sm">
         <thead className="bg-tec-field/55 text-xs uppercase text-tec-muted">
           <tr>
             {columns.map((column) => (
@@ -60,7 +60,7 @@ export function DataTable<T>({ columns, emptyLabel, getRowProps, onRowClick, row
                   tabIndex={onRowClick ? 0 : rowProps.tabIndex}
                 >
                   {columns.map((column) => (
-                    <td className={cx("px-4 py-3 align-middle text-tec-subtle", column.className)} key={column.key}>
+                    <td className={cx("px-4 py-2.5 align-middle text-tec-subtle", column.className)} key={column.key}>
                       {column.render(row)}
                     </td>
                   ))}

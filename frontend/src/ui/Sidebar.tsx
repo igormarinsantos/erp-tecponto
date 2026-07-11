@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
-import { HelpCircle } from "lucide-react";
+import { ChevronUp, HelpCircle, LogOut } from "lucide-react";
+import { useState } from "react";
 
 import type { LoggedUser, NavigationTarget } from "../api";
 import { cx } from "./utils";
@@ -19,12 +20,15 @@ export interface NavSection {
 interface SidebarProps {
   activeItemId: NavigationTarget;
   onOpenHelp: () => void;
+  onLogout: () => void;
   onNavigate: (target: NavigationTarget) => void;
   sections: NavSection[];
   user: LoggedUser;
 }
 
-export function Sidebar({ activeItemId, onOpenHelp, onNavigate, sections, user }: SidebarProps) {
+export function Sidebar({ activeItemId, onLogout, onOpenHelp, onNavigate, sections, user }: SidebarProps) {
+  const [profileOpen, setProfileOpen] = useState(false);
+
   return (
     <aside className="tp-sidebar-desktop fixed inset-y-0 left-0 z-30 w-[var(--tp-sidebar-width)] border-r border-tec-border/20 bg-tec-sidebar p-4">
       <div className="px-2 py-3">
@@ -86,17 +90,39 @@ export function Sidebar({ activeItemId, onOpenHelp, onNavigate, sections, user }
           <HelpCircle size={18} />
           Ajuda rápida
         </button>
-        <div className="rounded-card border border-tec-border/25 bg-tec-panel p-4">
+        {profileOpen ? (
+          <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-2 shadow-panel">
+            <button
+              className="flex min-h-10 w-full items-center gap-3 rounded-control px-3 text-sm font-bold text-tec-subtle transition hover:bg-tec-field hover:text-white"
+              onClick={onLogout}
+              type="button"
+            >
+              <LogOut size={17} />
+              Sair do usuario
+            </button>
+          </div>
+        ) : null}
+        <button
+          aria-expanded={profileOpen}
+          className="w-full rounded-card border border-tec-border/25 bg-tec-panel p-4 text-left transition hover:border-tec-orange/35 hover:bg-tec-field"
+          onClick={() => setProfileOpen((current) => !current)}
+          title="Abrir opcoes do usuario"
+          type="button"
+        >
           <div className="flex items-center gap-3">
-            <div className="grid aspect-square h-11 min-h-11 w-11 min-w-11 shrink-0 place-items-center overflow-hidden rounded-full bg-tec-blue text-sm font-bold leading-none text-white">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-tec-blue text-sm font-bold leading-none text-white">
               {user.initials}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-bold text-white">{user.full_name}</p>
               <p className="truncate text-xs text-tec-muted">{user.name}</p>
             </div>
+            <ChevronUp
+              className={cx("shrink-0 text-tec-muted transition", profileOpen ? "rotate-180" : "")}
+              size={16}
+            />
           </div>
-        </div>
+        </button>
       </div>
     </aside>
   );

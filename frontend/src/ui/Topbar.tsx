@@ -58,6 +58,7 @@ export function Topbar({ onLogout, onOpenNotifications, onOpenSearch, onToggleTh
       </a>
       <button
         className="relative grid h-10 w-10 shrink-0 place-items-center rounded-control border border-tec-border/25 bg-tec-field text-tec-subtle transition hover:border-tec-orange/50 hover:text-tec-text"
+        data-tp-notifications="trigger"
         onClick={onOpenNotifications}
         title="Abrir notificações"
         type="button"
