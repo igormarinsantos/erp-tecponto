@@ -178,6 +178,52 @@ export interface PosItemSearchResponse {
   items: PosItemSummary[];
 }
 
+export type PosPaymentMode = "Pix" | "Dinheiro" | "Débito" | "Crédito à vista" | "Crédito parcelado";
+
+export interface PosSalePaymentPayload {
+  amount: number;
+  installments?: number;
+  mode_of_payment: PosPaymentMode;
+}
+
+export interface PosSalePayload {
+  customer: string;
+  discount_amount: number;
+  idempotency_key: string;
+  items: Array<{
+    item_code: string;
+    qty: number;
+    serial_no?: string | null;
+  }>;
+  payments: PosSalePaymentPayload[];
+}
+
+export interface PosSaleResponse {
+  customer: string;
+  customer_name: string | null;
+  grand_total: number;
+  idempotent_replay: boolean;
+  items: Array<{
+    amount: number;
+    item_code: string;
+    item_name: string | null;
+    qty: number;
+    unit_price: number;
+  }>;
+  paid_amount: number;
+  payments: Array<{
+    amount: number;
+    mode_of_payment: PosPaymentMode;
+  }>;
+  posting_date: string;
+  receipt: {
+    format: string;
+    url: string;
+  };
+  sale: string;
+  status: string;
+}
+
 export interface BudgetWarehouseSummary {
   name: string;
   warehouse_name: string | null;

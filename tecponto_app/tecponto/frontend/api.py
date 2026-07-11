@@ -16,6 +16,7 @@ from tecponto_app.tecponto.customer import (
 	assert_existing_customer_is_complete,
 	validate_customer_contact_document,
 )
+from tecponto_app.tecponto.pos import get_commercial_item_groups
 from tecponto_app.tecponto.service_order.print_formats import (
 	PF_ETIQUETA_QR,
 	PF_OS_ORCAMENTO,
@@ -526,8 +527,18 @@ def search_pos_items(
 	if not warehouse:
 		frappe.throw(_("Depósito Comercial não configurado no Tecponto Settings."), frappe.ValidationError)
 
-	conditions = ["item.disabled = 0", "item.is_stock_item = 1"]
+	commercial_groups = get_commercial_item_groups()
+	if not commercial_groups:
+		frappe.throw(_("Grupos comerciais do PDV não estão configurados."), frappe.ValidationError)
+
+	conditions = [
+		"item.disabled = 0",
+		"item.is_stock_item = 1",
+		"item.is_sales_item = 1",
+		"item.item_group in %(commercial_groups)s",
+	]
 	values: dict[str, Any] = {
+		"commercial_groups": tuple(commercial_groups),
 		"limit": limit,
 		"warehouse": warehouse,
 	}

@@ -60,6 +60,7 @@ fixtures = [
 					"Tecponto Termo de Retirada",
 					"Tecponto OS Orcamento",
 					"Tecponto Etiqueta QR",
+					"Tecponto Cupom PDV",
 				],
 			]
 		],
@@ -291,7 +292,10 @@ doc_events = {
 			"tecponto_app.tecponto.stock.apply_sales_stock_defaults",
 			"tecponto_app.tecponto.used_device_warranty.validate_used_device_serials",
 		],
-		"validate": "tecponto_app.tecponto.pricing.validate_sales_pricing",
+		"validate": [
+			"tecponto_app.tecponto.pos.validate_pos_warehouse",
+			"tecponto_app.tecponto.pricing.validate_sales_pricing",
+		],
 		"on_submit": "tecponto_app.tecponto.used_device_warranty.create_used_device_warranties",
 	},
 	"POS Invoice": {

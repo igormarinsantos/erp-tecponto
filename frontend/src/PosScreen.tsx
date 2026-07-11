@@ -1,9 +1,10 @@
 import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Percent, RefreshCw, UserRound } from "lucide-react";
+import { CheckCircle2, ExternalLink, Percent, RefreshCw, UserRound } from "lucide-react";
 
-import { pos, type CustomerSummary, type PosItemSummary } from "./api";
+import { pos, type CustomerSummary, type PosItemSummary, type PosSalePaymentPayload, type PosSaleResponse } from "./api";
 import { Button, Modal } from "./ui";
 import { AddProductPanel } from "./pos/AddProductPanel";
+import { CheckoutModal } from "./pos/CheckoutModal";
 import { CustomerPickerModal } from "./pos/CustomerPickerModal";
 import { KeyboardShortcuts } from "./pos/KeyboardShortcuts";
 import { ProductSearchResults } from "./pos/ProductSearchResults";
@@ -25,6 +26,7 @@ export function PosScreen({ onToast }: PosScreenProps) {
   const manualRef = useRef<HTMLInputElement>(null);
   const discountRef = useRef<HTMLInputElement>(null);
   const searchRequestRef = useRef(0);
+  const idempotencyRef = useRef<{ fingerprint: string; key: string } | null>(null);
   const [barcode, setBarcode] = useState("");
   const [scanFeedback, setScanFeedback] = useState<PosScanFeedback>(INITIAL_SCAN_FEEDBACK);
   const [scanStatus, setScanStatus] = useState<PosScanStatus>("idle");
@@ -39,6 +41,9 @@ export function PosScreen({ onToast }: PosScreenProps) {
   const [customer, setCustomer] = useState<CustomerSummary | null>(null);
   const [customerOpen, setCustomerOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [completedSale, setCompletedSale] = useState<PosSaleResponse | null>(null);
 
   const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.standard_rate * line.qty, 0), [cart]);
   const total = Math.max(subtotal - discount, 0);
@@ -248,8 +253,45 @@ export function PosScreen({ onToast }: PosScreenProps) {
     if (!cart.length) {
       return;
     }
-    onToast("Finalização segura ainda não habilitada. Nenhuma venda foi criada.", "error");
-  }, [cart.length, onToast]);
+    if (!customer) {
+      onToast("Selecione o cliente antes de finalizar a venda.", "error");
+      setCustomerOpen(true);
+      return;
+    }
+    setCheckoutOpen(true);
+  }, [cart.length, customer, onToast]);
+
+  const submitSale = async (payments: PosSalePaymentPayload[]) => {
+    if (!customer || !cart.length || checkoutLoading) {
+      return;
+    }
+    const requestWithoutKey = {
+      customer: customer.name,
+      discount_amount: discount,
+      items: cart.map((item) => ({ item_code: item.item_code, qty: item.qty })),
+      payments,
+    };
+    const fingerprint = JSON.stringify(requestWithoutKey);
+    if (!idempotencyRef.current || idempotencyRef.current.fingerprint !== fingerprint) {
+      const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      idempotencyRef.current = { fingerprint, key: `tp-pos-${random}` };
+    }
+
+    setCheckoutLoading(true);
+    try {
+      const response = await pos.createSale({ ...requestWithoutKey, idempotency_key: idempotencyRef.current.key });
+      setCompletedSale(response);
+      setCheckoutOpen(false);
+      setCart([]);
+      setDiscount(0);
+      idempotencyRef.current = null;
+      onToast(`Venda ${response.sale} concluída e cupom gerado.`, "success");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Não foi possível finalizar a venda.", "error");
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
 
   useEffect(() => {
     const handleShortcut = (event: globalThis.KeyboardEvent) => {
@@ -357,6 +399,39 @@ export function PosScreen({ onToast }: PosScreenProps) {
         }}
         open={customerOpen}
       />
+      <CheckoutModal
+        customerName={customer?.customer_name ?? customer?.name ?? "Cliente"}
+        loading={checkoutLoading}
+        onClose={() => setCheckoutOpen(false)}
+        onConfirm={(payments) => void submitSale(payments)}
+        open={checkoutOpen}
+        total={total}
+      />
+      <Modal
+        className="max-w-lg"
+        onClose={() => setCompletedSale(null)}
+        open={Boolean(completedSale)}
+        title="Venda concluída"
+      >
+        {completedSale ? (
+          <div className="text-center">
+            <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-tec-green/15 text-tec-green"><CheckCircle2 size={30} /></span>
+            <p className="mt-4 text-sm text-tec-muted">Venda registrada, estoque baixado e pagamento contabilizado.</p>
+            <p className="mt-2 text-2xl font-bold text-white">{completedSale.sale}</p>
+            <p className="mt-1 text-lg font-bold text-tec-orange">{completedSale.grand_total.toLocaleString("pt-BR", { currency: "BRL", style: "currency" })}</p>
+            <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
+              <Button onClick={() => setCompletedSale(null)}>Nova venda</Button>
+              <Button
+                icon={<ExternalLink size={17} />}
+                onClick={() => window.open(completedSale.receipt.url, "_blank", "noopener,noreferrer")}
+                variant="primary"
+              >
+                Abrir cupom
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
       <Modal className="max-w-md" onClose={() => setClearConfirmOpen(false)} open={clearConfirmOpen} title="Limpar venda">
         <p className="text-sm leading-6 text-tec-subtle">Remover todos os produtos e o desconto desta venda?</p>
         <div className="mt-5 flex justify-end gap-2">

@@ -26,7 +26,7 @@
   "income_account": "Receita de Locação de Bens Móveis e Imóveis - TEC",
   "item_groups": [],
   "letter_head": "Company Letterhead - Grey",
-  "modified": "2026-07-04 10:41:05.829205",
+  "modified": "2026-07-11 13:26:04.731587",
   "name": "Tecponto Balcão",
   "payments": [
    {
@@ -48,6 +48,11 @@
     "allow_in_returns": 0,
     "default": 0,
     "mode_of_payment": "Crédito à vista"
+   },
+   {
+    "allow_in_returns": 0,
+    "default": 0,
+    "mode_of_payment": "Crédito parcelado"
    }
   ],
   "print_format": null,

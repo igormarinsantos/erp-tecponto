@@ -4,8 +4,10 @@ from tecponto_app.tecponto.payments import ensure_card_receivables_setup
 
 
 POS_PROFILE_NAME = "Tecponto Balcão"
-POS_PAYMENT_MODES = ("Pix", "Dinheiro", "Débito", "Crédito à vista")
-CARD_PAYMENT_MODES = ("Débito", "Crédito à vista")
+POS_PAYMENT_MODES = ("Pix", "Dinheiro", "Débito", "Crédito à vista", "Crédito parcelado")
+CARD_PAYMENT_MODES = ("Débito", "Crédito à vista", "Crédito parcelado")
+COMMERCIAL_ITEM_GROUP_ROOTS = ("Produtos de Varejo", "Aparelhos Usados")
+POS_RECEIPT_PRINT_FORMAT = "Tecponto Cupom PDV"
 
 
 def ensure_pos_profile() -> None:
@@ -51,6 +53,108 @@ def ensure_pos_profile() -> None:
 		)
 
 	profile.save(ignore_permissions=True)
+	ensure_pos_receipt_print_format()
+
+
+def get_commercial_item_groups() -> list[str]:
+	groups: set[str] = set()
+	for root in COMMERCIAL_ITEM_GROUP_ROOTS:
+		bounds = frappe.db.get_value("Item Group", root, ["lft", "rgt"], as_dict=True)
+		if not bounds:
+			continue
+		groups.update(
+			frappe.get_all(
+				"Item Group",
+				filters={"lft": [">=", bounds.lft], "rgt": ["<=", bounds.rgt]},
+				pluck="name",
+			)
+		)
+	return sorted(groups)
+
+
+def ensure_pos_receipt_print_format() -> None:
+	if not frappe.db.exists("DocType", "Print Format"):
+		return
+
+	if frappe.db.exists("Print Format", POS_RECEIPT_PRINT_FORMAT):
+		print_format = frappe.get_doc("Print Format", POS_RECEIPT_PRINT_FORMAT)
+	else:
+		print_format = frappe.new_doc("Print Format")
+		print_format.name = POS_RECEIPT_PRINT_FORMAT
+
+	print_format.update(
+		{
+			"doc_type": "Sales Invoice",
+			"module": "Tecponto",
+			"standard": "No",
+			"custom_format": 1,
+			"print_format_for": "DocType",
+			"print_format_type": "Jinja",
+			"disabled": 0,
+			"raw_printing": 0,
+			"html": _receipt_html(),
+			"css": _receipt_css(),
+		}
+	)
+	print_format.save(ignore_permissions=True)
+
+
+def _receipt_html() -> str:
+	return """
+<div class="tp-receipt">
+  <header>
+    <h1>TECPONTO</h1>
+    <p>Cupom de venda {{ doc.name }}</p>
+  </header>
+  <div class="tp-meta">
+    <p><strong>Data:</strong> {{ frappe.utils.formatdate(doc.posting_date, 'dd/MM/yyyy') }}</p>
+    <p><strong>Cliente:</strong> {{ doc.customer_name or doc.customer }}</p>
+    <p><strong>Atendente:</strong> {{ doc.owner }}</p>
+  </div>
+  <table>
+    <thead><tr><th>Item</th><th>Qtd.</th><th>Unit.</th><th>Total</th></tr></thead>
+    <tbody>
+    {% for item in doc.items %}
+      <tr>
+        <td>{{ item.item_name or item.item_code }}</td>
+        <td>{{ item.qty }}</td>
+        <td>{{ frappe.utils.fmt_money(item.rate, currency=doc.currency) }}</td>
+        <td>{{ frappe.utils.fmt_money(item.amount, currency=doc.currency) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="tp-totals">
+    <p>Subtotal <strong>{{ frappe.utils.fmt_money(doc.total, currency=doc.currency) }}</strong></p>
+    {% if doc.discount_amount %}<p>Desconto <strong>- {{ frappe.utils.fmt_money(doc.discount_amount, currency=doc.currency) }}</strong></p>{% endif %}
+    <p class="tp-grand">Total <strong>{{ frappe.utils.fmt_money(doc.grand_total, currency=doc.currency) }}</strong></p>
+  </div>
+  <div class="tp-payments">
+    <p><strong>Pagamento</strong></p>
+    {% for payment in doc.payments %}
+      <p>{{ payment.mode_of_payment }} <span>{{ frappe.utils.fmt_money(payment.amount, currency=doc.currency) }}</span></p>
+    {% endfor %}
+  </div>
+  <footer>Obrigado pela preferência.</footer>
+</div>
+""".strip()
+
+
+def _receipt_css() -> str:
+	return """
+.print-format { font-family: Arial, sans-serif; font-size: 10px; color: #111; }
+.tp-receipt { max-width: 78mm; margin: 0 auto; }
+.tp-receipt header { text-align: center; border-bottom: 1px dashed #555; padding-bottom: 8px; }
+.tp-receipt h1 { font-size: 20px; margin: 0; }
+.tp-meta, .tp-payments { padding: 8px 0; border-bottom: 1px dashed #555; }
+.tp-receipt p { margin: 3px 0; }
+.tp-receipt table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+.tp-receipt th, .tp-receipt td { padding: 4px 2px; text-align: right; border-bottom: 1px solid #ddd; }
+.tp-receipt th:first-child, .tp-receipt td:first-child { text-align: left; }
+.tp-totals p, .tp-payments p { display: flex; justify-content: space-between; gap: 8px; }
+.tp-grand { font-size: 14px; }
+.tp-receipt footer { text-align: center; padding-top: 10px; }
+""".strip()
 
 
 def validate_pos_warehouse(doc, method=None) -> None:

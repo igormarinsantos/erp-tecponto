@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import frappe
 from frappe.utils import add_days, flt, now_datetime, nowdate
 
@@ -18,6 +20,8 @@ from tecponto_app.tecponto.frontend.api import (
 	search_pos_items,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
+from tecponto_app.tecponto.frontend.pos import pos_create_sale, pos_download_receipt
+from tecponto_app.tecponto.pos import POS_RECEIPT_PRINT_FORMAT
 
 
 TEST_USERS = {
@@ -34,8 +38,8 @@ POS_BARCODE_ITEM = "TP-PDV-BIPE"
 POS_BARCODE_VALUE = "7891234567890"
 POS_NAME_ITEM = "TP-PDV-NOME"
 POS_DEMO_ITEMS = (
-	(POS_BARCODE_ITEM, "Cabo USB-C PDV", 79.90, 11.11, POS_BARCODE_VALUE),
-	(POS_NAME_ITEM, "Película 3D PDV", 35.50, 7.77, None),
+	(POS_BARCODE_ITEM, "Cabo USB-C PDV", "Cabos", 79.90, 11.11, POS_BARCODE_VALUE),
+	(POS_NAME_ITEM, "Película 3D PDV", "Películas", 35.50, 7.77, None),
 )
 
 
@@ -132,6 +136,186 @@ def ensure_service_order_detail_demo_data() -> dict:
 		return {"status": "ok", "attendant_user": attendant, "orders": result}
 	finally:
 		frappe.set_user(previous_user)
+
+
+def run_pos_sale_checks() -> dict:
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		manager = _find_or_create_user("Tecponto Gestor")
+		customer = _get_or_create_demo_customer()
+		demo = _ensure_pos_demo_records()
+		frappe.db.commit()
+
+		commercial = demo["commercial_warehouse"]
+		repair = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+		clearing = frappe.db.get_single_value("Tecponto Settings", "acquirer_clearing_account")
+		if not repair or not clearing:
+			raise AssertionError("Estoques e conta transitória precisam estar configurados para testar o PDV.")
+
+		qty_before = _bin_qty(POS_BARCODE_ITEM, commercial)
+		repair_before = _bin_qty(POS_BARCODE_ITEM, repair)
+		clearing_before = _gl_balance(clearing)
+		invoice_count_before = frappe.db.count("Sales Invoice", {"docstatus": 1})
+		key = f"tp-pos-test-{frappe.generate_hash(length=20)}"
+		payload = {
+			"idempotency_key": key,
+			"customer": customer,
+			"items": [{"item_code": POS_BARCODE_ITEM, "qty": 1}],
+			"discount_amount": 0,
+			"payments": [
+				{"mode_of_payment": "Pix", "amount": 35.50, "installments": 1},
+				{"mode_of_payment": "Débito", "amount": 44.40, "installments": 1},
+			],
+		}
+
+		frappe.set_user(attendant)
+		if "Sales User" in frappe.get_roles(attendant):
+			raise AssertionError("Atendente do endpoint cirúrgico não pode receber Sales User.")
+		result = pos_create_sale(payload)
+		frappe.db.commit()
+
+		qty_after = _bin_qty(POS_BARCODE_ITEM, commercial)
+		repair_after = _bin_qty(POS_BARCODE_ITEM, repair)
+		clearing_after = _gl_balance(clearing)
+		invoice_count_after = frappe.db.count("Sales Invoice", {"docstatus": 1})
+		if flt(qty_before - qty_after, 3) != 1:
+			raise AssertionError(f"Venda deveria baixar 1 unidade do Comercial: {qty_before} -> {qty_after}.")
+		if repair_before != repair_after:
+			raise AssertionError("Venda do PDV alterou indevidamente o estoque de Reparo.")
+		if flt(clearing_after - clearing_before, 2) != 44.40:
+			raise AssertionError(
+				f"Cartão deveria aumentar Recebíveis de Cartão em 44,40: {clearing_before} -> {clearing_after}."
+			)
+		if invoice_count_after != invoice_count_before + 1:
+			raise AssertionError("Finalização deveria criar exatamente uma Sales Invoice submetida.")
+		if result["receipt"]["format"] != POS_RECEIPT_PRINT_FORMAT or not frappe.db.exists(
+			"Print Format", POS_RECEIPT_PRINT_FORMAT
+		):
+			raise AssertionError("Cupom do PDV não foi gerado no formato Tecponto.")
+		pos_download_receipt(result["sale"])
+		receipt_bytes = frappe.local.response.get("filecontent") or b""
+		if not receipt_bytes.startswith(b"%PDF"):
+			raise AssertionError("Endpoint cirúrgico do cupom não renderizou um PDF.")
+
+		request_doc = frappe.get_doc("Tecponto POS Sale Request", key)
+		payment_metadata = json.loads(request_doc.payment_metadata)
+		card_metadata = next(row for row in payment_metadata if row["mode_of_payment"] == "Débito")
+		if card_metadata["account"] != clearing or flt(card_metadata["fee_pct"], 2) != 1.5:
+			raise AssertionError("Taxa ou conta transitória do cartão não respeitou o Tecponto Settings.")
+		if int(card_metadata["settlement_days"]) != 1:
+			raise AssertionError("Prazo D+1 do débito não foi registrado na venda.")
+
+		leaks = contains_sensitive_field(result, forbidden_values=set(demo["valuation_rates"]))
+		if leaks:
+			raise AssertionError(f"Custo vazou na resposta do endpoint do PDV: {', '.join(leaks)}")
+
+		replay = pos_create_sale(payload)
+		frappe.db.commit()
+		if replay["sale"] != result["sale"] or not replay["idempotent_replay"]:
+			raise AssertionError("Reenvio idempotente não retornou a mesma venda.")
+		invoice_count_after_replay = frappe.db.count("Sales Invoice", {"docstatus": 1})
+		if invoice_count_after_replay != invoice_count_after:
+			raise AssertionError("Reenvio idempotente criou uma segunda nota.")
+		if _bin_qty(POS_BARCODE_ITEM, commercial) != qty_after or _gl_balance(clearing) != clearing_after:
+			raise AssertionError("Reenvio idempotente repetiu estoque ou lançamento contábil.")
+
+		frappe.set_user(technician)
+		technician_blocked = False
+		try:
+			pos_create_sale({**payload, "idempotency_key": f"tp-pos-tech-{frappe.generate_hash(length=20)}"})
+		except frappe.PermissionError:
+			technician_blocked = True
+		if not technician_blocked:
+			raise AssertionError("Técnico conseguiu finalizar venda pelo endpoint cirúrgico.")
+
+		low_total = 4.90
+		low_price_payload = {
+			"customer": customer,
+			"items": [{"item_code": POS_BARCODE_ITEM, "qty": 1}],
+			"discount_amount": 75.00,
+			"payments": [{"mode_of_payment": "Pix", "amount": low_total, "installments": 1}],
+		}
+		frappe.set_user(attendant)
+		attendant_floor_blocked = False
+		try:
+			pos_create_sale(
+				{**low_price_payload, "idempotency_key": f"tp-pos-floor-att-{frappe.generate_hash(length=20)}"}
+			)
+		except frappe.ValidationError:
+			attendant_floor_blocked = True
+		if not attendant_floor_blocked:
+			raise AssertionError("Atendente conseguiu vender abaixo do custo.")
+
+		manager_qty_before = _bin_qty(POS_BARCODE_ITEM, commercial)
+		frappe.set_user(manager)
+		manager_result = pos_create_sale(
+			{**low_price_payload, "idempotency_key": f"tp-pos-floor-gest-{frappe.generate_hash(length=20)}"}
+		)
+		frappe.db.commit()
+		manager_qty_after = _bin_qty(POS_BARCODE_ITEM, commercial)
+		if flt(manager_qty_before - manager_qty_after, 3) != 1:
+			raise AssertionError("Override do Gestor não concluiu a venda abaixo do custo.")
+
+		return {
+			"status": "ok",
+			"sale": {
+				"name": result["sale"],
+				"commercial_qty": {"before": qty_before, "after": qty_after},
+				"repair_qty": {"before": repair_before, "after": repair_after},
+				"card_receivables": {"before": clearing_before, "after": clearing_after, "delta": 44.40},
+				"payments": result["payments"],
+				"card_configuration": {
+					"account": card_metadata["account"],
+					"fee_pct": card_metadata["fee_pct"],
+					"fee_amount": card_metadata["fee_amount"],
+					"settlement_days": card_metadata["settlement_days"],
+					"expected_settlement_date": card_metadata["expected_settlement_date"],
+				},
+				"receipt": result["receipt"],
+			},
+			"idempotency": {
+				"first_sale": result["sale"],
+				"replayed_sale": replay["sale"],
+				"invoice_count_before_replay": invoice_count_after,
+				"invoice_count_after_replay": invoice_count_after_replay,
+			},
+			"permissions": {
+				"attendant": attendant,
+				"attendant_has_sales_user": "Sales User" in frappe.get_roles(attendant),
+				"technician": technician,
+				"technician_blocked": technician_blocked,
+			},
+			"price_floor": {
+				"attendant_blocked": attendant_floor_blocked,
+				"manager_sale": manager_result["sale"],
+				"manager_qty": {"before": manager_qty_before, "after": manager_qty_after},
+			},
+			"sensitive_guard": {"checked_response": result["sale"], "leaked_fields": leaks},
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _bin_qty(item_code: str, warehouse: str) -> float:
+	return flt(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty"), 3)
+
+
+def _gl_balance(account: str) -> float:
+	return flt(
+		frappe.db.sql(
+			"""
+			select coalesce(sum(debit - credit), 0)
+			from `tabGL Entry`
+			where account = %s and is_cancelled = 0
+			""",
+			account,
+		)[0][0],
+		2,
+	)
 
 
 def ensure_pos_lookup_demo_data() -> dict:
@@ -569,6 +753,8 @@ def _check_pos_item_cost_guard(user: str, blocked_user: str) -> dict:
 			raise AssertionError("Consulta do PDV retornou item fora do depósito Comercial.")
 		if flt(barcode_item["standard_rate"]) != 79.90 or flt(name_item["standard_rate"]) != 35.50:
 			raise AssertionError("Consulta do PDV não retornou os preços de venda esperados.")
+		if barcode_item["item_group"] != "Cabos" or name_item["item_group"] != "Películas":
+			raise AssertionError("Busca do PDV retornou massa de teste fora dos grupos comerciais corretos.")
 
 		frappe.set_user(blocked_user)
 		blocked = False
@@ -586,7 +772,9 @@ def _check_pos_item_cost_guard(user: str, blocked_user: str) -> dict:
 			"blocked_by_backend": blocked,
 			"commercial_warehouse": demo["commercial_warehouse"],
 			"barcode_item": barcode_item["item_code"],
+			"barcode_item_group": barcode_item["item_group"],
 			"name_item": name_item["item_code"],
+			"name_item_group": name_item["item_group"],
 			"missing_barcode_count": len(missing_payload["items"]),
 			"checked_payload": "search_pos_items",
 			"leaked_fields": leaks,
@@ -600,11 +788,12 @@ def _ensure_pos_demo_records() -> dict:
 	if not warehouse:
 		raise AssertionError("Depósito Comercial precisa estar configurado para testar o PDV.")
 
-	item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
 	stock_uom = frappe.db.get_value("UOM", {"enabled": 1}, "name") or frappe.db.get_value("UOM", {}, "name") or "Nos"
 	items = []
 	valuation_rates = []
-	for item_code, item_name, selling_rate, valuation_rate, barcode in POS_DEMO_ITEMS:
+	for item_code, item_name, item_group, selling_rate, valuation_rate, barcode in POS_DEMO_ITEMS:
+		if not frappe.db.exists("Item Group", item_group):
+			raise AssertionError(f"Grupo comercial {item_group} precisa existir para testar o PDV.")
 		item = _ensure_pos_demo_item(
 			item_code=item_code,
 			item_name=item_name,
