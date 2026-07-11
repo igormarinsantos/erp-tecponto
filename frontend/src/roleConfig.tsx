@@ -55,11 +55,10 @@ export interface PanelDefinition {
 
 const commonActions: ActionDefinition[] = [
   {
-    disabledReason: "Pendente do POS restrito da Fase 3.5. Não liberamos Sales User amplo para o atendente.",
     icon: ShoppingCart,
     label: "Lançar venda",
     detail: "Venda no balcão",
-    pendingLabel: "Pendente 3.5",
+    target: "pos",
   },
   { icon: Wrench, label: "Nova OS", detail: "Atendimento", opensCheckin: true },
   { icon: Search, label: "Buscar cliente", detail: "Nome, telefone ou IMEI", target: "customers" },

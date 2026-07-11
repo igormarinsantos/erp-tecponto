@@ -1,6 +1,7 @@
 export { balcao } from "./balcao";
 export { checkin } from "./checkin";
 export { getBoot, getLoggedUser, logout } from "./auth";
+export { pos } from "./pos";
 export { serviceOrders, type ServiceOrderQueryParams } from "./serviceOrders";
 export type {
   BudgetDecisionPayload,
@@ -34,6 +35,8 @@ export type {
   ServiceOrderTimelineEvent,
   ServiceOrderWorkflowAction,
   PickupPayload,
+  PosItemSearchResponse,
+  PosItemSummary,
   QuoteSendPayload,
   StockItemListResponse,
   StockItemSummary,

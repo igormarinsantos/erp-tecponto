@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.utils import add_days, flt, now_datetime
+from frappe.utils import add_days, flt, now_datetime, nowdate
 
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
@@ -15,6 +15,7 @@ from tecponto_app.tecponto.frontend.api import (
 	resolve_panel,
 	search_budget_items,
 	search_customers,
+	search_pos_items,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 
@@ -29,6 +30,13 @@ TEST_USERS = {
 DETAIL_DEMO_MARKER = "Fase 3.1b demo detail"
 BUDGET_COST_GUARD_ITEM = "TP-FRONT-COST-GUARD"
 BUDGET_COST_GUARD_VALUATION = 9876.54
+POS_BARCODE_ITEM = "TP-PDV-BIPE"
+POS_BARCODE_VALUE = "7891234567890"
+POS_NAME_ITEM = "TP-PDV-NOME"
+POS_DEMO_ITEMS = (
+	(POS_BARCODE_ITEM, "Cabo USB-C PDV", 79.90, 11.11, POS_BARCODE_VALUE),
+	(POS_NAME_ITEM, "Película 3D PDV", 35.50, 7.77, None),
+)
 
 
 def run_foundation_checks() -> dict:
@@ -43,6 +51,10 @@ def run_foundation_checks() -> dict:
 		metrics_check = _check_dashboard_metrics(users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
+		pos_cost_guard = _check_pos_item_cost_guard(
+			users["Tecponto Atendente"],
+			users["Tecponto Tecnico"],
+		)
 
 		return {
 			"status": "ok",
@@ -53,6 +65,7 @@ def run_foundation_checks() -> dict:
 			"dashboard_metrics": metrics_check,
 			"sensitive_guard": guard_check,
 			"budget_cost_guard": budget_cost_guard,
+			"pos_cost_guard": pos_cost_guard,
 		}
 	finally:
 		frappe.set_user(previous_user)
@@ -117,6 +130,18 @@ def ensure_service_order_detail_demo_data() -> dict:
 			demo["prints"] = [link["label"] for link in detail["print_links"]]
 
 		return {"status": "ok", "attendant_user": attendant, "orders": result}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def ensure_pos_lookup_demo_data() -> dict:
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		result = _ensure_pos_demo_records()
+		frappe.db.commit()
+		return {"status": "ok", **result}
 	finally:
 		frappe.set_user(previous_user)
 
@@ -501,3 +526,169 @@ def _get_or_create_budget_cost_guard_item() -> str:
 	else:
 		item.save(ignore_permissions=True)
 	return item.name
+
+
+def _check_pos_item_cost_guard(user: str, blocked_user: str) -> dict:
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		demo = _ensure_pos_demo_records()
+		frappe.db.commit()
+
+		frappe.set_user(user)
+		if "Sales User" in frappe.get_roles(user):
+			raise AssertionError("Atendente do PDV não pode receber a role Sales User.")
+
+		barcode_payload = search_pos_items(barcode=POS_BARCODE_VALUE, limit=1)
+		name_payload = search_pos_items(query="Película 3D", limit=5)
+		missing_payload = search_pos_items(barcode="0000000000000", limit=1)
+		payload = {
+			"barcode": barcode_payload,
+			"name": name_payload,
+			"missing": missing_payload,
+		}
+		leaks = contains_sensitive_field(payload, forbidden_values=set(demo["valuation_rates"]))
+		if leaks:
+			raise AssertionError(f"Custo de item vazou na consulta do PDV: {', '.join(leaks)}")
+
+		barcode_item = next(
+			(entry for entry in barcode_payload["items"] if entry["item_code"] == POS_BARCODE_ITEM),
+			None,
+		)
+		name_item = next(
+			(entry for entry in name_payload["items"] if entry["item_code"] == POS_NAME_ITEM),
+			None,
+		)
+		if not barcode_item:
+			raise AssertionError("Busca do PDV por barcode não encontrou o item de teste.")
+		if not name_item:
+			raise AssertionError("Busca do PDV por nome não encontrou o item de teste.")
+		if missing_payload["items"]:
+			raise AssertionError("Barcode inexistente não deveria retornar produto.")
+		if {barcode_item["warehouse"], name_item["warehouse"]} != {demo["commercial_warehouse"]}:
+			raise AssertionError("Consulta do PDV retornou item fora do depósito Comercial.")
+		if flt(barcode_item["standard_rate"]) != 79.90 or flt(name_item["standard_rate"]) != 35.50:
+			raise AssertionError("Consulta do PDV não retornou os preços de venda esperados.")
+
+		frappe.set_user(blocked_user)
+		blocked = False
+		try:
+			search_pos_items(barcode=POS_BARCODE_VALUE, limit=1)
+		except frappe.PermissionError:
+			blocked = True
+		if not blocked:
+			raise AssertionError("Técnico não pode acessar a consulta operacional do PDV.")
+
+		return {
+			"user": user,
+			"sales_user": False,
+			"blocked_user": blocked_user,
+			"blocked_by_backend": blocked,
+			"commercial_warehouse": demo["commercial_warehouse"],
+			"barcode_item": barcode_item["item_code"],
+			"name_item": name_item["item_code"],
+			"missing_barcode_count": len(missing_payload["items"]),
+			"checked_payload": "search_pos_items",
+			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _ensure_pos_demo_records() -> dict:
+	warehouse = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
+	if not warehouse:
+		raise AssertionError("Depósito Comercial precisa estar configurado para testar o PDV.")
+
+	item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
+	stock_uom = frappe.db.get_value("UOM", {"enabled": 1}, "name") or frappe.db.get_value("UOM", {}, "name") or "Nos"
+	items = []
+	valuation_rates = []
+	for item_code, item_name, selling_rate, valuation_rate, barcode in POS_DEMO_ITEMS:
+		item = _ensure_pos_demo_item(
+			item_code=item_code,
+			item_name=item_name,
+			item_group=item_group,
+			stock_uom=stock_uom,
+			selling_rate=selling_rate,
+			barcode=barcode,
+		)
+		_ensure_pos_demo_stock(item.name, warehouse, valuation_rate)
+		items.append(item.name)
+		valuation_rates.append(valuation_rate)
+
+	return {
+		"commercial_warehouse": warehouse,
+		"items": items,
+		"barcode": POS_BARCODE_VALUE,
+		"valuation_rates": valuation_rates,
+	}
+
+
+def _ensure_pos_demo_item(
+	*,
+	item_code: str,
+	item_name: str,
+	item_group: str,
+	stock_uom: str,
+	selling_rate: float,
+	barcode: str | None,
+):
+	if frappe.db.exists("Item", item_code):
+		item = frappe.get_doc("Item", item_code)
+	else:
+		item = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code,
+				"item_name": item_name,
+				"item_group": item_group,
+				"stock_uom": stock_uom,
+				"is_stock_item": 1,
+				"disabled": 0,
+			}
+		)
+	item.item_name = item_name
+	item.item_group = item_group
+	item.stock_uom = stock_uom
+	item.is_stock_item = 1
+	item.disabled = 0
+	item.standard_rate = selling_rate
+	if barcode and barcode not in {row.barcode for row in item.get("barcodes") or []}:
+		item.append("barcodes", {"barcode": barcode})
+	if item.is_new():
+		item.insert(ignore_permissions=True)
+	else:
+		item.save(ignore_permissions=True)
+	return item
+
+
+def _ensure_pos_demo_stock(item_code: str, warehouse: str, valuation_rate: float) -> None:
+	current_qty = flt(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0)
+	if current_qty >= 8:
+		return
+
+	company = frappe.defaults.get_global_default("company") or frappe.db.get_value("Company", {}, "name")
+	if not company:
+		raise AssertionError("Empresa padrão não configurada para criar estoque de demonstração do PDV.")
+	stock_entry = frappe.get_doc(
+		{
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Material Receipt",
+			"purpose": "Material Receipt",
+			"company": company,
+			"posting_date": nowdate(),
+			"remarks": f"Demo frontend PDV 3.5-1 - {item_code}",
+			"items": [
+				{
+					"item_code": item_code,
+					"qty": 8 - current_qty,
+					"t_warehouse": warehouse,
+					"basic_rate": valuation_rate,
+					"set_basic_rate_manually": 1,
+				}
+			],
+		}
+	)
+	stock_entry.insert(ignore_permissions=True)
+	stock_entry.submit()

@@ -7,6 +7,7 @@ export type NavigationTarget =
   | "devices"
   | "trade-ins"
   | "parts-stock"
+  | "pos"
   | "sales";
 
 export interface LoggedUser {
@@ -156,6 +157,25 @@ export interface BudgetItemSummary {
 
 export interface BudgetItemSearchResponse {
   items: BudgetItemSummary[];
+}
+
+export interface PosItemSummary {
+  available_qty: number;
+  barcode: string | null;
+  description: string | null;
+  has_price: boolean;
+  image: string | null;
+  item_code: string;
+  item_group: string | null;
+  item_name: string | null;
+  standard_rate: number;
+  warehouse: string;
+}
+
+export interface PosItemSearchResponse {
+  count: number;
+  fields: string[];
+  items: PosItemSummary[];
 }
 
 export interface BudgetWarehouseSummary {

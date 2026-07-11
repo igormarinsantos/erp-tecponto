@@ -57,6 +57,7 @@ import { isAuthRequiredError } from "./api/client";
 import { CheckinWizard } from "./CheckinWizard";
 import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
 import { LoginScreen, type LoginReason } from "./LoginScreen";
+import { PosScreen } from "./PosScreen";
 import { panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { BudgetDecisionModal, PickupModal } from "./ServiceOrderFlows";
@@ -229,6 +230,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   "parts-stock": {
     title: "Peças e estoque",
     subtitle: "Consulta de disponibilidade por depósito.",
+  },
+  pos: {
+    title: "PDV do balcão",
+    subtitle: "Venda rápida por código de barras ou busca de produto.",
   },
   sales: {
     title: "Vendas e acessórios",
@@ -552,11 +557,10 @@ export function App() {
         onSelect: () => setActiveView("parts-stock"),
       },
       {
-        disabled: true,
-        detail: "Pendente: POS restrito 3.5",
+        detail: "Leitor USB ou busca por nome",
         icon: <ShoppingCart size={17} />,
         label: "Lancar venda",
-        onSelect: () => undefined,
+        onSelect: () => setActiveView("pos"),
         separatorBefore: true,
       },
       {
@@ -610,7 +614,7 @@ export function App() {
   return (
     <div className="min-h-screen">
       <Sidebar
-        activeItemId={activeView === "service-order-detail" ? "service-orders" : activeView}
+        activeItemId={activeView === "service-order-detail" ? "service-orders" : activeView === "pos" ? "overview" : activeView}
         onLogout={logout}
         onOpenHelp={() => setHelpOpen(true)}
         onNavigate={setActiveView}
@@ -628,22 +632,24 @@ export function App() {
 
       <main className="tp-main-shell p-4">
         <section className="tp-content-shell">
-          <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-white md:text-4xl">
-                {currentView ? currentView.title : panel.title}
-              </h1>
-              <p className="mt-1 text-sm text-tec-subtle">{currentView ? currentView.subtitle : panel.subtitle}</p>
+          {activeView !== "pos" ? (
+            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-white md:text-4xl">
+                  {currentView ? currentView.title : panel.title}
+                </h1>
+                <p className="mt-1 text-sm text-tec-subtle">{currentView ? currentView.subtitle : panel.subtitle}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                {activeView === "service-orders" ? (
+                  <ServiceOrderViewToggle onChange={setServiceOrdersView} value={serviceOrdersView} />
+                ) : null}
+                <Button icon={<RefreshCw size={18} />} onClick={() => void load()}>
+                  Atualizar
+                </Button>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 md:justify-end">
-              {activeView === "service-orders" ? (
-                <ServiceOrderViewToggle onChange={setServiceOrdersView} value={serviceOrdersView} />
-              ) : null}
-              <Button icon={<RefreshCw size={18} />} onClick={() => void load()}>
-                Atualizar
-              </Button>
-            </div>
-          </div>
+          ) : null}
 
           {activeView === "overview" ? (
             <OverviewContent
@@ -1395,6 +1401,10 @@ function NavigationContent({
 
   if (activeView === "parts-stock") {
     return <StockLookup />;
+  }
+
+  if (activeView === "pos") {
+    return <PosScreen onToast={onToast} />;
   }
 
   return <SalesLookup onNavigate={onNavigate} />;

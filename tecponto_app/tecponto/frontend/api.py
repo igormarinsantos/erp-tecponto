@@ -8,7 +8,7 @@ from urllib.parse import quote
 import frappe
 from frappe import _
 from frappe.model.workflow import apply_workflow
-from frappe.utils import flt, now_datetime, today
+from frappe.utils import flt, now_datetime, strip_html, today
 from frappe.utils.file_manager import save_file
 
 from tecponto_app.tecponto.customer import (
@@ -64,6 +64,7 @@ CHECKIN_ALLOWED_ROLES = {
 	"Tecponto Gestor",
 }
 ATTENDANT_FLOW_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
+POS_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp"}
 STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
 STATE_APROVADO = "Aprovado"
@@ -181,6 +182,13 @@ def _require_attendant_flow_role() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(ATTENDANT_FLOW_ALLOWED_ROLES):
 		return
 	frappe.throw(_("Usuário sem permissão para registrar aprovação ou retirada no balcão."), frappe.PermissionError)
+
+
+def _require_pos_role() -> None:
+	_require_login()
+	if set(frappe.get_roles(frappe.session.user)).intersection(POS_ALLOWED_ROLES):
+		return
+	frappe.throw(_("Usuário sem permissão para operar o PDV do balcão."), frappe.PermissionError)
 
 
 def _initials(full_name: str, fallback: str) -> str:
@@ -487,6 +495,80 @@ def search_budget_items(
 			for item in items
 		]
 	}
+
+
+@frappe.whitelist()
+def search_pos_items(
+	query: str = "",
+	barcode: str = "",
+	limit: int = 12,
+) -> dict[str, Any]:
+	_require_pos_role()
+	query = (query or "").strip()[:80]
+	barcode = (barcode or "").strip()[:80]
+	limit = max(1, min(int(limit or 12), 30))
+	fields = [
+		"item_code",
+		"item_name",
+		"item_group",
+		"barcode",
+		"description",
+		"image",
+		"standard_rate",
+		"has_price",
+		"available_qty",
+		"warehouse",
+	]
+	if not query and not barcode:
+		return {"items": [], "count": 0, "fields": fields}
+
+	warehouse = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
+	if not warehouse:
+		frappe.throw(_("Depósito Comercial não configurado no Tecponto Settings."), frappe.ValidationError)
+
+	conditions = ["item.disabled = 0", "item.is_stock_item = 1"]
+	values: dict[str, Any] = {
+		"limit": limit,
+		"warehouse": warehouse,
+	}
+	if barcode:
+		conditions.append(
+			"exists (select 1 from `tabItem Barcode` matched_barcode where matched_barcode.parent = item.name and matched_barcode.barcode = %(barcode)s)"
+		)
+		values["barcode"] = barcode
+		barcode_select = "%(barcode)s"
+	else:
+		conditions.append(
+			"(item.name like %(query)s or item.item_name like %(query)s or item.item_group like %(query)s)"
+		)
+		values["query"] = f"%{query}%"
+		barcode_select = "(select item_barcode.barcode from `tabItem Barcode` item_barcode where item_barcode.parent = item.name order by item_barcode.idx asc limit 1)"
+
+	rows = frappe.db.sql(
+		f"""
+		select
+			item.name as item_code,
+			item.item_name,
+			item.item_group,
+			{barcode_select} as barcode,
+			item.description,
+			item.image,
+			item.standard_rate,
+			coalesce(bin.actual_qty, 0) as available_qty,
+			%(warehouse)s as warehouse
+		from `tabItem` item
+		left join `tabBin` bin
+			on bin.item_code = item.name
+			and bin.warehouse = %(warehouse)s
+		where {" and ".join(conditions)}
+		order by item.item_name asc, item.name asc
+		limit %(limit)s
+		""",
+		values,
+		as_dict=True,
+	)
+	items = [_serialize_pos_item(item) for item in rows]
+	return {"items": items, "count": len(items), "fields": fields}
 
 
 @frappe.whitelist()
@@ -1043,6 +1125,22 @@ def _serialize_stock_item(item: dict[str, Any]) -> dict[str, Any]:
 		"item_group": item.get("item_group"),
 		"warehouse": item.get("warehouse"),
 		"available_qty": float(item.get("available_qty") or 0),
+	}
+
+
+def _serialize_pos_item(item: dict[str, Any]) -> dict[str, Any]:
+	standard_rate = flt(item.get("standard_rate") or 0)
+	return {
+		"item_code": item.get("item_code"),
+		"item_name": item.get("item_name"),
+		"item_group": item.get("item_group"),
+		"barcode": item.get("barcode"),
+		"description": strip_html(item.get("description") or "").strip()[:180] or None,
+		"image": item.get("image"),
+		"standard_rate": standard_rate,
+		"has_price": standard_rate > 0,
+		"available_qty": flt(item.get("available_qty") or 0),
+		"warehouse": item.get("warehouse"),
 	}
 
 

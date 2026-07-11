@@ -31,22 +31,22 @@ export function Sidebar({ activeItemId, onLogout, onOpenHelp, onNavigate, sectio
 
   return (
     <aside className="tp-sidebar-desktop fixed inset-y-0 left-0 z-30 w-[var(--tp-sidebar-width)] border-r border-tec-border/20 bg-tec-sidebar p-4">
-      <div className="px-2 py-3">
+      <div className="px-2 py-2">
         <div className="tp-logo text-2xl font-bold leading-none tracking-normal text-white">TECPONTO</div>
       </div>
 
-      <nav className="mt-5 space-y-5">
+      <nav className="mt-4 space-y-4">
         {sections.map((section) => (
           <div key={section.label}>
             <p className="mb-2 px-2 text-xs font-bold uppercase text-tec-muted">{section.label}</p>
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {section.items.map((item) => (
                 <button
                   aria-current={item.id === activeItemId ? "page" : undefined}
                   className={cx(
-                    "flex min-h-[56px] w-full items-center gap-3 rounded-nav px-3 py-2 text-left transition",
+                    "relative flex min-h-[52px] w-full items-center gap-3 overflow-hidden rounded-nav px-3 py-2 text-left transition",
                     item.id === activeItemId
-                      ? "bg-tec-orange text-tec-ink shadow-glow"
+                      ? "bg-tec-field text-white before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-tec-orange"
                       : "text-tec-subtle hover:bg-tec-field hover:text-white",
                   )}
                   key={item.label}
@@ -57,7 +57,7 @@ export function Sidebar({ activeItemId, onLogout, onOpenHelp, onNavigate, sectio
                   <span
                     className={cx(
                       "grid h-9 w-9 shrink-0 place-items-center rounded-control",
-                      item.id === activeItemId ? "bg-tec-ink/10 text-tec-ink" : "bg-tec-field text-tec-orange",
+                      item.id === activeItemId ? "bg-tec-orange/12 text-tec-orange" : "bg-tec-field text-tec-orange",
                     )}
                   >
                     <item.icon size={18} />
@@ -67,7 +67,7 @@ export function Sidebar({ activeItemId, onLogout, onOpenHelp, onNavigate, sectio
                     <span
                       className={cx(
                         "block truncate text-xs",
-                        item.id === activeItemId ? "text-tec-ink/75" : "text-tec-muted",
+                        "text-tec-muted",
                       )}
                     >
                       {item.subtitle}
@@ -82,13 +82,16 @@ export function Sidebar({ activeItemId, onLogout, onOpenHelp, onNavigate, sectio
 
       <div className="absolute bottom-4 left-4 right-4 space-y-3">
         <button
-          className="flex min-h-[44px] w-full items-center gap-3 rounded-control border border-tec-border/25 bg-tec-panel px-4 text-sm font-semibold text-tec-subtle transition hover:bg-tec-field hover:text-white"
+          className="flex min-h-[48px] w-full items-center gap-3 rounded-control border border-tec-border/20 bg-tec-panel px-4 text-left text-sm font-semibold text-tec-subtle transition hover:bg-tec-field hover:text-white"
           onClick={onOpenHelp}
           title="Abrir ajuda rápida"
           type="button"
         >
           <HelpCircle size={18} />
-          Ajuda rápida
+          <span>
+            <span className="block">Ajuda rápida</span>
+            <span className="mt-0.5 block text-[10px] font-medium text-tec-muted">Atalhos, guias e suporte</span>
+          </span>
         </button>
         {profileOpen ? (
           <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-2 shadow-panel">
@@ -121,6 +124,10 @@ export function Sidebar({ activeItemId, onLogout, onOpenHelp, onNavigate, sectio
               className={cx("shrink-0 text-tec-muted transition", profileOpen ? "rotate-180" : "")}
               size={16}
             />
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t border-tec-border/10 pt-3 text-[11px] text-tec-muted">
+            <span>Balcão 01</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-tec-success" />Online</span>
           </div>
         </button>
       </div>

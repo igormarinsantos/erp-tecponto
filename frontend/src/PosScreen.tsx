@@ -1,0 +1,374 @@
+import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Percent, RefreshCw, UserRound } from "lucide-react";
+
+import { pos, type CustomerSummary, type PosItemSummary } from "./api";
+import { Button, Modal } from "./ui";
+import { AddProductPanel } from "./pos/AddProductPanel";
+import { CustomerPickerModal } from "./pos/CustomerPickerModal";
+import { KeyboardShortcuts } from "./pos/KeyboardShortcuts";
+import { ProductSearchResults } from "./pos/ProductSearchResults";
+import { SaleItems } from "./pos/SaleItems";
+import { SaleSummary } from "./pos/SaleSummary";
+import type { PosCartLine, PosScanFeedback, PosScanStatus, PosSearchStatus, PosToast } from "./pos/types";
+
+interface PosScreenProps {
+  onToast: PosToast;
+}
+
+const INITIAL_SCAN_FEEDBACK: PosScanFeedback = {
+  detail: "Bipe o produto; o leitor envia o código e confirma com Enter.",
+  title: "Leitor aguardando",
+};
+
+export function PosScreen({ onToast }: PosScreenProps) {
+  const barcodeRef = useRef<HTMLInputElement>(null);
+  const manualRef = useRef<HTMLInputElement>(null);
+  const discountRef = useRef<HTMLInputElement>(null);
+  const searchRequestRef = useRef(0);
+  const [barcode, setBarcode] = useState("");
+  const [scanFeedback, setScanFeedback] = useState<PosScanFeedback>(INITIAL_SCAN_FEEDBACK);
+  const [scanStatus, setScanStatus] = useState<PosScanStatus>("idle");
+  const [query, setQuery] = useState("");
+  const [searchStatus, setSearchStatus] = useState<PosSearchStatus>("idle");
+  const [results, setResults] = useState<PosItemSummary[]>([]);
+  const [selectedResult, setSelectedResult] = useState(0);
+  const [searchLimit, setSearchLimit] = useState(12);
+  const [searchRefresh, setSearchRefresh] = useState(0);
+  const [cart, setCart] = useState<PosCartLine[]>([]);
+  const [discount, setDiscount] = useState(0);
+  const [customer, setCustomer] = useState<CustomerSummary | null>(null);
+  const [customerOpen, setCustomerOpen] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+
+  const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.standard_rate * line.qty, 0), [cart]);
+  const total = Math.max(subtotal - discount, 0);
+
+  const focusScanner = useCallback((force = false) => {
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement;
+      const editing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement;
+      if (force || !editing) {
+        barcodeRef.current?.focus();
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    focusScanner(true);
+  }, [focusScanner]);
+
+  useEffect(() => {
+    const normalized = query.trim();
+    if (normalized.length < 2) {
+      setResults([]);
+      setSearchStatus("idle");
+      setSelectedResult(0);
+      return;
+    }
+
+    const requestId = ++searchRequestRef.current;
+    setSearchStatus("loading");
+    const timer = window.setTimeout(() => {
+      pos.searchItems({ limit: searchLimit, query: normalized })
+        .then((response) => {
+          if (requestId !== searchRequestRef.current) {
+            return;
+          }
+          setResults(response.items);
+          setSelectedResult(0);
+          setSearchStatus("ready");
+        })
+        .catch((error) => {
+          if (requestId !== searchRequestRef.current) {
+            return;
+          }
+          setResults([]);
+          setSearchStatus("error");
+          onToast(error instanceof Error ? error.message : "Falha ao consultar produtos.", "error");
+        });
+    }, 280);
+
+    return () => window.clearTimeout(timer);
+  }, [onToast, query, searchLimit, searchRefresh]);
+
+  useEffect(() => {
+    if (discount > subtotal) {
+      setDiscount(subtotal);
+    }
+  }, [discount, subtotal]);
+
+  const addItem = useCallback((item: PosItemSummary, source: "scanner" | "click" | "keyboard") => {
+    if (!item.has_price || item.standard_rate <= 0) {
+      onToast("Produto sem preço de venda cadastrado.", "error");
+      return false;
+    }
+
+    const currentQty = cart.find((line) => line.item_code === item.item_code)?.qty ?? 0;
+    if (currentQty + 1 > item.available_qty) {
+      onToast("Estoque Comercial insuficiente para adicionar este produto.", "error");
+      return false;
+    }
+
+    setCart((current) => {
+      const existing = current.find((line) => line.item_code === item.item_code);
+      return existing
+        ? current.map((line) => line.item_code === item.item_code ? { ...line, qty: line.qty + 1 } : line)
+        : [...current, { ...item, qty: 1 }];
+    });
+    onToast(`${item.item_name ?? item.item_code} adicionado à venda.`);
+    if (source === "click") {
+      focusScanner();
+    }
+    return true;
+  }, [cart, focusScanner, onToast]);
+
+  const lookupBarcode = async () => {
+    const scanned = barcode.trim();
+    if (!scanned) {
+      setScanStatus("error");
+      setScanFeedback({ detail: "Digite ou bipe um código válido para continuar.", title: "Código não informado" });
+      focusScanner(true);
+      return;
+    }
+
+    setScanStatus("loading");
+    setScanFeedback({ detail: "Consultando preço de venda e saldo no Comercial...", title: "Localizando produto" });
+    try {
+      const response = await pos.searchItems({ barcode: scanned, limit: 1 });
+      const item = response.items[0];
+      if (!item) {
+        setScanStatus("error");
+        setScanFeedback({
+          detail: "Nenhum produto cadastrado com este código. Tente buscar por nome, SKU ou referência.",
+          title: "Código não encontrado",
+        });
+        return;
+      }
+      if (addItem(item, "scanner")) {
+        setScanStatus("success");
+        setScanFeedback({ detail: `${item.item_name ?? item.item_code} adicionado ao carrinho.`, title: "Código lido com sucesso" });
+      } else {
+        setScanStatus("error");
+        setScanFeedback({ detail: "Confira preço e saldo do estoque Comercial.", title: "Produto não pôde ser adicionado" });
+      }
+    } catch (error) {
+      setScanStatus("error");
+      setScanFeedback({
+        detail: error instanceof Error ? error.message : "Verifique a conexão e tente novamente.",
+        title: "Falha ao consultar o produto",
+      });
+    } finally {
+      setBarcode("");
+      focusScanner(true);
+    }
+  };
+
+  const changeBarcode = (value: string) => {
+    setBarcode(value);
+    if (scanStatus === "error") {
+      setScanStatus("idle");
+      setScanFeedback(INITIAL_SCAN_FEEDBACK);
+    }
+  };
+
+  const submitBarcode = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void lookupBarcode();
+  };
+
+  const handleBarcodeKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void lookupBarcode();
+    }
+  };
+
+  const clearManualSearch = () => {
+    searchRequestRef.current += 1;
+    setQuery("");
+    setResults([]);
+    setSearchStatus("idle");
+    setSelectedResult(0);
+  };
+
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    setSearchLimit(12);
+    if (scanStatus === "error") {
+      setScanStatus("idle");
+      setScanFeedback(INITIAL_SCAN_FEEDBACK);
+    }
+  };
+
+  const handleManualKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      clearManualSearch();
+      focusScanner(true);
+      return;
+    }
+    if (!results.length) {
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSelectedResult((current) => Math.min(current + 1, results.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSelectedResult((current) => Math.max(current - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      addItem(results[selectedResult], "keyboard");
+    }
+  };
+
+  const changeQty = (itemCode: string, nextQty: number) => {
+    const line = cart.find((item) => item.item_code === itemCode);
+    if (!line) {
+      return;
+    }
+    if (nextQty > line.available_qty) {
+      onToast(`Saldo disponível no Comercial: ${line.available_qty.toLocaleString("pt-BR")} unidade(s).`, "error");
+      return;
+    }
+    setCart((current) => current.map((item) => item.item_code === itemCode ? { ...item, qty: Math.max(1, Math.floor(nextQty)) } : item));
+  };
+
+  const changeDiscount = (value: number) => {
+    const normalized = Math.max(0, value);
+    if (normalized > subtotal) {
+      setDiscount(subtotal);
+      onToast("O desconto não pode superar o subtotal da venda.", "error");
+      return;
+    }
+    setDiscount(normalized);
+  };
+
+  const handleFinalize = useCallback(() => {
+    if (!cart.length) {
+      return;
+    }
+    onToast("Finalização segura ainda não habilitada. Nenhuma venda foi criada.", "error");
+  }, [cart.length, onToast]);
+
+  useEffect(() => {
+    const handleShortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "F2") {
+        event.preventDefault();
+        setCustomerOpen(true);
+      } else if (event.key === "F3") {
+        event.preventDefault();
+        discountRef.current?.focus();
+      } else if (event.key === "F5") {
+        event.preventDefault();
+        handleFinalize();
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [handleFinalize]);
+
+  return (
+    <div className="space-y-4" data-testid="pos-screen">
+      <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-white md:text-4xl">PDV do balcão</h1>
+          <p className="mt-1 text-sm text-tec-subtle">Venda rápida por código de barras ou busca de produto.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button icon={<UserRound size={16} />} onClick={() => setCustomerOpen(true)}><kbd className="rounded-[6px] bg-tec-panel px-1.5 py-0.5 text-[10px]">F2</kbd> Cliente</Button>
+          <Button icon={<Percent size={16} />} onClick={() => discountRef.current?.focus()}><kbd className="rounded-[6px] bg-tec-panel px-1.5 py-0.5 text-[10px]">F3</kbd> Desconto</Button>
+          <Button icon={<RefreshCw size={17} />} onClick={() => {
+            setSearchRefresh((current) => current + 1);
+            setScanStatus("idle");
+            setScanFeedback(INITIAL_SCAN_FEEDBACK);
+            focusScanner(true);
+          }}>Atualizar</Button>
+        </div>
+      </header>
+
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_294px]">
+        <main className="min-w-0 space-y-4">
+          <AddProductPanel
+            barcode={barcode}
+            barcodeRef={barcodeRef}
+            manualRef={manualRef}
+            onBarcodeChange={changeBarcode}
+            onBarcodeKeyDown={handleBarcodeKeyDown}
+            onBarcodeSubmit={submitBarcode}
+            onManualFocus={() => {
+              if (scanStatus === "error") {
+                setScanStatus("idle");
+                setScanFeedback(INITIAL_SCAN_FEEDBACK);
+              }
+            }}
+            onManualKeyDown={handleManualKeyDown}
+            onQueryChange={changeQuery}
+            onSwitchToManual={() => {
+              setScanStatus("idle");
+              setScanFeedback(INITIAL_SCAN_FEEDBACK);
+              manualRef.current?.focus();
+            }}
+            query={query}
+            scanFeedback={scanFeedback}
+            scanStatus={scanStatus}
+            searchStatus={searchStatus}
+          />
+          <ProductSearchResults
+            cart={cart}
+            onAdd={(item, source) => addItem(item, source)}
+            onSelect={setSelectedResult}
+            onShowAll={() => setSearchLimit(30)}
+            query={query}
+            results={results}
+            selectedIndex={selectedResult}
+            status={searchStatus}
+          />
+          <SaleItems
+            cart={cart}
+            onChangeQty={changeQty}
+            onRemove={(itemCode) => setCart((current) => current.filter((item) => item.item_code !== itemCode))}
+            onRequestClear={() => setClearConfirmOpen(true)}
+          />
+        </main>
+
+        <aside className="space-y-4 xl:sticky xl:top-[calc(var(--tp-topbar-height)+1rem)]">
+          <SaleSummary
+            customer={customer}
+            discount={discount}
+            discountRef={discountRef}
+            onClearDiscount={() => setDiscount(0)}
+            onDiscountChange={changeDiscount}
+            onFinalize={handleFinalize}
+            onPercentDiscount={(percent) => setDiscount(Number((subtotal * percent / 100).toFixed(2)))}
+            subtotal={subtotal}
+            total={total}
+          />
+          <KeyboardShortcuts />
+        </aside>
+      </div>
+
+      <CustomerPickerModal
+        onClose={() => setCustomerOpen(false)}
+        onSelect={(selected) => {
+          setCustomer(selected);
+          setCustomerOpen(false);
+          focusScanner(true);
+        }}
+        open={customerOpen}
+      />
+      <Modal className="max-w-md" onClose={() => setClearConfirmOpen(false)} open={clearConfirmOpen} title="Limpar venda">
+        <p className="text-sm leading-6 text-tec-subtle">Remover todos os produtos e o desconto desta venda?</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button onClick={() => setClearConfirmOpen(false)}>Cancelar</Button>
+          <Button onClick={() => {
+            setCart([]);
+            setDiscount(0);
+            setClearConfirmOpen(false);
+            focusScanner(true);
+          }} variant="danger">Limpar venda</Button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
