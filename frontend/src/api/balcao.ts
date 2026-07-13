@@ -35,9 +35,9 @@ export const balcao = {
       query: { query, limit },
     });
   },
-  listStockItems(query = "", limit = 12) {
+  listStockItems(query = "", limit = 12, scope = "parts-stock") {
     return rpc<StockItemListResponse>(`${API}.list_stock_items`, {
-      query: { query, limit },
+      query: { query, limit, scope },
     });
   },
 };

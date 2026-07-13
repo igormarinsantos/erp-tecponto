@@ -7,6 +7,9 @@ export type NavigationTarget =
   | "devices"
   | "trade-ins"
   | "parts-stock"
+  | "repair-parts"
+  | "commercial-products"
+  | "used-devices"
   | "pos"
   | "sales";
 
@@ -423,11 +426,87 @@ export interface TradeEvaluationListResponse {
 }
 
 export interface StockItemSummary {
+	barcode: string | null;
+	has_serial_no: boolean;
+	is_commercial_item: boolean;
   item_code: string;
   item_name: string | null;
   item_group: string | null;
   warehouse: string | null;
   available_qty: number;
+}
+
+export interface PosBarcodeLabelResponse {
+  barcode: string;
+  created: boolean;
+  item_code: string;
+  item_name: string;
+  label: {
+    format: string;
+    url: string;
+  };
+}
+
+export type RetailBarcodeSource = "Fabricante" | "Interno Tecponto";
+
+export interface RetailBarcodeLookupResponse {
+  barcode: string;
+  barcode_source?: RetailBarcodeSource | null;
+  state: "found" | "unknown" | "disabled";
+  item?: {
+    has_serial_no: boolean;
+    item_code: string;
+    item_group: string;
+    item_name: string;
+    standard_rate: number;
+    stock_uom: string;
+  };
+}
+
+export interface RetailItemGroupResponse {
+  items: Array<{ name: string }>;
+}
+
+export interface RetailProductRegistrationPayload {
+  barcode?: string;
+  barcode_source: RetailBarcodeSource;
+  item_code: string;
+  item_group: string;
+  item_name: string;
+  selling_rate: number;
+  stock_uom: string;
+}
+
+export interface RetailProductRegistrationResponse {
+  barcode: string;
+  barcode_source: RetailBarcodeSource;
+  item: {
+    has_serial_no: boolean;
+    item_code: string;
+    item_group: string;
+    item_name: string;
+    standard_rate: number;
+    stock_uom: string;
+  };
+  label: {
+    format: string;
+    url: string;
+  };
+}
+
+export interface RetailStockReceiptPayload {
+  incoming_rate: number;
+  item_code: string;
+  qty: number;
+}
+
+export interface RetailStockReceiptResponse {
+  item_code: string;
+  qty_after: number;
+  qty_before: number;
+  qty_received: number;
+  stock_entry: string;
+  warehouse: string;
 }
 
 export interface StockItemListResponse {

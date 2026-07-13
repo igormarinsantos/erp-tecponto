@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
+from pathlib import Path
 
 import frappe
 from frappe.utils import add_days, flt, now_datetime, nowdate
+from pypdf import PdfReader
 
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
@@ -21,8 +24,25 @@ from tecponto_app.tecponto.frontend.api import (
 	search_pos_items,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
-from tecponto_app.tecponto.frontend.pos import pos_create_sale, pos_download_receipt
-from tecponto_app.tecponto.pos import POS_RECEIPT_PRINT_FORMAT
+from tecponto_app.tecponto.frontend.pos import (
+	pos_create_sale,
+	pos_download_barcode_label,
+	pos_download_receipt,
+	pos_generate_item_barcode,
+	pos_lookup_retail_barcode,
+	pos_receive_retail_stock,
+	pos_register_retail_product,
+)
+from tecponto_app.tecponto.pos import (
+	BARCODE_SOURCE_FIELD,
+	BARCODE_SOURCE_INTERNAL,
+	BARCODE_SOURCE_MANUFACTURER,
+	BARCODE_SYMBOLOGY_CODE128,
+	BARCODE_SYMBOLOGY_FIELD,
+	POS_BARCODE_LABEL_PRINT_FORMAT,
+	POS_RECEIPT_PRINT_FORMAT,
+	ensure_item_barcode_source_field,
+)
 
 
 TEST_USERS = {
@@ -303,6 +323,280 @@ def run_pos_sale_checks() -> dict:
 		frappe.set_user(previous_user)
 
 
+def run_pos_barcode_label_checks() -> dict:
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		demo = _ensure_pos_demo_records()
+		item_code = _create_unlabelled_pos_item()
+		valuation_rate = 5.55
+		_ensure_pos_demo_stock(item_code, demo["commercial_warehouse"], valuation_rate)
+		frappe.db.commit()
+
+		if frappe.db.exists("Item Barcode", {"parent": item_code}):
+			raise AssertionError("Item de teste deveria começar sem código de barras.")
+
+		frappe.set_user(attendant)
+		generated = pos_generate_item_barcode(item_code)
+		frappe.db.commit()
+		barcode_row = frappe.db.get_value(
+			"Item Barcode",
+			{"parent": item_code},
+			["barcode", BARCODE_SYMBOLOGY_FIELD, "uom"],
+			as_dict=True,
+		)
+		if not generated["created"] or not barcode_row or barcode_row.barcode != generated["barcode"]:
+			raise AssertionError("Código gerado não foi salvo na child table nativa Item Barcode.")
+		if (
+			not barcode_row.barcode.startswith("TPC")
+			or not barcode_row.barcode[3:].isdigit()
+			or barcode_row.get(BARCODE_SYMBOLOGY_FIELD) != BARCODE_SYMBOLOGY_CODE128
+		):
+			raise AssertionError("Código interno não foi salvo como Code-128 Tecponto.")
+
+		frappe.local.response.filecontent = None
+		pos_download_barcode_label(item_code)
+		label_pdf = frappe.local.response.get("filecontent") or b""
+		if not label_pdf.startswith(b"%PDF") or not frappe.db.exists(
+			"Print Format", POS_BARCODE_LABEL_PRINT_FORMAT
+		):
+			raise AssertionError("Etiqueta de barcode não renderizou como PDF.")
+		page = PdfReader(BytesIO(label_pdf)).pages[0]
+		width_mm = round(float(page.mediabox.width) * 25.4 / 72, 1)
+		height_mm = round(float(page.mediabox.height) * 25.4 / 72, 1)
+		if not (49 <= width_mm <= 51 and 29 <= height_mm <= 31):
+			raise AssertionError(f"Etiqueta deveria medir 50x30 mm; recebeu {width_mm}x{height_mm} mm.")
+
+		scan_result = search_pos_items(barcode=barcode_row.barcode, limit=1)
+		found = next((row for row in scan_result["items"] if row["item_code"] == item_code), None)
+		if not found:
+			raise AssertionError("Bipe simulado não encontrou o item recém-etiquetado.")
+
+		stock_result = list_stock_items(query=item_code, limit=5)
+		stock_row = next((row for row in stock_result["items"] if row["item_code"] == item_code), None)
+		if not stock_row or stock_row["barcode"] != barcode_row.barcode:
+			raise AssertionError("Tela de estoque não recebeu o barcode nativo recém-gerado.")
+
+		leaks = contains_sensitive_field(
+			{"generated": generated, "scan": scan_result, "stock": stock_result},
+			forbidden_values={valuation_rate},
+		)
+		if leaks:
+			raise AssertionError(f"Custo vazou no fluxo de etiqueta: {', '.join(leaks)}")
+
+		factory_before = frappe.get_all(
+			"Item Barcode", filters={"parent": POS_BARCODE_ITEM}, fields=["barcode", "barcode_type", "uom"], order_by="idx"
+		)
+		factory_result = pos_generate_item_barcode(POS_BARCODE_ITEM)
+		factory_after = frappe.get_all(
+			"Item Barcode", filters={"parent": POS_BARCODE_ITEM}, fields=["barcode", "barcode_type", "uom"], order_by="idx"
+		)
+		if factory_result["created"] or factory_before != factory_after:
+			raise AssertionError("Item com barcode de fábrica foi sobrescrito.")
+
+		frappe.set_user(technician)
+		technician_blocked = False
+		try:
+			pos_generate_item_barcode(item_code)
+		except frappe.PermissionError:
+			technician_blocked = True
+		if not technician_blocked:
+			raise AssertionError("Técnico conseguiu gerar etiqueta pelo endpoint do balcão.")
+
+		return {
+			"status": "ok",
+			"generated": {
+				"item_code": item_code,
+				"barcode": barcode_row.barcode,
+				"barcode_type": barcode_row.barcode_type,
+				"saved_in": "Item Barcode",
+			},
+			"label": {
+				"format": POS_BARCODE_LABEL_PRINT_FORMAT,
+				"pdf_header": label_pdf[:4].decode(),
+				"bytes": len(label_pdf),
+				"size_mm": [width_mm, height_mm],
+			},
+			"scan": {
+				"simulated_input": barcode_row.barcode,
+				"found_item": found["item_code"],
+				"available_qty": found["available_qty"],
+			},
+			"factory_barcode": {
+				"item_code": POS_BARCODE_ITEM,
+				"before": factory_before,
+				"after": factory_after,
+				"created": factory_result["created"],
+			},
+			"permissions": {"technician_blocked": technician_blocked},
+			"sensitive_guard": {"leaked_fields": leaks},
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_pos_retail_barcode_catalog_checks() -> dict:
+	"""Audit matrix for factory/internal codes, duplicate protection and stock receipt."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		ensure_item_barcode_source_field()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		stock_uom = frappe.db.get_value("UOM", {"enabled": 1}, "name") or "Nos"
+		suffix = frappe.generate_hash(length=7).upper()
+		factory_barcode = f"000000{int(suffix, 16) % 10_000_000:07d}"
+		factory_code = f"TP-BAR-FAB-{suffix}"
+		internal_code = f"TP-BAR-INT-{suffix}"
+
+		frappe.set_user(attendant)
+		factory = pos_register_retail_product(
+			{
+				"barcode": factory_barcode,
+				"barcode_source": BARCODE_SOURCE_MANUFACTURER,
+				"item_code": factory_code,
+				"item_group": "Cabos",
+				"item_name": f"Cabo de fábrica {suffix}",
+				"selling_rate": 39.90,
+				"stock_uom": stock_uom,
+			}
+		)
+		factory_row = frappe.db.get_value(
+			"Item Barcode",
+			{"parent": factory_code, "barcode": factory_barcode},
+			["barcode", BARCODE_SYMBOLOGY_FIELD, BARCODE_SOURCE_FIELD],
+			as_dict=True,
+		)
+		if not factory_row or factory_row.get(BARCODE_SOURCE_FIELD) != BARCODE_SOURCE_MANUFACTURER:
+			raise AssertionError("Código do fabricante não recebeu origem correta.")
+
+		lookup = pos_lookup_retail_barcode(f"  {factory_barcode}  ")
+		if lookup["state"] != "found" or lookup["item"]["item_code"] != factory_code:
+			raise AssertionError("Leitura com zeros à esquerda não localizou o produto de fábrica.")
+
+		duplicate_blocked = False
+		try:
+			pos_register_retail_product(
+				{
+					"barcode": factory_barcode,
+					"barcode_source": BARCODE_SOURCE_MANUFACTURER,
+					"item_code": f"TP-BAR-DUP-{suffix}",
+					"item_group": "Cabos",
+					"item_name": f"Duplicado {suffix}",
+					"selling_rate": 19.90,
+					"stock_uom": stock_uom,
+				}
+			)
+		except frappe.ValidationError as error:
+			duplicate_blocked = "Código já cadastrado" in str(error)
+		if not duplicate_blocked:
+			raise AssertionError("Código repetido não foi bloqueado com mensagem orientada.")
+
+		internal = pos_register_retail_product(
+			{
+				"barcode_source": BARCODE_SOURCE_INTERNAL,
+				"item_code": internal_code,
+				"item_group": "Cabos",
+				"item_name": f"Acessório sem código {suffix}",
+				"selling_rate": 29.90,
+				"stock_uom": stock_uom,
+			}
+		)
+		internal_row = frappe.db.get_value(
+			"Item Barcode",
+			{"parent": internal_code},
+			["barcode", BARCODE_SYMBOLOGY_FIELD, BARCODE_SOURCE_FIELD],
+			as_dict=True,
+		)
+		if (
+			not internal_row
+			or not internal_row.barcode.startswith("TPC")
+			or internal_row.get(BARCODE_SYMBOLOGY_FIELD) != BARCODE_SYMBOLOGY_CODE128
+			or internal_row.get(BARCODE_SOURCE_FIELD) != BARCODE_SOURCE_INTERNAL
+		):
+			raise AssertionError(f"Código interno não foi criado como Code-128 Tecponto: {internal_row}")
+
+		frappe.set_user(manager)
+		warehouse = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
+		before_qty = _bin_qty(factory_code, warehouse)
+		receipt = pos_receive_retail_stock({"item_code": factory_code, "qty": 12, "incoming_rate": 8.5})
+		if receipt["qty_before"] != before_qty or receipt["qty_after"] != before_qty + 12:
+			raise AssertionError("Entrada não atualizou o estoque Comercial pelo documento nativo.")
+		if frappe.db.get_value("Stock Entry", receipt["stock_entry"], "docstatus") != 1:
+			raise AssertionError("Entrada não gerou Stock Entry submetido.")
+
+		frappe.set_user(attendant)
+		receipt_blocked = False
+		try:
+			pos_receive_retail_stock({"item_code": factory_code, "qty": 1, "incoming_rate": 8.5})
+		except frappe.PermissionError:
+			receipt_blocked = True
+		if not receipt_blocked:
+			raise AssertionError("Atendente conseguiu registrar entrada com custo.")
+
+		scan = search_pos_items(barcode=internal["barcode"], limit=1)
+		if not any(row["item_code"] == internal_code for row in scan["items"]):
+			raise AssertionError("Código interno não foi localizado pelo PDV.")
+		leaks = contains_sensitive_field(
+			{"factory": factory, "internal": internal, "lookup": lookup, "receipt": receipt, "scan": scan},
+			forbidden_values={8.5},
+		)
+		if leaks:
+			raise AssertionError(f"Custo vazou no fluxo de catálogo: {', '.join(leaks)}")
+
+		return {
+			"status": "ok",
+			"factory": {"barcode": factory_barcode, "source": factory_row.get(BARCODE_SOURCE_FIELD)},
+			"internal": {"barcode": internal_row.barcode, "type": internal_row.get(BARCODE_SYMBOLOGY_FIELD)},
+			"duplicate_blocked": duplicate_blocked,
+			"receipt": {"stock_entry": receipt["stock_entry"], "before": before_qty, "after": receipt["qty_after"]},
+			"attendant_receipt_blocked": receipt_blocked,
+			"sensitive_guard": {"leaked_fields": leaks},
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def save_pos_barcode_label_artifact() -> dict:
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user(TEST_USERS["Tecponto Atendente"][0])
+		pos_download_barcode_label(POS_NAME_ITEM)
+		content = frappe.local.response.get("filecontent") or b""
+		output = Path(frappe.get_app_path("tecponto_app")).parent / "artifacts" / "bloco_3_5_pdv_3"
+		output.mkdir(parents=True, exist_ok=True)
+		pdf_path = output / "04-etiqueta-barcode-TP-PDV-NOME.pdf"
+		pdf_path.write_bytes(content)
+		return {"path": str(pdf_path), "bytes": len(content), "pdf_header": content[:4].decode()}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _create_unlabelled_pos_item() -> str:
+	suffix = frappe.generate_hash(length=6).upper()
+	item_code = f"TP-PDV-ETIQ-{suffix}"
+	stock_uom = frappe.db.get_value("UOM", {"enabled": 1}, "name") or "Nos"
+	item = frappe.get_doc(
+		{
+			"doctype": "Item",
+			"item_code": item_code,
+			"item_name": f"Acessório a granel {suffix}",
+			"item_group": "Cabos",
+			"stock_uom": stock_uom,
+			"is_stock_item": 1,
+			"is_sales_item": 1,
+			"disabled": 0,
+			"standard_rate": 29.90,
+		}
+	)
+	item.insert(ignore_permissions=True)
+	return item.name
+
+
 def _bin_qty(item_code: str, warehouse: str) -> float:
 	return flt(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty"), 3)
 
@@ -578,12 +872,12 @@ def _check_multi_role_context(attendant: str) -> dict:
 		if entry["role"] in {"Tecponto Atendente", "Tecponto Tecnico"}
 	]
 	if set(available_panels) != {"atendente", "tecnico"}:
-		raise AssertionError(f"Multi-role user received invalid contexts: {available_panels}")
+		raise AssertionError(f"Usuário multipapel recebeu contextos incorretos: {available_panels}")
 
-	# The visual selector can show Technician while real roles still include Attendant.
+	# O seletor do front pode estar em Técnico, mas as roles reais ainda incluem Atendente.
 	attendant_api_payload = search_pos_items(query="Película 3D", limit=1)
 	if not attendant_api_payload["items"]:
-		raise AssertionError("Attendant+Technician user lost access to the counter API.")
+		raise AssertionError("Usuário Atendente+Técnico perdeu acesso à API de balcão.")
 	technical_context_payload = get_dashboard_metrics()
 
 	demo_orders = ensure_service_order_detail_demo_data()
@@ -595,7 +889,7 @@ def _check_multi_role_context(attendant: str) -> dict:
 	except frappe.PermissionError:
 		technical_api_blocked = True
 	if not technical_api_blocked:
-		raise AssertionError("Attendant without technician role moved an order to diagnosis.")
+		raise AssertionError("Atendente sem papel técnico conseguiu mover OS para diagnóstico.")
 
 	leaks = contains_sensitive_field(
 		{
@@ -604,7 +898,7 @@ def _check_multi_role_context(attendant: str) -> dict:
 		}
 	)
 	if leaks:
-		raise AssertionError(f"Sensitive fields leaked between contexts: {', '.join(leaks)}")
+		raise AssertionError(f"Campos sensíveis vazaram entre contextos: {', '.join(leaks)}")
 
 	return {
 		"user": multi_role_user,

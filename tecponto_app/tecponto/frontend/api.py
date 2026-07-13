@@ -16,7 +16,8 @@ from tecponto_app.tecponto.customer import (
 	assert_existing_customer_is_complete,
 	validate_customer_contact_document,
 )
-from tecponto_app.tecponto.pos import get_commercial_item_groups
+from tecponto_app.tecponto.pos import get_commercial_item_groups, get_retail_item_groups
+from tecponto_app.tecponto.stock import normalize_barcode
 from tecponto_app.tecponto.service_order.print_formats import (
 	PF_ETIQUETA_QR,
 	PF_OS_ORCAMENTO,
@@ -506,7 +507,7 @@ def search_pos_items(
 ) -> dict[str, Any]:
 	_require_pos_role()
 	query = (query or "").strip()[:80]
-	barcode = (barcode or "").strip()[:80]
+	barcode = normalize_barcode(barcode)[:80]
 	limit = max(1, min(int(limit or 12), 30))
 	fields = [
 		"item_code",
@@ -561,6 +562,7 @@ def search_pos_items(
 			item.name as item_code,
 			item.item_name,
 			item.item_group,
+			item.has_serial_no,
 			{barcode_select} as barcode,
 			item.description,
 			item.image,
@@ -972,16 +974,35 @@ def list_trade_evaluations(query: str = "", limit: int = 12) -> dict[str, Any]:
 
 
 @frappe.whitelist()
-def list_stock_items(query: str = "", limit: int = 12) -> dict[str, Any]:
+def list_stock_items(query: str = "", limit: int = 12, scope: str = "parts-stock") -> dict[str, Any]:
 	_require_frontend_role()
 	limit = max(1, min(int(limit or 12), 50))
 	query = (query or "").strip()
+	scope = (scope or "parts-stock").strip()
+	repair_warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+	commercial_warehouse = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
+	if scope == "repair-parts":
+		stock_groups = tuple(_descendant_item_groups("Peças de Reparo")) or ("",)
+		warehouse = repair_warehouse
+	elif scope == "commercial-products":
+		stock_groups = tuple(get_retail_item_groups()) or ("",)
+		warehouse = commercial_warehouse
+	elif scope == "used-devices":
+		stock_groups = tuple(_descendant_item_groups("Aparelhos Usados")) or ("",)
+		warehouse = commercial_warehouse
+	else:
+		stock_groups = tuple(get_commercial_item_groups()) or ("",)
+		warehouse = None
 	conditions = [
 		"item.disabled = 0",
 		"item.is_stock_item = 1",
 		"bin.warehouse is not null",
 	]
-	values: dict[str, Any] = {"limit": limit}
+	values: dict[str, Any] = {"stock_groups": stock_groups, "limit": limit}
+	conditions.append("item.item_group in %(stock_groups)s")
+	if warehouse:
+		conditions.append("bin.warehouse = %(stock_warehouse)s")
+		values["stock_warehouse"] = warehouse
 	if query:
 		conditions.append(
 			"""(
@@ -989,6 +1010,10 @@ def list_stock_items(query: str = "", limit: int = 12) -> dict[str, Any]:
 				or item.item_name like %(query)s
 				or item.item_group like %(query)s
 				or bin.warehouse like %(query)s
+				or exists (
+					select 1 from `tabItem Barcode` searched_barcode
+					where searched_barcode.parent = item.name and searched_barcode.barcode like %(query)s
+				)
 			)"""
 		)
 		values["query"] = f"%{query}%"
@@ -999,6 +1024,9 @@ def list_stock_items(query: str = "", limit: int = 12) -> dict[str, Any]:
 			item.name as item_code,
 			item.item_name,
 			item.item_group,
+			item.has_serial_no,
+			(select item_barcode.barcode from `tabItem Barcode` item_barcode where item_barcode.parent = item.name order by item_barcode.idx asc limit 1) as barcode,
+			item.item_group in %(stock_groups)s as is_commercial_item,
 			bin.warehouse,
 			bin.actual_qty as available_qty
 		from `tabItem` item
@@ -1013,7 +1041,7 @@ def list_stock_items(query: str = "", limit: int = 12) -> dict[str, Any]:
 	return {
 		"items": [_serialize_stock_item(item) for item in rows],
 		"count": len(rows),
-		"fields": ["item_code", "item_name", "item_group", "warehouse", "available_qty"],
+		"fields": ["item_code", "item_name", "item_group", "has_serial_no", "barcode", "is_commercial_item", "warehouse", "available_qty"],
 	}
 
 
@@ -1134,9 +1162,23 @@ def _serialize_stock_item(item: dict[str, Any]) -> dict[str, Any]:
 		"item_code": item.get("item_code"),
 		"item_name": item.get("item_name"),
 		"item_group": item.get("item_group"),
+		"has_serial_no": bool(item.get("has_serial_no")),
+		"barcode": item.get("barcode"),
+		"is_commercial_item": bool(item.get("is_commercial_item")),
 		"warehouse": item.get("warehouse"),
 		"available_qty": float(item.get("available_qty") or 0),
 	}
+
+
+def _descendant_item_groups(root: str) -> list[str]:
+	bounds = frappe.db.get_value("Item Group", root, ["lft", "rgt"], as_dict=True)
+	if not bounds:
+		return []
+	return frappe.get_all(
+		"Item Group",
+		filters={"lft": [">=", bounds.lft], "rgt": ["<=", bounds.rgt]},
+		pluck="name",
+	)
 
 
 def _serialize_pos_item(item: dict[str, Any]) -> dict[str, Any]:

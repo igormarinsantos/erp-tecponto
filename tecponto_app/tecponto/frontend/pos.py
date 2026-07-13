@@ -12,22 +12,34 @@ from frappe.utils import add_days, flt, nowdate
 from frappe.utils.pdf import get_pdf
 
 from tecponto_app.tecponto.pos import (
+	BARCODE_SOURCE_FIELD,
+	BARCODE_SOURCE_INTERNAL,
+	BARCODE_SOURCE_MANUFACTURER,
+	BARCODE_SYMBOLOGY_CODE128,
+	BARCODE_SYMBOLOGY_EAN13,
+	BARCODE_SYMBOLOGY_FIELD,
 	CARD_PAYMENT_MODES,
 	POS_PAYMENT_MODES,
+	POS_BARCODE_LABEL_PRINT_FORMAT,
 	POS_PROFILE_NAME,
 	POS_RECEIPT_PRINT_FORMAT,
 	_company_currency,
 	_cost_center,
 	_default_company,
 	_expense_account,
+	generate_item_barcode,
+	get_item_barcode_label_context,
 	_income_account,
 	_selling_price_list,
 	get_commercial_item_groups,
+	get_retail_item_groups,
 )
 from tecponto_app.tecponto.pricing import validate_discount_limit, validate_price_floor
+from tecponto_app.tecponto.stock import normalize_barcode
 
 
 POS_SALE_ROLES = {"Tecponto Atendente", "Tecponto Gestor", "System Manager"}
+INVENTORY_RECEIPT_ROLES = {"Tecponto Gestor", "System Manager"}
 IDEMPOTENCY_DOCTYPE = "Tecponto POS Sale Request"
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,95}$")
 
@@ -117,6 +129,228 @@ def pos_download_receipt(sales_invoice: str) -> None:
 	frappe.local.response.display_content_as = "inline"
 
 
+@frappe.whitelist()
+def pos_generate_item_barcode(item_code: str) -> dict[str, Any]:
+	_require_pos_sale_role()
+	# Etiquetas internas servem aos itens de varejo controlados por quantidade.
+	# Aparelhos com IMEI/Serial permanecem no fluxo proprio de rastreabilidade.
+	item = _get_retail_item(item_code)
+	barcode, created = generate_item_barcode(item)
+	return {
+		"item_code": item.name,
+		"item_name": item.item_name or item.name,
+		"barcode": barcode,
+		"created": created,
+		"label": {
+			"format": POS_BARCODE_LABEL_PRINT_FORMAT,
+			"url": _barcode_label_url(item.name),
+		},
+	}
+
+
+@frappe.whitelist()
+def pos_download_barcode_label(item_code: str) -> None:
+	_require_pos_sale_role()
+	item = _get_retail_item(item_code)
+	if not any(row.barcode for row in item.get("barcodes") or []):
+		frappe.throw(_("Gere o código de barras antes de imprimir a etiqueta."), frappe.ValidationError)
+
+	print_format = frappe.get_doc("Print Format", POS_BARCODE_LABEL_PRINT_FORMAT)
+	body = frappe.render_template(
+		print_format.html,
+		{
+			"doc": item,
+			"frappe": frappe,
+			"get_item_barcode_label_context": get_item_barcode_label_context,
+		},
+	)
+	pdf = _render_barcode_label_pdf(body, print_format.css or "")
+	frappe.local.response.filename = f"Etiqueta-{frappe.scrub(item.name)}.pdf"
+	frappe.local.response.filecontent = pdf
+	frappe.local.response.type = "download"
+	frappe.local.response.display_content_as = "inline"
+
+
+@frappe.whitelist()
+def pos_lookup_retail_barcode(barcode: str) -> dict[str, Any]:
+	"""Resolve a scanned code without creating an item as a side effect."""
+	_require_pos_sale_role()
+	value = normalize_barcode(barcode)
+	if not value:
+		frappe.throw(_("Escaneie ou informe um código de barras."), frappe.ValidationError)
+
+	row = frappe.db.get_value(
+		"Item Barcode",
+		{"barcode": value},
+		["parent", BARCODE_SOURCE_FIELD],
+		as_dict=True,
+	)
+	if not row:
+		return {"state": "unknown", "barcode": value}
+
+	item = frappe.db.get_value(
+		"Item",
+		row.parent,
+		["name", "item_name", "item_group", "disabled", "has_serial_no", "stock_uom", "standard_rate"],
+		as_dict=True,
+	)
+	if not item:
+		return {"state": "unknown", "barcode": value}
+	return {
+		"state": "disabled" if item.disabled else "found",
+		"barcode": value,
+		"barcode_source": row.get(BARCODE_SOURCE_FIELD) or None,
+		"item": {
+			"item_code": item.name,
+			"item_name": item.item_name,
+			"item_group": item.item_group,
+			"has_serial_no": bool(item.has_serial_no),
+			"stock_uom": item.stock_uom,
+			"standard_rate": flt(item.standard_rate, 2),
+		},
+	}
+
+
+@frappe.whitelist()
+def pos_list_retail_item_groups() -> dict[str, Any]:
+	_require_pos_sale_role()
+	return {"items": [{"name": name} for name in get_retail_item_groups()]}
+
+
+@frappe.whitelist()
+def pos_register_retail_product(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Create one quantity-controlled retail item and attach its chosen barcode."""
+	_require_pos_sale_role()
+	data = _parse_payload(payload)
+	item_code = str(data.get("item_code") or "").strip()[:140]
+	item_name = str(data.get("item_name") or "").strip()[:140]
+	item_group = str(data.get("item_group") or "").strip()
+	stock_uom = str(data.get("stock_uom") or "").strip()[:140]
+	source = str(data.get("barcode_source") or "").strip()
+	barcode = normalize_barcode(data.get("barcode"))
+	selling_rate = flt(data.get("selling_rate"), 2)
+
+	if not item_code or not item_name or not item_group or not stock_uom:
+		frappe.throw(_("Código do item, nome, grupo e unidade são obrigatórios."), frappe.ValidationError)
+	if frappe.db.exists("Item", item_code):
+		frappe.throw(_("Já existe um item com o código {0}.").format(item_code), frappe.ValidationError)
+	if item_group not in set(get_retail_item_groups()):
+		frappe.throw(_("Selecione um grupo de Produtos de Varejo."), frappe.ValidationError)
+	if not frappe.db.exists("UOM", stock_uom):
+		frappe.throw(_("Unidade de estoque inválida."), frappe.ValidationError)
+	if selling_rate < 0:
+		frappe.throw(_("Preço de venda não pode ser negativo."), frappe.ValidationError)
+	if source not in {BARCODE_SOURCE_MANUFACTURER, BARCODE_SOURCE_INTERNAL}:
+		frappe.throw(_("Selecione a origem do código de barras."), frappe.ValidationError)
+	if source == BARCODE_SOURCE_MANUFACTURER and not barcode:
+		frappe.throw(_("Escaneie o código da embalagem ou escolha código interno."), frappe.ValidationError)
+	if source == BARCODE_SOURCE_MANUFACTURER:
+		_assert_barcode_available(barcode)
+
+	frappe.db.savepoint("tecponto_register_retail_product")
+	try:
+		item = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code,
+				"item_name": item_name,
+				"item_group": item_group,
+				"stock_uom": stock_uom,
+				"is_stock_item": 1,
+				"is_sales_item": 1,
+				"has_serial_no": 0,
+				"standard_rate": selling_rate,
+			}
+		)
+		if source == BARCODE_SOURCE_MANUFACTURER:
+			item.append(
+				"barcodes",
+				{
+					"barcode": barcode,
+					"barcode_type": _barcode_symbology(barcode),
+					BARCODE_SYMBOLOGY_FIELD: _tecponto_symbology(barcode),
+					BARCODE_SOURCE_FIELD: BARCODE_SOURCE_MANUFACTURER,
+					"uom": stock_uom,
+				},
+			)
+		# ERPNext creates an Item Price from Item.after_insert. Run that native
+		# cascade as the system identity, then restore the caller immediately.
+		# This does not grant or persist any role for the attendant.
+		caller = frappe.session.user
+		frappe.set_user("Administrator")
+		try:
+			item.insert(ignore_permissions=True)
+		finally:
+			frappe.set_user(caller)
+
+		if source == BARCODE_SOURCE_INTERNAL:
+			barcode, _created = generate_item_barcode(item, force_internal=True)
+	except Exception:
+		frappe.db.rollback(save_point="tecponto_register_retail_product")
+		raise
+
+	return {
+		"item": {
+			"item_code": item.name,
+			"item_name": item.item_name,
+			"item_group": item.item_group,
+			"stock_uom": item.stock_uom,
+			"has_serial_no": False,
+			"standard_rate": flt(item.standard_rate, 2),
+		},
+		"barcode": barcode,
+		"barcode_source": source,
+		"label": {"format": POS_BARCODE_LABEL_PRINT_FORMAT, "url": _barcode_label_url(item.name)},
+	}
+
+
+@frappe.whitelist()
+def pos_receive_retail_stock(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Receive quantity through ERPNext's stock ledger; never update Bin directly."""
+	_require_inventory_receipt_role()
+	data = _parse_payload(payload)
+	item = _get_retail_item(str(data.get("item_code") or ""))
+	qty = flt(data.get("qty"), 3)
+	incoming_rate = flt(data.get("incoming_rate"), 6)
+	if qty <= 0:
+		frappe.throw(_("Quantidade recebida deve ser maior que zero."), frappe.ValidationError)
+	if incoming_rate < 0:
+		frappe.throw(_("Custo de entrada não pode ser negativo."), frappe.ValidationError)
+
+	warehouse = _commercial_warehouse()
+	before_qty = flt(frappe.db.get_value("Bin", {"item_code": item.name, "warehouse": warehouse}, "actual_qty"), 3)
+	entry = frappe.get_doc(
+		{
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Material Receipt",
+			"purpose": "Material Receipt",
+			"company": _default_company(),
+			"posting_date": nowdate(),
+			"remarks": f"Entrada por leitura de código - {item.name}",
+			"items": [
+				{
+					"item_code": item.name,
+					"qty": qty,
+					"t_warehouse": warehouse,
+					"basic_rate": incoming_rate,
+					"set_basic_rate_manually": 1,
+				}
+			],
+		}
+	)
+	entry.insert(ignore_permissions=True)
+	entry.submit()
+	after_qty = flt(frappe.db.get_value("Bin", {"item_code": item.name, "warehouse": warehouse}, "actual_qty"), 3)
+	return {
+		"stock_entry": entry.name,
+		"item_code": item.name,
+		"warehouse": warehouse,
+		"qty_before": before_qty,
+		"qty_received": qty,
+		"qty_after": after_qty,
+	}
+
+
 def _require_pos_sale_role() -> None:
 	user = frappe.session.user
 	if not user or user == "Guest":
@@ -125,6 +359,13 @@ def _require_pos_sale_role() -> None:
 		return
 	if not set(frappe.get_roles(user)) & POS_SALE_ROLES:
 		raise frappe.PermissionError(_("Seu papel não permite finalizar vendas no PDV Tecponto."))
+
+
+def _require_inventory_receipt_role() -> None:
+	_require_pos_sale_role()
+	if frappe.session.user == "Administrator" or set(frappe.get_roles(frappe.session.user)) & INVENTORY_RECEIPT_ROLES:
+		return
+	raise frappe.PermissionError(_("Somente o Gestor pode registrar entrada de estoque com custo."))
 
 
 def _parse_payload(payload: str | dict[str, Any] | None) -> dict[str, Any]:
@@ -217,6 +458,89 @@ def _commercial_warehouse() -> str:
 	if not warehouse:
 		frappe.throw(_("Depósito Comercial não configurado no Tecponto Settings."), frappe.ValidationError)
 	return warehouse
+
+
+def _get_commercial_item(item_code: str):
+	item_code = str(item_code or "").strip()
+	if not item_code or not frappe.db.exists("Item", item_code):
+		frappe.throw(_("Item não encontrado."), frappe.ValidationError)
+	item = frappe.get_doc("Item", item_code)
+	if item.disabled or not item.is_stock_item or not item.is_sales_item:
+		frappe.throw(_("Item não está habilitado para venda."), frappe.ValidationError)
+	if item.item_group not in set(get_commercial_item_groups()):
+		frappe.throw(_("Somente itens do catálogo Comercial podem receber etiqueta no PDV."), frappe.ValidationError)
+	return item
+
+
+def _get_retail_item(item_code: str):
+	item = _get_commercial_item(item_code)
+	if item.item_group not in set(get_retail_item_groups()):
+		frappe.throw(_("Entrada por leitura é restrita a Produtos de Varejo."), frappe.ValidationError)
+	if item.has_serial_no:
+		frappe.throw(_("Aparelhos serializados devem usar o fluxo próprio de IMEI/Serial."), frappe.ValidationError)
+	return item
+
+
+def _barcode_symbology(barcode: str) -> str:
+	return "EAN-13" if _is_valid_ean13(barcode) else ""
+
+
+def _tecponto_symbology(barcode: str) -> str:
+	return BARCODE_SYMBOLOGY_EAN13 if _is_valid_ean13(barcode) else BARCODE_SYMBOLOGY_CODE128
+
+
+def _is_valid_ean13(barcode: str) -> bool:
+	"""Use EAN-13 only for a genuine factory EAN; retain other scanned codes as Code-128."""
+	if len(barcode) != 13 or not barcode.isdigit():
+		return False
+	checksum = sum(int(digit) * (1 if index % 2 == 0 else 3) for index, digit in enumerate(barcode[:12]))
+	return (10 - checksum % 10) % 10 == int(barcode[12])
+
+
+def _assert_barcode_available(barcode: str) -> None:
+	"""Give a useful conflict while the database index remains the concurrency guard."""
+	existing_item = frappe.db.get_value("Item Barcode", {"barcode": barcode}, "parent")
+	if not existing_item:
+		return
+	item_name = frappe.db.get_value("Item", existing_item, "item_name") or existing_item
+	frappe.throw(
+		_("Código já cadastrado: {0} ({1}). Confira a embalagem ou gere uma etiqueta interna.").format(
+			item_name, existing_item
+		),
+		frappe.ValidationError,
+	)
+
+
+def _barcode_label_url(item_code: str) -> str:
+	return "/api/method/tecponto_app.tecponto.frontend.pos.pos_download_barcode_label?item_code={0}".format(
+		quote(item_code)
+	)
+
+
+def _render_barcode_label_pdf(body: str, css: str) -> bytes:
+	import pdfkit
+
+	html = "<!doctype html><html><head><meta charset='utf-8'><style>{0}</style></head><body>{1}</body></html>".format(
+		css,
+		body,
+	)
+	return pdfkit.from_string(
+		html,
+		False,
+		options={
+			"page-width": "50mm",
+			"page-height": "30mm",
+			"margin-top": "0mm",
+			"margin-bottom": "0mm",
+			"margin-left": "0mm",
+			"margin-right": "0mm",
+			"encoding": "UTF-8",
+			"disable-javascript": "",
+			"disable-local-file-access": "",
+			"disable-smart-shrinking": "",
+			"quiet": "",
+		},
+	)
 
 
 def _resolve_sale_items(raw_items: list[dict[str, Any]], warehouse: str) -> tuple[list[dict[str, Any]], float]:

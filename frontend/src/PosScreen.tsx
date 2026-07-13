@@ -13,6 +13,9 @@ import { SaleSummary } from "./pos/SaleSummary";
 import type { PosCartLine, PosScanFeedback, PosScanStatus, PosSearchStatus, PosToast } from "./pos/types";
 
 interface PosScreenProps {
+  initialBarcode?: { code: string; id: number } | null;
+  onInitialBarcodeHandled?: () => void;
+  onRegisterUnknownBarcode?: (barcode: string) => void;
   onToast: PosToast;
 }
 
@@ -21,12 +24,13 @@ const INITIAL_SCAN_FEEDBACK: PosScanFeedback = {
   title: "Leitor aguardando",
 };
 
-export function PosScreen({ onToast }: PosScreenProps) {
+export function PosScreen({ initialBarcode, onInitialBarcodeHandled, onRegisterUnknownBarcode, onToast }: PosScreenProps) {
   const barcodeRef = useRef<HTMLInputElement>(null);
   const manualRef = useRef<HTMLInputElement>(null);
   const discountRef = useRef<HTMLInputElement>(null);
   const searchRequestRef = useRef(0);
   const idempotencyRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const initialBarcodeRef = useRef<number | null>(null);
   const [barcode, setBarcode] = useState("");
   const [scanFeedback, setScanFeedback] = useState<PosScanFeedback>(INITIAL_SCAN_FEEDBACK);
   const [scanStatus, setScanStatus] = useState<PosScanStatus>("idle");
@@ -127,8 +131,8 @@ export function PosScreen({ onToast }: PosScreenProps) {
     return true;
   }, [cart, focusScanner, onToast]);
 
-  const lookupBarcode = async () => {
-    const scanned = barcode.trim();
+  const lookupBarcode = async (barcodeValue?: string) => {
+    const scanned = (barcodeValue ?? barcode).trim();
     if (!scanned) {
       setScanStatus("error");
       setScanFeedback({ detail: "Digite ou bipe um código válido para continuar.", title: "Código não informado" });
@@ -144,9 +148,10 @@ export function PosScreen({ onToast }: PosScreenProps) {
       if (!item) {
         setScanStatus("error");
         setScanFeedback({
-          detail: "Nenhum produto cadastrado com este código. Tente buscar por nome, SKU ou referência.",
+          detail: "Nenhum produto cadastrado com este código. Abra o cadastro com o código já preenchido.",
           title: "Código não encontrado",
         });
+        onRegisterUnknownBarcode?.(scanned);
         return;
       }
       if (addItem(item, "scanner")) {
@@ -167,6 +172,15 @@ export function PosScreen({ onToast }: PosScreenProps) {
       focusScanner(true);
     }
   };
+
+  useEffect(() => {
+    if (!initialBarcode || initialBarcodeRef.current === initialBarcode.id) {
+      return;
+    }
+    initialBarcodeRef.current = initialBarcode.id;
+    setBarcode(initialBarcode.code);
+    void lookupBarcode(initialBarcode.code).finally(() => onInitialBarcodeHandled?.());
+  }, [initialBarcode, onInitialBarcodeHandled]);
 
   const changeBarcode = (value: string) => {
     setBarcode(value);

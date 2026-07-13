@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   BadgeInfo,
+  Barcode,
   Box,
   CalendarClock,
   CheckCircle2,
@@ -31,6 +32,7 @@ import {
   balcao,
   getBoot,
   logout,
+  pos,
   serviceOrders,
   type BudgetItemSummary,
   type BudgetLineType,
@@ -59,6 +61,7 @@ import { CheckinWizard } from "./CheckinWizard";
 import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
 import { LoginScreen, type LoginReason } from "./LoginScreen";
 import { PosScreen } from "./PosScreen";
+import { RetailProductModal } from "./RetailProductModal";
 import { panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { BudgetDecisionModal, PickupModal } from "./ServiceOrderFlows";
@@ -94,6 +97,8 @@ type ServiceOrderFlow = "approve" | "reject" | "pickup";
 type ServiceOrdersViewMode = "list" | "kanban";
 type AppTheme = "dark" | "light";
 type ContextMenuKind = "global" | "service-order";
+type PendingPosBarcode = { code: string; id: number };
+type PendingRetailBarcode = { code: string; id: number };
 
 interface TecpontoContextTarget {
   customer?: string | null;
@@ -126,6 +131,8 @@ interface ServiceOrderFilterState {
 const SERVICE_ORDERS_VIEW_KEY = "tecponto.service-orders.view";
 const THEME_STORAGE_PREFIX = "tecponto.theme.";
 const CONTEXT_STORAGE_PREFIX = "tecponto.context.";
+const BARCODE_MIN_LENGTH = 6;
+const BARCODE_KEY_INTERVAL_MS = 100;
 const DEFAULT_DASHBOARD_PERIOD: DashboardPeriodFilter = {
   fromDate: "",
   mode: "7d",
@@ -246,6 +253,18 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
     title: "Peças e estoque",
     subtitle: "Consulta de disponibilidade por depósito.",
   },
+  "repair-parts": {
+    title: "Peças de reparo",
+    subtitle: "Disponibilidade exclusiva do depósito de Reparo.",
+  },
+  "commercial-products": {
+    title: "Produtos",
+    subtitle: "Disponibilidade exclusiva do estoque Comercial.",
+  },
+  "used-devices": {
+    title: "Aparelhos usados",
+    subtitle: "Seminovos recebidos no fluxo de troca.",
+  },
   pos: {
     title: "PDV do balcão",
     subtitle: "Venda rápida por código de barras ou busca de produto.",
@@ -266,6 +285,8 @@ export function App() {
   const [contextMenu, setContextMenu] = useState<TecpontoContextMenuState | null>(null);
   const [selectedOrderName, setSelectedOrderName] = useState<string | null>(null);
   const [pendingOrderFlow, setPendingOrderFlow] = useState<ServiceOrderFlow | null>(null);
+  const [pendingPosBarcode, setPendingPosBarcode] = useState<PendingPosBarcode | null>(null);
+  const [pendingRetailBarcode, setPendingRetailBarcode] = useState<PendingRetailBarcode | null>(null);
   const [contextOverride, setContextOverride] = useState<RolePanel | null>(null);
   const [serviceOrdersView, setServiceOrdersView] = useState<ServiceOrdersViewMode>(getStoredServiceOrdersView);
   const [theme, setTheme] = useState<AppTheme>("dark");
@@ -343,6 +364,68 @@ export function App() {
     }
     toastTimer.current = window.setTimeout(() => setToast(null), 3200);
   }, []);
+
+  useEffect(() => {
+    if (state.status !== "ready") {
+      return;
+    }
+
+    let buffer = "";
+    let lastKeyAt = 0;
+    let resetTimer: number | null = null;
+    const reset = () => {
+      buffer = "";
+      lastKeyAt = 0;
+      if (resetTimer) {
+        window.clearTimeout(resetTimer);
+        resetTimer = null;
+      }
+    };
+    const isEditable = (target: EventTarget | null) => {
+      const element = target instanceof HTMLElement ? target : null;
+      return Boolean(element?.closest("input, textarea, select, [contenteditable='true']"));
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey || isEditable(event.target)) {
+        return;
+      }
+
+      if (event.key === "Enter") {
+        const scanned = buffer;
+        const isScannerSequence = scanned.length >= BARCODE_MIN_LENGTH && Date.now() - lastKeyAt <= BARCODE_KEY_INTERVAL_MS * 2;
+        reset();
+        if (!isScannerSequence) {
+          return;
+        }
+        event.preventDefault();
+        setPendingPosBarcode({ code: scanned, id: Date.now() });
+        setActiveView("pos");
+        return;
+      }
+
+      if (event.key.length !== 1 || !/^[A-Za-z0-9._-]$/.test(event.key)) {
+        reset();
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastKeyAt > BARCODE_KEY_INTERVAL_MS) {
+        buffer = "";
+      }
+      buffer += event.key;
+      lastKeyAt = now;
+      if (resetTimer) {
+        window.clearTimeout(resetTimer);
+      }
+      resetTimer = window.setTimeout(reset, BARCODE_KEY_INTERVAL_MS * 3);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      reset();
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [state.status]);
 
   const copyToClipboard = useCallback(
     async (value: string, label: string) => {
@@ -660,7 +743,7 @@ export function App() {
   return (
     <div className="min-h-screen">
       <Sidebar
-        activeItemId={activeView === "service-order-detail" ? "service-orders" : activeView === "pos" ? "overview" : activeView}
+        activeItemId={activeView === "service-order-detail" ? "service-orders" : activeView}
         onLogout={logout}
         onOpenHelp={() => setHelpOpen(true)}
         onNavigate={setActiveView}
@@ -714,6 +797,15 @@ export function App() {
           ) : (
             <NavigationContent
               activeView={activeView}
+              initialPosBarcode={pendingPosBarcode}
+              initialRetailBarcode={pendingRetailBarcode}
+              canReceiveStock={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "System Manager")}
+              onInitialPosBarcodeHandled={() => setPendingPosBarcode(null)}
+              onInitialRetailBarcodeHandled={() => setPendingRetailBarcode(null)}
+              onRegisterUnknownRetailBarcode={(code) => {
+                setPendingRetailBarcode({ code, id: Date.now() });
+                setActiveView("commercial-products");
+              }}
               onNavigate={setActiveView}
               onOpenServiceOrder={openServiceOrder}
               onRefreshData={() => void load({ quiet: true })}
@@ -1308,6 +1400,12 @@ function DashboardPeriodControl({
 
 function NavigationContent({
   activeView,
+  initialPosBarcode,
+  initialRetailBarcode,
+  canReceiveStock,
+  onInitialPosBarcodeHandled,
+  onInitialRetailBarcodeHandled,
+  onRegisterUnknownRetailBarcode,
   initialOrderFlow,
   onInitialOrderFlowHandled,
   onNavigate,
@@ -1321,7 +1419,13 @@ function NavigationContent({
   setServiceOrdersView,
 }: {
   activeView: NavigationTarget;
+  canReceiveStock: boolean;
+  initialPosBarcode: PendingPosBarcode | null;
+  initialRetailBarcode: PendingRetailBarcode | null;
   initialOrderFlow: ServiceOrderFlow | null;
+  onInitialPosBarcodeHandled: () => void;
+  onInitialRetailBarcodeHandled: () => void;
+  onRegisterUnknownRetailBarcode: (barcode: string) => void;
   onInitialOrderFlowHandled: () => void;
   onNavigate: (target: NavigationTarget) => void;
   onOpenServiceOrder: (name: string, flow?: ServiceOrderFlow | null) => void;
@@ -1448,12 +1552,12 @@ function NavigationContent({
     return <TradeLookup />;
   }
 
-  if (activeView === "parts-stock") {
-    return <StockLookup />;
+  if (activeView === "parts-stock" || activeView === "repair-parts" || activeView === "commercial-products" || activeView === "used-devices") {
+    return <StockLookup canReceiveStock={canReceiveStock} initialBarcode={initialRetailBarcode} onInitialBarcodeHandled={onInitialRetailBarcodeHandled} onToast={onToast} scope={activeView} />;
   }
 
   if (activeView === "pos") {
-    return <PosScreen onToast={onToast} />;
+    return <PosScreen initialBarcode={initialPosBarcode} onInitialBarcodeHandled={onInitialPosBarcodeHandled} onRegisterUnknownBarcode={onRegisterUnknownRetailBarcode} onToast={onToast} />;
   }
 
   return <SalesLookup onNavigate={onNavigate} />;
@@ -3682,52 +3786,171 @@ function TradeEvaluationDetailModal({
   );
 }
 
-function StockLookup() {
+function StockLookup({
+  canReceiveStock,
+  initialBarcode,
+  onInitialBarcodeHandled,
+  onToast,
+  scope,
+}: {
+  canReceiveStock: boolean;
+  initialBarcode: PendingRetailBarcode | null;
+  onInitialBarcodeHandled: () => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+  scope: "parts-stock" | "repair-parts" | "commercial-products" | "used-devices";
+}) {
+  const isCommercialCatalog = scope === "commercial-products" || scope === "parts-stock";
+  const scopeCopy = {
+    "parts-stock": {
+      title: "Produtos",
+      description: "Estoque comercial disponível para venda no balcão.",
+      searchPlaceholder: "Buscar produto, código ou depósito comercial",
+    },
+    "repair-parts": {
+      title: "Peças de reparo",
+      description: "Disponibilidade exclusiva do depósito de Reparo.",
+      searchPlaceholder: "Buscar peça, código ou depósito de reparo",
+    },
+    "commercial-products": {
+      title: "Produtos",
+      description: "Estoque comercial disponível para venda no balcão.",
+      searchPlaceholder: "Buscar produto, código ou depósito comercial",
+    },
+    "used-devices": {
+      title: "Aparelhos usados",
+      description: "Estoque de trade-in rastreado por IMEI/serial.",
+      searchPlaceholder: "Buscar aparelho usado, IMEI ou depósito comercial",
+    },
+  }[scope];
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<StockItemSummary[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [busyItem, setBusyItem] = useState<string | null>(null);
+  const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [registrationBarcode, setRegistrationBarcode] = useState<string | null>(null);
 
   const search = useCallback(async (nextQuery: string) => {
     setStatus("loading");
     try {
-      const response = await balcao.listStockItems(nextQuery, 12);
+      const response = await balcao.listStockItems(nextQuery, 12, scope);
       setRows(response.items);
       setStatus("ready");
     } catch {
       setStatus("error");
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     void search("");
   }, [search]);
+
+  useEffect(() => {
+    if (!initialBarcode || !isCommercialCatalog) return;
+    setRegistrationBarcode(initialBarcode.code);
+    setRegistrationOpen(true);
+    onInitialBarcodeHandled();
+  }, [initialBarcode, isCommercialCatalog, onInitialBarcodeHandled]);
+
+  const generateBarcode = useCallback(async (row: StockItemSummary) => {
+    setBusyItem(row.item_code);
+    try {
+      const response = await pos.generateBarcode(row.item_code);
+      setRows((current) => current.map((item) => item.item_code === row.item_code ? { ...item, barcode: response.barcode } : item));
+      onToast(response.created ? `Código ${response.barcode} gerado e salvo no Item.` : "O item já possuía código; nenhum dado foi alterado.");
+      window.open(response.label.url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Não foi possível gerar a etiqueta.", "error");
+    } finally {
+      setBusyItem(null);
+    }
+  }, [onToast]);
 
   const columns = useMemo<Array<TableColumn<StockItemSummary>>>(
     () => [
       { key: "item_code", label: "Item", render: (row) => <span className="font-semibold text-white">{row.item_code}</span> },
       { key: "item_name", label: "Descrição", render: (row) => row.item_name ?? row.item_code },
       { key: "item_group", label: "Grupo", render: (row) => row.item_group ?? "Sem grupo" },
+      {
+        key: "barcode",
+        label: "Código de barras",
+        render: (row) => row.barcode ? <span className="font-mono text-xs text-tec-subtle">{row.barcode}</span> : <span className="text-tec-amber">Sem código</span>,
+      },
       { key: "warehouse", label: "Estoque", render: (row) => row.warehouse ?? "Sem depósito" },
       { key: "available_qty", label: "Disponível", render: (row) => row.available_qty.toLocaleString("pt-BR") },
+      {
+        key: "barcode_action",
+        label: "Etiqueta",
+        render: (row) => !isCommercialCatalog ? (
+          <span className="text-xs text-tec-muted">{scope === "used-devices" || row.has_serial_no ? "Controlado por IMEI" : "Estoque de reparo"}</span>
+        ) : !row.is_commercial_item ? (
+          <span className="text-xs text-tec-muted">Não comercial</span>
+        ) : row.has_serial_no ? (
+          <span className="text-xs text-tec-muted">Controlado por IMEI</span>
+        ) : row.barcode ? (
+          <Button
+            icon={<Printer size={15} />}
+            onClick={() => window.open(pos.barcodeLabelUrl(row.item_code), "_blank", "noopener,noreferrer")}
+            title="Imprimir etiqueta sem alterar o código existente"
+          >
+            Imprimir
+          </Button>
+        ) : (
+          <Button
+            disabled={busyItem === row.item_code}
+            icon={<Barcode size={16} />}
+            onClick={() => void generateBarcode(row)}
+            variant="primary"
+          >
+            {busyItem === row.item_code ? "Gerando..." : "Gerar etiqueta"}
+          </Button>
+        ),
+      },
     ],
-    [],
+    [busyItem, generateBarcode, isCommercialCatalog, scope],
   );
 
   return (
-    <LookupCard
-      columns={columns}
-      emptyLabel={status === "error" ? "Falha ao consultar estoque." : "Nenhum item encontrado."}
-      onSearch={(event) => {
-        event.preventDefault();
-        void search(query);
-      }}
-      placeholder="Buscar peça, produto ou depósito"
-      query={query}
-      rows={rows}
-      setQuery={setQuery}
-      status={status}
-      title="Peças e estoque"
-    />
+    <div className="space-y-4">
+      {isCommercialCatalog ? (
+        <div className="flex flex-col gap-3 rounded-card bg-tec-field/35 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-white">Cadastro e entrada por código</h2>
+            <p className="mt-1 text-sm text-tec-subtle">Escaneie a embalagem; produto conhecido não cria cadastro duplicado.</p>
+          </div>
+          <Button icon={<Plus size={16} />} onClick={() => {
+            setRegistrationBarcode(null);
+            setRegistrationOpen(true);
+          }} variant="primary">Cadastrar produto</Button>
+        </div>
+      ) : null}
+      <LookupCard
+        columns={columns}
+        emptyLabel={status === "error" ? "Falha ao consultar estoque." : "Nenhum item encontrado."}
+        onSearch={(event) => {
+          event.preventDefault();
+          void search(query);
+        }}
+        placeholder={scopeCopy.searchPlaceholder}
+        query={query}
+        rows={rows}
+        setQuery={setQuery}
+        status={status}
+        tableMinWidthClassName="min-w-[940px]"
+        title={scopeCopy.title}
+      />
+      {isCommercialCatalog ? (
+        <RetailProductModal
+          canReceiveStock={canReceiveStock}
+          initialBarcode={registrationBarcode}
+          onClose={() => setRegistrationOpen(false)}
+          onCreated={(message) => {
+            onToast(message);
+            void search("");
+          }}
+          open={registrationOpen}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -3858,6 +4081,7 @@ function LookupCard<T>({
   rows,
   setQuery,
   status,
+  tableMinWidthClassName,
   title,
 }: {
   columns: Array<TableColumn<T>>;
@@ -3870,6 +4094,7 @@ function LookupCard<T>({
   rows: T[];
   setQuery: (query: string) => void;
   status: "loading" | "ready" | "error";
+  tableMinWidthClassName?: string;
   title: string;
 }) {
   return (
@@ -3898,7 +4123,7 @@ function LookupCard<T>({
         </div>
         {headerAction}
       </div>
-      <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} onRowClick={onRowClick} rows={rows} />
+      <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} onRowClick={onRowClick} rows={rows} tableMinWidthClassName={tableMinWidthClassName} />
     </Card>
   );
 }

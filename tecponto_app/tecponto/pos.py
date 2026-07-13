@@ -1,4 +1,9 @@
+from base64 import b64encode
+from io import BytesIO
+
 import frappe
+from frappe.utils import fmt_money
+from frappe.model.naming import make_autoname
 
 from tecponto_app.tecponto.payments import ensure_card_receivables_setup
 
@@ -7,7 +12,16 @@ POS_PROFILE_NAME = "Tecponto Balcão"
 POS_PAYMENT_MODES = ("Pix", "Dinheiro", "Débito", "Crédito à vista", "Crédito parcelado")
 CARD_PAYMENT_MODES = ("Débito", "Crédito à vista", "Crédito parcelado")
 COMMERCIAL_ITEM_GROUP_ROOTS = ("Produtos de Varejo", "Aparelhos Usados")
+RETAIL_ITEM_GROUP_ROOT = "Produtos de Varejo"
 POS_RECEIPT_PRINT_FORMAT = "Tecponto Cupom PDV"
+POS_BARCODE_LABEL_PRINT_FORMAT = "Tecponto Etiqueta Barcode"
+BARCODE_SOURCE_FIELD = "custom_tecponto_barcode_source"
+BARCODE_SYMBOLOGY_FIELD = "custom_tecponto_barcode_symbology"
+BARCODE_SOURCE_MANUFACTURER = "Fabricante"
+BARCODE_SOURCE_INTERNAL = "Interno Tecponto"
+BARCODE_SYMBOLOGY_EAN13 = "EAN-13"
+BARCODE_SYMBOLOGY_CODE128 = "Code-128"
+INTERNAL_BARCODE_SERIES = "TPC.########"
 
 
 def ensure_pos_profile() -> None:
@@ -53,12 +67,58 @@ def ensure_pos_profile() -> None:
 		)
 
 	profile.save(ignore_permissions=True)
+	ensure_item_barcode_source_field()
 	ensure_pos_receipt_print_format()
+	ensure_pos_barcode_label_print_format()
+
+
+def ensure_item_barcode_source_field() -> None:
+	"""Keep barcode semantics in the app while using ERPNext's native child table."""
+	if not frappe.db.exists("DocType", "Item Barcode"):
+		return
+	fields = (
+		{
+			"fieldname": BARCODE_SOURCE_FIELD,
+			"label": "Origem do código",
+			"fieldtype": "Select",
+			"options": f"\n{BARCODE_SOURCE_MANUFACTURER}\n{BARCODE_SOURCE_INTERNAL}",
+			"insert_after": "barcode_type",
+		},
+		{
+			"fieldname": BARCODE_SYMBOLOGY_FIELD,
+			"label": "Simbologia Tecponto",
+			"fieldtype": "Select",
+			"options": f"\n{BARCODE_SYMBOLOGY_EAN13}\n{BARCODE_SYMBOLOGY_CODE128}",
+			"insert_after": BARCODE_SOURCE_FIELD,
+		},
+	)
+	for field in fields:
+		if frappe.db.exists("Custom Field", {"dt": "Item Barcode", "fieldname": field["fieldname"]}):
+			continue
+		frappe.get_doc(
+			{
+				"doctype": "Custom Field",
+				"dt": "Item Barcode",
+				"module": "Tecponto",
+				**field,
+			}
+		).insert(ignore_permissions=True)
+	# Child-table metadata may already be cached in a web request or test run.
+	frappe.clear_cache(doctype="Item Barcode")
+	frappe.clear_cache(doctype="Item")
 
 
 def get_commercial_item_groups() -> list[str]:
+	return _descendant_item_groups(COMMERCIAL_ITEM_GROUP_ROOTS)
+
+
+def get_retail_item_groups() -> list[str]:
+	return _descendant_item_groups((RETAIL_ITEM_GROUP_ROOT,))
+
+
+def _descendant_item_groups(roots: tuple[str, ...]) -> list[str]:
 	groups: set[str] = set()
-	for root in COMMERCIAL_ITEM_GROUP_ROOTS:
+	for root in roots:
 		bounds = frappe.db.get_value("Item Group", root, ["lft", "rgt"], as_dict=True)
 		if not bounds:
 			continue
@@ -97,6 +157,143 @@ def ensure_pos_receipt_print_format() -> None:
 		}
 	)
 	print_format.save(ignore_permissions=True)
+
+
+def ensure_pos_barcode_label_print_format() -> None:
+	if not frappe.db.exists("DocType", "Print Format"):
+		return
+
+	if frappe.db.exists("Print Format", POS_BARCODE_LABEL_PRINT_FORMAT):
+		print_format = frappe.get_doc("Print Format", POS_BARCODE_LABEL_PRINT_FORMAT)
+	else:
+		print_format = frappe.new_doc("Print Format")
+		print_format.name = POS_BARCODE_LABEL_PRINT_FORMAT
+
+	print_format.update(
+		{
+			"doc_type": "Item",
+			"module": "Tecponto",
+			"standard": "No",
+			"custom_format": 1,
+			"print_format_for": "DocType",
+			"print_format_type": "Jinja",
+			"disabled": 0,
+			"raw_printing": 0,
+			"margin_top": 2,
+			"margin_bottom": 2,
+			"margin_left": 2,
+			"margin_right": 2,
+			"html": _barcode_label_html(),
+			"css": _barcode_label_css(),
+		}
+	)
+	print_format.save(ignore_permissions=True)
+
+
+def generate_item_barcode(item, *, force_internal: bool = False) -> tuple[str, bool]:
+	"""Generate an internal Code 128 only when the item needs one.
+
+	The `Series` row is locked by Frappe, so simultaneous requests cannot issue the
+	same Tecponto code. Existing manufacturer codes are never replaced.
+	"""
+	internal = next(
+		(
+			row.barcode
+			for row in item.get("barcodes") or []
+			if row.barcode and row.get(BARCODE_SOURCE_FIELD) == BARCODE_SOURCE_INTERNAL
+		),
+		None,
+	)
+	if internal:
+		return internal, False
+
+	existing = next((row.barcode for row in item.get("barcodes") or [] if row.barcode), None)
+	if existing and not force_internal:
+		return existing, False
+
+	for _attempt in range(20):
+		barcode = make_autoname(INTERNAL_BARCODE_SERIES)
+		if frappe.db.exists("Item Barcode", {"barcode": barcode}):
+			continue
+		item.append(
+			"barcodes",
+			{
+				"barcode": barcode,
+				BARCODE_SYMBOLOGY_FIELD: BARCODE_SYMBOLOGY_CODE128,
+				BARCODE_SOURCE_FIELD: BARCODE_SOURCE_INTERNAL,
+				"uom": item.stock_uom,
+			},
+		)
+		item.save(ignore_permissions=True)
+		return barcode, True
+
+	frappe.throw("Nao foi possivel gerar um codigo interno unico. Tente novamente.")
+
+
+def get_item_barcode_label_context(doc) -> dict:
+	barcodes = doc.get("barcodes") or []
+	barcode = next(
+		(row.barcode for row in barcodes if row.barcode and row.get(BARCODE_SOURCE_FIELD) == BARCODE_SOURCE_INTERNAL),
+		next((row.barcode for row in barcodes if row.barcode), None),
+	)
+	if not barcode:
+		frappe.throw("Item sem codigo de barras para imprimir.")
+	return {
+		"item_code": doc.name,
+		"item_name": doc.item_name or doc.name,
+		"barcode": barcode,
+		"barcode_image": barcode_svg_data_uri(barcode),
+		"price": fmt_money(doc.standard_rate or 0, currency="BRL"),
+	}
+
+
+def barcode_svg_data_uri(value: str) -> str:
+	from barcode import Code128, EAN13
+	from barcode.writer import SVGWriter
+
+	stream = BytesIO()
+	barcode_class = EAN13 if _is_valid_ean13(value) else Code128
+	barcode_value = value[:12] if barcode_class is EAN13 else value
+	barcode_class(barcode_value, writer=SVGWriter()).write(
+		stream,
+		options={"write_text": False, "module_height": 8, "quiet_zone": 1, "font_size": 7},
+	)
+	svg = stream.getvalue()
+	stream.close()
+	return "data:image/svg+xml;base64,{0}".format(b64encode(svg).decode())
+
+
+def _is_valid_ean13(value: str) -> bool:
+	if len(value) != 13 or not value.isdigit():
+		return False
+	checksum = sum(int(digit) * (1 if index % 2 == 0 else 3) for index, digit in enumerate(value[:12]))
+	return (10 - checksum % 10) % 10 == int(value[12])
+
+
+def _barcode_label_html() -> str:
+	return """
+{% set label = get_item_barcode_label_context(doc) %}
+<div class="tp-barcode-label">
+  <p class="tp-product">{{ label.item_name }}</p>
+  <p class="tp-price">{{ label.price }}</p>
+  <img alt="Codigo de barras {{ label.barcode }}" src="{{ label.barcode_image }}">
+  <p class="tp-code">{{ label.barcode }}</p>
+  <p class="tp-sku">{{ label.item_code }}</p>
+</div>
+""".strip()
+
+
+def _barcode_label_css() -> str:
+	return """
+@page { size: 50mm 30mm; margin: 0; }
+.print-format { padding: 0 !important; margin: 0 !important; font-family: Arial, sans-serif; color: #111; }
+.tp-barcode-label { width: 48mm; height: 28mm; box-sizing: border-box; padding: 1.5mm; text-align: center; overflow: hidden; }
+.tp-product { margin: 0; font-size: 9pt; font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-price { margin: 0.5mm 0; font-size: 11pt; font-weight: 700; }
+.tp-barcode-label img { display: block; width: 43mm; height: 10mm; margin: 0 auto; object-fit: contain; }
+.tp-code { margin: 0; font-family: monospace; font-size: 8pt; letter-spacing: 0.4mm; }
+.tp-sku { margin: 0.4mm 0 0; font-size: 6.5pt; color: #555; }
+""".strip()
 
 
 def _receipt_html() -> str:

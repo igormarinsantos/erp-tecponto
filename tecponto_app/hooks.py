@@ -8,6 +8,7 @@ app_license = "mit"
 jinja = {
 	"methods": [
 		"tecponto_app.tecponto.service_order.print_formats.get_service_order_print_context",
+		"tecponto_app.tecponto.pos.get_item_barcode_label_context",
 	],
 }
 
@@ -61,6 +62,7 @@ fixtures = [
 					"Tecponto OS Orcamento",
 					"Tecponto Etiqueta QR",
 					"Tecponto Cupom PDV",
+					"Tecponto Etiqueta Barcode",
 				],
 			]
 		],
@@ -259,6 +261,7 @@ doc_events = {
 	},
 	"Item": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_item_valuation_defaults",
+		"validate": "tecponto_app.tecponto.stock.validate_item_barcodes",
 	},
 	"Service Order": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_service_order_stock_defaults",
@@ -337,6 +340,7 @@ after_migrate = [
 	"tecponto_app.tecponto.service_order.deadline.ensure_guarulhos_holiday_list",
 	"tecponto_app.tecponto.service_order.parts.ensure_stock_reservation_for_service_order",
 	"tecponto_app.tecponto.pos.ensure_pos_profile",
+	"tecponto_app.tecponto.pos.ensure_item_barcode_source_field",
 	"tecponto_app.tecponto.service_order.kanban.ensure_service_order_kanban",
 	"tecponto_app.tecponto.service_order.print_formats.ensure_service_order_print_formats",
 ]

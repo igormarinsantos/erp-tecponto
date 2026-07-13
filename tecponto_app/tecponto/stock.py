@@ -1,4 +1,14 @@
+import re
+
 import frappe
+
+from tecponto_app.tecponto.pos import (
+	BARCODE_SOURCE_FIELD,
+	BARCODE_SOURCE_INTERNAL,
+	BARCODE_SOURCE_MANUFACTURER,
+	BARCODE_SYMBOLOGY_CODE128,
+	BARCODE_SYMBOLOGY_FIELD,
+)
 
 
 MOVING_AVERAGE = "Moving Average"
@@ -90,6 +100,43 @@ def apply_sales_stock_defaults(doc, method=None) -> None:
 def apply_item_valuation_defaults(doc, method=None) -> None:
 	if doc.get("is_stock_item") and _item_group_uses_moving_average(doc.get("item_group")):
 		doc.valuation_method = MOVING_AVERAGE
+
+
+def normalize_barcode(value: str | None) -> str:
+	"""Scanners may append whitespace; never coerce a barcode to a number."""
+	return re.sub(r"\s+", "", str(value or ""))[:140]
+
+
+def validate_item_barcodes(doc, method=None) -> None:
+	"""Give the operator a useful conflict before the native unique index rejects it."""
+	seen: set[str] = set()
+	for row in doc.get("barcodes") or []:
+		barcode = normalize_barcode(row.get("barcode"))
+		if not barcode:
+			continue
+		row.barcode = barcode
+		if barcode in seen:
+			frappe.throw("O mesmo código foi informado duas vezes neste item.")
+		seen.add(barcode)
+
+		source = row.get(BARCODE_SOURCE_FIELD)
+		if source and source not in {BARCODE_SOURCE_MANUFACTURER, BARCODE_SOURCE_INTERNAL}:
+			frappe.throw("Origem do código de barras inválida.")
+		if source == BARCODE_SOURCE_INTERNAL and row.get(BARCODE_SYMBOLOGY_FIELD) != BARCODE_SYMBOLOGY_CODE128:
+			frappe.throw("Código interno Tecponto deve usar a simbologia Code-128.")
+
+		conflict = frappe.db.get_value(
+			"Item Barcode",
+			{"barcode": barcode, "parent": ["!=", doc.name or ""]},
+			"parent",
+		)
+		if conflict:
+			item_name = frappe.db.get_value("Item", conflict, "item_name") or conflict
+			frappe.throw(
+				"Código já cadastrado: {0} ({1}). Confira a embalagem ou gere uma etiqueta interna.".format(
+					item_name, conflict
+				)
+			)
 
 
 def validate_transfer_role(doc, method=None) -> None:

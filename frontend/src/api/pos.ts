@@ -1,5 +1,16 @@
 import { rpc } from "./client";
-import type { PosItemSearchResponse, PosSalePayload, PosSaleResponse } from "./types";
+import type {
+  PosBarcodeLabelResponse,
+  PosItemSearchResponse,
+  PosSalePayload,
+  PosSaleResponse,
+  RetailBarcodeLookupResponse,
+  RetailItemGroupResponse,
+  RetailProductRegistrationPayload,
+  RetailProductRegistrationResponse,
+  RetailStockReceiptPayload,
+  RetailStockReceiptResponse,
+} from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
 const POS_API = "tecponto_app.tecponto.frontend.pos";
@@ -11,8 +22,34 @@ interface PosItemSearchParams {
 }
 
 export const pos = {
+  barcodeLabelUrl(itemCode: string) {
+    return `/api/method/${POS_API}.pos_download_barcode_label?item_code=${encodeURIComponent(itemCode)}`;
+  },
   createSale(payload: PosSalePayload) {
     return rpc<PosSaleResponse>(`${POS_API}.pos_create_sale`, {
+      body: { payload: JSON.stringify(payload) },
+    });
+  },
+  generateBarcode(itemCode: string) {
+    return rpc<PosBarcodeLabelResponse>(`${POS_API}.pos_generate_item_barcode`, {
+      body: { item_code: itemCode },
+    });
+  },
+  lookupRetailBarcode(barcode: string) {
+    return rpc<RetailBarcodeLookupResponse>(`${POS_API}.pos_lookup_retail_barcode`, {
+      query: { barcode },
+    });
+  },
+  listRetailItemGroups() {
+    return rpc<RetailItemGroupResponse>(`${POS_API}.pos_list_retail_item_groups`);
+  },
+  receiveRetailStock(payload: RetailStockReceiptPayload) {
+    return rpc<RetailStockReceiptResponse>(`${POS_API}.pos_receive_retail_stock`, {
+      body: { payload: JSON.stringify(payload) },
+    });
+  },
+  registerRetailProduct(payload: RetailProductRegistrationPayload) {
+    return rpc<RetailProductRegistrationResponse>(`${POS_API}.pos_register_retail_product`, {
       body: { payload: JSON.stringify(payload) },
     });
   },
