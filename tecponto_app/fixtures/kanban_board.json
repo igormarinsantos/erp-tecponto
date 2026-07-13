@@ -4,13 +4,13 @@
    {
     "column_name": "Entrada criada",
     "indicator": "Gray",
-    "order": "[]",
+    "order": "[\n \"OS-2026-00028\",\n \"OS-2026-00027\",\n \"OS-2026-00026\",\n \"OS-2026-00025\",\n \"OS-2026-00024\",\n \"OS-2026-00023\",\n \"OS-2026-00022\",\n \"OS-2026-00020\",\n \"OS-2026-00017\",\n \"OS-2026-00015\",\n \"OS-2026-00014\",\n \"OS-2026-00012\",\n \"OS-2026-00011\",\n \"OS-2026-00010\",\n \"OS-2026-00003\",\n \"OS-2026-00002\",\n \"OS-2026-00001\"\n]",
     "status": "Active"
    },
    {
     "column_name": "Em diagnóstico",
     "indicator": "Light Blue",
-    "order": "[]",
+    "order": "[\n \"OS-2026-00013\",\n \"OS-2026-00009\"\n]",
     "status": "Active"
    },
    {
@@ -40,19 +40,19 @@
    {
     "column_name": "Pronto para retirada",
     "indicator": "Green",
-    "order": "[]",
+    "order": "[\n \"OS-2026-00007\",\n \"OS-2026-00005\",\n \"OS-2026-00004\"\n]",
     "status": "Active"
    },
    {
     "column_name": "Orçamento expirado",
     "indicator": "Red",
-    "order": "[]",
+    "order": "[\n \"OS-2026-00008\",\n \"OS-2026-00006\"\n]",
     "status": "Archived"
    },
    {
     "column_name": "Entregue",
     "indicator": "Green",
-    "order": "[]",
+    "order": "[\n \"OS-2026-00019\",\n \"OS-2026-00016\"\n]",
     "status": "Archived"
    },
    {
@@ -64,7 +64,7 @@
    {
     "column_name": "Sem conserto",
     "indicator": "Red",
-    "order": "[]",
+    "order": "[\n \"OS-2026-00021\"\n]",
     "status": "Archived"
    }
   ],

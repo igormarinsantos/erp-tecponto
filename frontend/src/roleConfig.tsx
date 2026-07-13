@@ -76,17 +76,35 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
     tableTitle: "Fila de atendimento",
     nav: [
       {
-        label: "Navegação",
+        label: "Início",
         items: [{ id: "overview", icon: Grid2X2, label: "Visão geral", subtitle: "O que precisa de você" }],
       },
       {
-        label: "Atendimento",
+        label: "Reparo",
         items: [
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Criar, buscar e acompanhar" },
-          { id: "devices", icon: Smartphone, label: "Aparelhos", subtitle: "Aparelhos e acessórios" },
-          { id: "trade-ins", icon: Handshake, label: "Trocas", subtitle: "Avaliações e propostas" },
+          { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque de reparo" },
+        ],
+      },
+      {
+        label: "Venda",
+        items: [
+          { id: "pos", icon: ShoppingCart, label: "PDV / Lançar venda", subtitle: "Venda rápida no balcão" },
+          { id: "commercial-products", icon: Boxes, label: "Produtos", subtitle: "Estoque comercial" },
+        ],
+      },
+      {
+        label: "Troca",
+        items: [
+          { id: "trade-ins", icon: Handshake, label: "Avaliações de troca", subtitle: "Ofertas e propostas" },
+          { id: "used-devices", icon: Smartphone, label: "Aparelhos usados", subtitle: "Estoque de trade-in" },
+        ],
+      },
+      {
+        label: "Cadastros",
+        items: [
           { id: "customers", icon: Users, label: "Clientes", subtitle: "Base e histórico" },
-          { id: "parts-stock", icon: Boxes, label: "Peças e estoque", subtitle: "Consulta de disponibilidade" },
+          { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Cadastro e histórico" },
         ],
       },
     ],

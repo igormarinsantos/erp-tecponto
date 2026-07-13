@@ -87,6 +87,11 @@ h4 {
   font-weight: 700;
 }
 
+.tp-logo-on-dark {
+  filter: brightness(0) invert(1);
+  opacity: 0.96;
+}
+
 .tp-metric-value {
   font-variant-numeric: tabular-nums;
 }
@@ -167,7 +172,8 @@ h4 {
 }
 
 .tp-sidebar-desktop {
-  display: block;
+  display: flex;
+  flex-direction: column;
   --tp-panel: 37 41 44;
   --tp-panel-strong: 37 41 44;
   --tp-field: 32 36 40;
@@ -175,6 +181,29 @@ h4 {
   --tp-subtle: 245 246 247;
   --tp-muted: 173 180 186;
   --tp-border: 48 54 60;
+}
+
+.tp-sidebar-nav-scroll {
+  overscroll-behavior: contain;
+  scrollbar-color: rgb(var(--tp-border) / 0.72) transparent;
+  scrollbar-width: thin;
+}
+
+.tp-sidebar-nav-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.tp-sidebar-nav-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tp-sidebar-nav-scroll::-webkit-scrollbar-thumb {
+  background: rgb(var(--tp-border) / 0.72);
+  border-radius: 999px;
+}
+
+.tp-sidebar-nav-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--tp-subtle) / 0.5);
 }
 
 .tp-topbar-shell {

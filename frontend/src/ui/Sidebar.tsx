@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import { ChevronUp, HelpCircle, LogOut } from "lucide-react";
 import { useState } from "react";
 
+import tecpontoLogoDark from "../assets/tecponto-logo-dark.png";
 import type { LoggedUser, NavigationTarget } from "../api";
 import { cx } from "./utils";
 
@@ -30,12 +31,12 @@ export function Sidebar({ activeItemId, onLogout, onOpenHelp, onNavigate, sectio
   const [profileOpen, setProfileOpen] = useState(false);
 
   return (
-    <aside className="tp-sidebar-desktop fixed inset-y-0 left-0 z-30 w-[var(--tp-sidebar-width)] border-r border-tec-border/20 bg-tec-sidebar p-4">
-      <div className="px-2 py-2">
-        <div className="tp-logo text-2xl font-bold leading-none tracking-normal text-white">TECPONTO</div>
+    <aside className="tp-sidebar-desktop fixed inset-y-0 left-0 z-30 flex w-[var(--tp-sidebar-width)] flex-col border-r border-tec-border/20 bg-tec-sidebar p-4">
+      <div className="shrink-0 px-2 py-2">
+        <img alt="Tecponto" className="tp-logo-image tp-logo-on-dark h-auto w-full max-w-[184px]" src={tecpontoLogoDark} />
       </div>
 
-      <nav className="mt-4 space-y-4">
+      <nav className="tp-sidebar-nav-scroll mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2 pb-3">
         {sections.map((section) => (
           <div key={section.label}>
             <p className="mb-2 px-2 text-xs font-bold uppercase text-tec-muted">{section.label}</p>
@@ -80,7 +81,7 @@ export function Sidebar({ activeItemId, onLogout, onOpenHelp, onNavigate, sectio
         ))}
       </nav>
 
-      <div className="absolute bottom-4 left-4 right-4 space-y-3">
+      <div className="mt-auto shrink-0 space-y-3 pt-3">
         <button
           className="flex min-h-[48px] w-full items-center gap-3 rounded-control border border-tec-border/20 bg-tec-panel px-4 text-left text-sm font-semibold text-tec-subtle transition hover:bg-tec-field hover:text-white"
           onClick={onOpenHelp}

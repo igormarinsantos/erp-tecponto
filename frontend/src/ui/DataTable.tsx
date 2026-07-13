@@ -17,12 +17,13 @@ interface DataTableProps<T> {
   getRowProps?: (row: T) => RowProps;
   onRowClick?: (row: T) => void;
   rows: T[];
+  tableMinWidthClassName?: string;
 }
 
-export function DataTable<T>({ columns, emptyLabel, getRowProps, onRowClick, rows }: DataTableProps<T>) {
+export function DataTable<T>({ columns, emptyLabel, getRowProps, onRowClick, rows, tableMinWidthClassName = "min-w-[1100px]" }: DataTableProps<T>) {
   return (
     <div className="overflow-x-auto rounded-card border border-tec-border/15">
-      <table className="tp-data-table min-w-[1100px] w-full table-fixed border-collapse text-left text-sm">
+      <table className={cx("tp-data-table w-full table-fixed border-collapse text-left text-sm", tableMinWidthClassName)}>
         <thead className="bg-tec-field/55 text-xs uppercase text-tec-muted">
           <tr>
             {columns.map((column) => (

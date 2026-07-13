@@ -1,6 +1,7 @@
 import { FormEvent, type ReactNode, useState } from "react";
 import { AlertCircle, ArrowRight, KeyRound, Loader2, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
 
+import tecpontoLogoDark from "./assets/tecponto-logo-dark.png";
 import { Button } from "./ui";
 
 export type LoginReason = "guest" | "expired";
@@ -41,7 +42,7 @@ export function LoginScreen({ message, onLogin, reason }: LoginScreenProps) {
       <div className="relative grid min-h-screen gap-6 p-4 md:grid-cols-[minmax(300px,0.85fr)_minmax(360px,1fr)] lg:p-6">
         <section className="flex min-h-[260px] flex-col justify-between rounded-[26px] border border-tec-border/20 bg-tec-sidebar p-6 shadow-panel lg:p-8">
           <div>
-            <div className="tp-logo text-3xl font-bold tracking-normal text-white">TECPONTO</div>
+            <img alt="Tecponto" className="tp-logo-image tp-logo-on-dark h-auto w-full max-w-[280px]" src={tecpontoLogoDark} />
             <p className="mt-2 text-xs font-bold uppercase tracking-wide text-tec-muted">Central de operação</p>
           </div>
 
