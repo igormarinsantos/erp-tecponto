@@ -5,7 +5,7 @@ from io import BytesIO
 from pathlib import Path
 
 import frappe
-from frappe.utils import add_days, flt, now_datetime, nowdate
+from frappe.utils import add_days, add_to_date, flt, now_datetime, nowdate
 from pypdf import PdfReader
 
 from tecponto_app.tecponto.frontend.api import (
@@ -24,6 +24,7 @@ from tecponto_app.tecponto.frontend.api import (
 	search_pos_items,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
+from tecponto_app.tecponto.requests import approve_request, create_request, expire_requests, reject_request
 from tecponto_app.tecponto.frontend.pos import (
 	pos_create_sale,
 	pos_download_barcode_label,
@@ -81,6 +82,7 @@ def run_foundation_checks() -> dict:
 			users["Tecponto Tecnico"],
 		)
 		multi_role_context = _check_multi_role_context(users["Tecponto Atendente"])
+		action_request_checks = run_action_request_checks()
 
 		return {
 			"status": "ok",
@@ -93,6 +95,7 @@ def run_foundation_checks() -> dict:
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
 			"multi_role_context": multi_role_context,
+			"action_request_checks": action_request_checks,
 		}
 	finally:
 		frappe.set_user(previous_user)
@@ -157,6 +160,67 @@ def ensure_service_order_detail_demo_data() -> dict:
 			demo["prints"] = [link["label"] for link in detail["print_links"]]
 
 		return {"status": "ok", "attendant_user": attendant, "orders": result}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_action_request_checks() -> dict:
+	"""Acceptance checks for approval requests: no requester bypass, no expired execution."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		demo = ensure_service_order_detail_demo_data()
+		order_name = demo["orders"]["entrada"]["name"]
+		limit = flt(frappe.db.get_single_value("Tecponto Settings", "discount_limit") or 0)
+		discount = max(limit + 1, 1)
+
+		frappe.set_user(attendant)
+		created = create_request("service_order_discount", order_name, "Cliente solicitou exceção de desconto.", {"discount": discount})
+		request = frappe.get_doc("Tecponto Request", created["name"])
+		if request.status != "Pendente" or request.approver_role != "Tecponto Gestor":
+			raise AssertionError("Trava não criou solicitação pendente para Gestor.")
+
+		self_approval_blocked = False
+		try:
+			approve_request(request.name)
+		except frappe.PermissionError:
+			self_approval_blocked = True
+		if not self_approval_blocked:
+			raise AssertionError("Solicitante aprovou a própria solicitação.")
+
+		frappe.set_user(manager)
+		approved = approve_request(request.name)
+		if approved["status"] != "Aprovada" or flt(frappe.db.get_value("Service Order", order_name, "discount")) != discount:
+			raise AssertionError("Aprovação do Gestor não reexecutou a ação no motor.")
+
+		frappe.set_user(attendant)
+		rejected = create_request("service_order_discount", order_name, "Nova exceção recusável.", {"discount": discount + 1})
+		frappe.set_user(manager)
+		reject_request(rejected["name"])
+		if flt(frappe.db.get_value("Service Order", order_name, "discount")) != discount:
+			raise AssertionError("Reprovação executou uma ação indevidamente.")
+
+		frappe.set_user(attendant)
+		expired = create_request("service_order_discount", order_name, "Exceção que deve expirar.", {"discount": discount + 2})
+		frappe.db.set_value("Tecponto Request", expired["name"], "expires_on", add_to_date(now_datetime(), hours=-1))
+		expired_count = expire_requests()
+		if frappe.db.get_value("Tecponto Request", expired["name"], "status") != "Expirada":
+			raise AssertionError("Scheduler não expirou solicitação vencida.")
+		if flt(frappe.db.get_value("Service Order", order_name, "discount")) != discount:
+			raise AssertionError("Solicitação expirada executou uma ação.")
+
+		return {
+			"status": "ok",
+			"created_pending": created["name"],
+			"approved": approved["name"],
+			"rejected": rejected["name"],
+			"expired": expired["name"],
+			"expired_count": expired_count,
+			"self_approval_blocked": self_approval_blocked,
+		}
 	finally:
 		frappe.set_user(previous_user)
 

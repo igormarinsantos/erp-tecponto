@@ -364,6 +364,7 @@ after_build = "tecponto_app.tecponto.frontend.build.build_frontend"
 scheduler_events = {
 	"daily": [
 		"tecponto_app.tecponto.service_order.deadline.expirar_orcamentos",
+		"tecponto_app.tecponto.requests.expire_requests",
 	],
 }
 
