@@ -2,6 +2,7 @@ import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useMemo, us
 import { CheckCircle2, ExternalLink, Percent, RefreshCw, UserRound } from "lucide-react";
 
 import { pos, type CustomerSummary, type PosItemSummary, type PosSalePaymentPayload, type PosSaleResponse } from "./api";
+import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { Button, Modal } from "./ui";
 import { AddProductPanel } from "./pos/AddProductPanel";
 import { CheckoutModal } from "./pos/CheckoutModal";
@@ -48,6 +49,10 @@ export function PosScreen({ initialBarcode, onInitialBarcodeHandled, onRegisterU
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [completedSale, setCompletedSale] = useState<PosSaleResponse | null>(null);
+  const [discountApproval, setDiscountApproval] = useState<{
+    payload: Record<string, unknown>;
+    referenceName: string;
+  } | null>(null);
 
   const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.standard_rate * line.qty, 0), [cart]);
   const total = Math.max(subtotal - discount, 0);
@@ -290,10 +295,11 @@ export function PosScreen({ initialBarcode, onInitialBarcodeHandled, onRegisterU
       const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       idempotencyRef.current = { fingerprint, key: `tp-pos-${random}` };
     }
+    const idempotencyKey = idempotencyRef.current.key;
 
     setCheckoutLoading(true);
     try {
-      const response = await pos.createSale({ ...requestWithoutKey, idempotency_key: idempotencyRef.current.key });
+      const response = await pos.createSale({ ...requestWithoutKey, idempotency_key: idempotencyKey });
       setCompletedSale(response);
       setCheckoutOpen(false);
       setCart([]);
@@ -301,7 +307,16 @@ export function PosScreen({ initialBarcode, onInitialBarcodeHandled, onRegisterU
       idempotencyRef.current = null;
       onToast(`Venda ${response.sale} concluída e cupom gerado.`, "success");
     } catch (error) {
-      onToast(error instanceof Error ? error.message : "Não foi possível finalizar a venda.", "error");
+      const message = error instanceof Error ? error.message : "Não foi possível finalizar a venda.";
+      if (message.includes("Desconto acima do limite")) {
+        setCheckoutOpen(false);
+        setDiscountApproval({
+          payload: { sale_payload: { ...requestWithoutKey, idempotency_key: idempotencyKey } },
+          referenceName: customer.name,
+        });
+      } else {
+        onToast(message, "error");
+      }
     } finally {
       setCheckoutLoading(false);
     }
@@ -412,6 +427,16 @@ export function PosScreen({ initialBarcode, onInitialBarcodeHandled, onRegisterU
           focusScanner(true);
         }}
         open={customerOpen}
+      />
+      <ApprovalRequestModal
+        onClose={() => setDiscountApproval(null)}
+        onCreated={() => setDiscountApproval(null)}
+        onToast={onToast}
+        open={Boolean(discountApproval)}
+        payload={discountApproval?.payload ?? {}}
+        referenceName={discountApproval?.referenceName ?? ""}
+        requestType="pos_discount"
+        title="Este desconto ultrapassa seu limite. Deseja solicitar aprovação do Gestor?"
       />
       <CheckoutModal
         customerName={customer?.customer_name ?? customer?.name ?? "Cliente"}

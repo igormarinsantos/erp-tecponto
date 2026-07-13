@@ -58,6 +58,8 @@ import {
 import { login } from "./api/auth";
 import { isAuthRequiredError } from "./api/client";
 import { CheckinWizard } from "./CheckinWizard";
+import { ApprovalRequestModal } from "./ApprovalRequestModal";
+import { ApprovalRequestsPanel } from "./ApprovalRequestsPanel";
 import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
 import { LoginScreen, type LoginReason } from "./LoginScreen";
 import { PosScreen } from "./PosScreen";
@@ -791,6 +793,7 @@ export function App() {
               onOpenNotifications={() => setNotificationsOpen(true)}
               onStartCheckin={startCheckin}
               onOpenServiceOrder={openServiceOrder}
+              onToast={showToast}
               orders={state.orders}
               panel={panel}
             />
@@ -1274,6 +1277,7 @@ function OverviewContent({
   onNavigate,
   onOpenNotifications,
   onOpenServiceOrder,
+  onToast,
   onStartCheckin,
   orders,
   panel,
@@ -1283,6 +1287,7 @@ function OverviewContent({
   onNavigate: (target: NavigationTarget) => void;
   onOpenNotifications: () => void;
   onOpenServiceOrder: (name: string) => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
   onStartCheckin: () => void;
   orders: ServiceOrderSummary[];
   panel: (typeof panelDefinitions)[keyof typeof panelDefinitions];
@@ -1321,6 +1326,9 @@ function OverviewContent({
           onOpenNotifications={onOpenNotifications}
           onStartCheckin={onStartCheckin}
         />
+      </div>
+      <div className="mt-4">
+        <ApprovalRequestsPanel onToast={onToast} />
       </div>
     </>
   );
@@ -1970,6 +1978,7 @@ function ServiceOrderDetail({
   const [budgetLineType, setBudgetLineType] = useState<BudgetLineType | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [quoteSendOpen, setQuoteSendOpen] = useState(false);
+  const [moveApproval, setMoveApproval] = useState<string | null>(null);
   const initialFlowRef = useRef(initialFlow);
 
   useEffect(() => {
@@ -1983,6 +1992,7 @@ function ServiceOrderDetail({
     setBudgetLineType(null);
     setHistoryOpen(false);
     setQuoteSendOpen(false);
+    setMoveApproval(null);
     setState({ status: "loading" });
     serviceOrders
       .detail(name)
@@ -2043,7 +2053,12 @@ function ServiceOrderDetail({
       setState({ status: "ready", detail: updated });
       onToast(moveResult.changed ? `OS movida para ${updated.workflow_state}.` : `OS já estava em ${updated.workflow_state}.`);
     } catch (caught) {
-      onToast(caught instanceof Error ? caught.message : "Não foi possível avançar o workflow.", "error");
+      const message = caught instanceof Error ? caught.message : "Não foi possível avançar o workflow.";
+      if (message.includes("Seu papel não permite mover")) {
+        setMoveApproval(nextState);
+      } else {
+        onToast(message, "error");
+      }
     }
   }
 
@@ -2187,6 +2202,16 @@ function ServiceOrderDetail({
         }}
         onRefresh={() => void refreshServiceOrder("OS atualizada.")}
         open={actionsOpen}
+      />
+      <ApprovalRequestModal
+        onClose={() => setMoveApproval(null)}
+        onCreated={() => setMoveApproval(null)}
+        onToast={onToast}
+        open={Boolean(moveApproval)}
+        payload={{ target_state: moveApproval ?? "" }}
+        referenceName={detail.name}
+        requestType="service_order_move"
+        title={`Seu papel não permite mover esta OS para ${moveApproval ?? "esta etapa"}. Deseja solicitar aprovação?`}
       />
     </div>
   );

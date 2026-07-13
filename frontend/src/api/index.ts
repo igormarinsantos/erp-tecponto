@@ -2,6 +2,8 @@ export { balcao } from "./balcao";
 export { checkin } from "./checkin";
 export { getBoot, getLoggedUser, logout } from "./auth";
 export { pos } from "./pos";
+export { approvalRequests } from "./requests";
+export type { ApprovalRequest } from "./requests";
 export { serviceOrders, type ServiceOrderQueryParams } from "./serviceOrders";
 export type {
   BudgetDecisionPayload,

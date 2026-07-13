@@ -12,13 +12,14 @@ from frappe.utils import add_to_date, get_datetime, now_datetime
 REQUEST_TYPES = {
 	"service_order_move": {"label": "Mover OS fora do papel", "doctype": "Service Order"},
 	"service_order_discount": {"label": "Desconto acima do limite", "doctype": "Service Order"},
-	"pos_price_floor": {"label": "Venda abaixo do custo", "doctype": "Sales Invoice"},
+	"pos_discount": {"label": "Desconto acima do limite", "doctype": "Customer"},
+	"pos_price_floor": {"label": "Venda abaixo do custo", "doctype": "Customer"},
 	"tradein_over_max": {"label": "Troca acima da tabela", "doctype": "Device Trade Evaluation"},
 	"stock_transfer": {"label": "Transferência entre estoques", "doctype": "Stock Entry"},
 	"billed_service_order_cancel": {"label": "Cancelar OS faturada", "doctype": "Service Order"},
 }
 MANAGER_ROLE = "Tecponto Gestor"
-MANAGER_TYPES = {"service_order_discount", "pos_price_floor", "tradein_over_max", "stock_transfer", "billed_service_order_cancel"}
+MANAGER_TYPES = {"service_order_discount", "pos_discount", "pos_price_floor", "tradein_over_max", "stock_transfer", "billed_service_order_cancel"}
 FRONTEND_ROLES = {"Tecponto Atendente", "Tecponto Tecnico", "Tecponto Gestor", "Tecponto Diretor", "System Manager"}
 
 
@@ -91,6 +92,21 @@ def expire_requests() -> int:
 	return len(names)
 
 
+@frappe.whitelist()
+def list_my_requests() -> list[dict[str, Any]]:
+	_require_frontend_role()
+	return [_serialize(row) for row in frappe.get_all("Tecponto Request", filters={"requested_by": frappe.session.user}, fields=["name", "status", "requested_by", "approver_role", "expires_on", "request_type", "reason"], order_by="creation desc", limit_page_length=50)]
+
+
+@frappe.whitelist()
+def list_pending_approvals() -> list[dict[str, Any]]:
+	_require_frontend_role()
+	roles = set(frappe.get_roles())
+	filters = {"status": "Pendente"}
+	rows = frappe.get_all("Tecponto Request", filters=filters, fields=["name", "status", "requested_by", "approver_role", "expires_on", "request_type", "reason"], order_by="creation asc", limit_page_length=50)
+	return [_serialize(row) for row in rows if row.approver_role in roles or "System Manager" in roles or frappe.session.user == "Administrator"]
+
+
 def _get_pending_request(name: str):
 	request = frappe.get_doc("Tecponto Request", name)
 	if request.status != "Pendente":
@@ -113,7 +129,7 @@ def _execute_as_approver(request_type: str, reference_name: str, data: dict[str,
 			doc.discount = data["discount"]
 			doc.save()
 			return {"service_order": doc.name, "discount": doc.discount}
-		if request_type == "pos_price_floor":
+		if request_type in {"pos_discount", "pos_price_floor"}:
 			from tecponto_app.tecponto.frontend.pos import pos_create_sale
 			return pos_create_sale(data["sale_payload"])
 		if request_type == "tradein_over_max":
@@ -136,7 +152,7 @@ def _validate_payload(request_type: str, reference_name: str, data: dict[str, An
 		frappe.throw(_("Informe o estado de destino."), frappe.ValidationError)
 	if request_type == "service_order_discount" and "discount" not in data:
 		frappe.throw(_("Informe o desconto solicitado."), frappe.ValidationError)
-	if request_type == "pos_price_floor" and not isinstance(data.get("sale_payload"), dict):
+	if request_type in {"pos_discount", "pos_price_floor"} and not isinstance(data.get("sale_payload"), dict):
 		frappe.throw(_("Informe os dados da venda."), frappe.ValidationError)
 	if request_type == "tradein_over_max" and "approved_value" not in data:
 		frappe.throw(_("Informe o valor da troca."), frappe.ValidationError)
@@ -187,4 +203,12 @@ def _preserve_user():
 
 
 def _serialize(doc) -> dict[str, Any]:
-	return {"name": doc.name, "status": doc.status, "requested_by": doc.requested_by, "approver_role": doc.approver_role, "expires_on": str(doc.expires_on)}
+	return {
+		"name": doc.name,
+		"status": doc.status,
+		"request_type": doc.get("request_type"),
+		"reason": doc.get("reason"),
+		"requested_by": doc.requested_by,
+		"approver_role": doc.approver_role,
+		"expires_on": str(doc.expires_on),
+	}

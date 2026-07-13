@@ -24,7 +24,14 @@ from tecponto_app.tecponto.frontend.api import (
 	search_pos_items,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
-from tecponto_app.tecponto.requests import approve_request, create_request, expire_requests, reject_request
+from tecponto_app.tecponto.requests import (
+	approve_request,
+	create_request,
+	expire_requests,
+	list_my_requests,
+	list_pending_approvals,
+	reject_request,
+)
 from tecponto_app.tecponto.frontend.pos import (
 	pos_create_sale,
 	pos_download_barcode_label,
@@ -172,8 +179,7 @@ def run_action_request_checks() -> dict:
 		ensure_frontend_foundation()
 		attendant = _find_or_create_user("Tecponto Atendente")
 		manager = _find_or_create_user("Tecponto Gestor")
-		demo = ensure_service_order_detail_demo_data()
-		order_name = demo["orders"]["entrada"]["name"]
+		order_name = _create_action_request_service_order(attendant)
 		limit = flt(frappe.db.get_single_value("Tecponto Settings", "discount_limit") or 0)
 		discount = max(limit + 1, 1)
 
@@ -212,6 +218,51 @@ def run_action_request_checks() -> dict:
 		if flt(frappe.db.get_value("Service Order", order_name, "discount")) != discount:
 			raise AssertionError("Solicitação expirada executou uma ação.")
 
+		# PDV: a exceção nasce antes de existir nota; a aprovação recria a venda pelo endpoint cirúrgico.
+		demo_pos = _ensure_pos_demo_records()
+		pos_discount = max(limit + 1, 1)
+		pos_total = flt(79.90 - pos_discount, 2)
+		if pos_total <= 0:
+			raise AssertionError("Massa de teste do PDV não comporta desconto acima do limite.")
+		pos_payload = {
+			"customer": _get_or_create_demo_customer(),
+			"items": [{"item_code": POS_BARCODE_ITEM, "qty": 1}],
+			"discount_amount": pos_discount,
+			"payments": [{"mode_of_payment": "Pix", "amount": pos_total, "installments": 1}],
+			"idempotency_key": f"tp-request-pos-{frappe.generate_hash(length=20)}",
+		}
+		frappe.set_user(attendant)
+		pos_request = create_request(
+			"pos_discount",
+			pos_payload["customer"],
+			"Desconto de balcão autorizado pelo cliente.",
+			{"sale_payload": pos_payload},
+		)
+		if pos_request["name"] not in {row["name"] for row in list_my_requests()}:
+			raise AssertionError("Lista Minhas solicitações não retornou a exceção do PDV.")
+
+		frappe.set_user(manager)
+		if pos_request["name"] not in {row["name"] for row in list_pending_approvals()}:
+			raise AssertionError("Lista Aguardando minha aprovação não retornou a exceção do PDV.")
+		pos_approved = approve_request(pos_request["name"])
+		pos_result = frappe.parse_json(frappe.db.get_value("Tecponto Request", pos_request["name"], "execution_result"))
+		if pos_approved["status"] != "Aprovada" or not pos_result.get("sale"):
+			raise AssertionError("Aprovação do desconto do PDV não criou a venda pelo endpoint cirúrgico.")
+
+		# OS: a transição é executada pela role que o workflow exige, não por um bypass do solicitante.
+		frappe.set_user(attendant)
+		move_request = create_request(
+			"service_order_move",
+			order_name,
+			"Técnico precisa iniciar o diagnóstico desta OS.",
+			{"target_state": "Em diagnóstico"},
+		)
+		workflow_approver = _find_or_create_user(move_request["approver_role"])
+		frappe.set_user(workflow_approver)
+		move_approved = approve_request(move_request["name"])
+		if move_approved["status"] != "Aprovada" or frappe.db.get_value("Service Order", order_name, "workflow_state") != "Em diagnóstico":
+			raise AssertionError("Aprovação da mudança de etapa não moveu a OS pelo workflow real.")
+
 		return {
 			"status": "ok",
 			"created_pending": created["name"],
@@ -220,6 +271,8 @@ def run_action_request_checks() -> dict:
 			"expired": expired["name"],
 			"expired_count": expired_count,
 			"self_approval_blocked": self_approval_blocked,
+			"pos_discount": {"request": pos_request["name"], "sale": pos_result["sale"], "executed": True},
+			"service_order_move": {"request": move_request["name"], "state": "Em diagnóstico", "executed": True},
 		}
 	finally:
 		frappe.set_user(previous_user)
@@ -718,7 +771,9 @@ def _find_or_create_user(role: str) -> str:
 					"role": frontend_role,
 				},
 			)
-	user.add_roles(role)
+	if role not in {entry.role for entry in user.roles}:
+		user.append("roles", {"role": role})
+		user.save(ignore_permissions=True)
 	frappe.db.commit()
 	return user.name
 
@@ -750,7 +805,12 @@ def _find_or_create_multi_role_user() -> str:
 				"role": frontend_role,
 			},
 		)
-	user.add_roles("Tecponto Atendente", "Tecponto Tecnico")
+	user.reload()
+	assigned_roles = {entry.role for entry in user.roles}
+	for role in ("Tecponto Atendente", "Tecponto Tecnico"):
+		if role not in assigned_roles:
+			user.append("roles", {"role": role})
+	user.save(ignore_permissions=True)
 	frappe.db.commit()
 	return user.name
 
@@ -837,6 +897,8 @@ def _upsert_demo_service_order(
 	marker = f"{DETAIL_DEMO_MARKER}: {demo['slug']}"
 	existing = frappe.db.get_value("Service Order", {"internal_notes": marker}, "name")
 	if existing:
+		# Demo fixtures may have ended in terminal workflow states during prior checks.
+		frappe.db.set_value("Service Order", existing, "workflow_state", "Entrada criada", update_modified=False)
 		doc = frappe.get_doc("Service Order", existing)
 	else:
 		doc = frappe.new_doc("Service Order")
@@ -904,6 +966,28 @@ def _upsert_demo_service_order(
 		)
 	frappe.db.set_value("Service Order", doc.name, values, update_modified=True)
 	return doc.name
+
+
+def _create_action_request_service_order(attendant: str) -> str:
+	"""Create an isolated OS because the visual demo records can be in terminal workflow states."""
+	customer = _get_or_create_demo_customer()
+	device = _get_or_create_demo_device(customer)
+	demo = {
+		"slug": f"action-request-{frappe.generate_hash(length=8)}",
+		"state": "Entrada criada",
+		"approval_status": "Pendente",
+		"reported_defect": "OS isolada para validar solicitações de aprovação.",
+		"problem_found": None,
+	}
+	return _upsert_demo_service_order(
+		demo=demo,
+		customer=customer,
+		device=device,
+		service_item=_get_demo_item(is_stock_item=0),
+		part_item=_get_demo_item(is_stock_item=1),
+		warehouse=_get_demo_warehouse(),
+		attendant=attendant,
+	)
 
 
 def _check_role_panels(users: dict[str, str]) -> list[dict]:

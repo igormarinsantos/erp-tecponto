@@ -9,6 +9,7 @@ import {
   type ServiceOrderSummary,
 } from "./api";
 import { BadgeStatus, Button, Card } from "./ui";
+import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { cx } from "./ui/utils";
 
 type ToastTone = "success" | "error";
@@ -63,6 +64,7 @@ export function ServiceOrderKanban({
   const [expandedState, setExpandedState] = useState<string | null>(null);
   const [compactMode, setCompactMode] = useState(false);
   const [moving, setMoving] = useState<string | null>(null);
+  const [moveApproval, setMoveApproval] = useState<{ name: string; targetState: string } | null>(null);
 
   const loadKanban = useCallback(async (quiet = false) => {
     if (!quiet) {
@@ -146,7 +148,12 @@ export function ServiceOrderKanban({
         );
       } catch (error) {
         setState({ status: "ready", data: previous });
-        onToast(error instanceof Error ? error.message : "Transição recusada pelo workflow.", "error");
+        const message = error instanceof Error ? error.message : "Transição recusada pelo workflow.";
+        if (message.includes("Seu papel não permite mover")) {
+          setMoveApproval({ name: dragged.name, targetState });
+        } else {
+          onToast(message, "error");
+        }
       } finally {
         setMoving(null);
         setDragged(null);
@@ -177,6 +184,7 @@ export function ServiceOrderKanban({
   }
 
   return (
+    <>
     <Card className="p-4">
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
@@ -229,6 +237,17 @@ export function ServiceOrderKanban({
         ))}
       </div>
     </Card>
+    <ApprovalRequestModal
+      onClose={() => setMoveApproval(null)}
+      onCreated={() => setMoveApproval(null)}
+      onToast={onToast}
+      open={Boolean(moveApproval)}
+      payload={{ target_state: moveApproval?.targetState ?? "" }}
+      referenceName={moveApproval?.name ?? ""}
+      requestType="service_order_move"
+      title={`Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
+    />
+    </>
   );
 }
 
