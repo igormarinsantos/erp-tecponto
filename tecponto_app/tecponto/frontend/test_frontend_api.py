@@ -14,6 +14,7 @@ from tecponto_app.tecponto.frontend.api import (
 	list_service_orders,
 	list_stock_items,
 	list_trade_evaluations,
+	move_service_order,
 	resolve_panel,
 	search_budget_items,
 	search_customers,
@@ -59,6 +60,7 @@ def run_foundation_checks() -> dict:
 			users["Tecponto Atendente"],
 			users["Tecponto Tecnico"],
 		)
+		multi_role_context = _check_multi_role_context(users["Tecponto Atendente"])
 
 		return {
 			"status": "ok",
@@ -70,6 +72,7 @@ def run_foundation_checks() -> dict:
 			"sensitive_guard": guard_check,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
+			"multi_role_context": multi_role_context,
 		}
 	finally:
 		frappe.set_user(previous_user)
@@ -362,6 +365,38 @@ def _find_or_create_user(role: str) -> str:
 	return user.name
 
 
+def _find_or_create_multi_role_user() -> str:
+	email = "front-multipapel@tecponto.local"
+	if frappe.db.exists("User", email):
+		user = frappe.get_doc("User", email)
+	else:
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": "Operador",
+				"last_name": "Multipapel",
+				"enabled": 1,
+				"user_type": "System User",
+				"send_welcome_email": 0,
+			}
+		)
+		user.insert(ignore_permissions=True)
+
+	for frontend_role in FRONTEND_ROLES:
+		frappe.db.delete(
+			"Has Role",
+			{
+				"parenttype": "User",
+				"parent": user.name,
+				"role": frontend_role,
+			},
+		)
+	user.add_roles("Tecponto Atendente", "Tecponto Tecnico")
+	frappe.db.commit()
+	return user.name
+
+
 def _get_or_create_demo_customer() -> str:
 	customer_name = "Cliente Demo Front 3.1b"
 	existing = frappe.db.get_value("Customer", {"customer_name": customer_name}, "name")
@@ -531,6 +566,55 @@ def _check_role_panels(users: dict[str, str]) -> list[dict]:
 			}
 		)
 	return results
+
+
+def _check_multi_role_context(attendant: str) -> dict:
+	multi_role_user = _find_or_create_multi_role_user()
+	frappe.set_user(multi_role_user)
+	boot = get_boot()
+	available_panels = [
+		entry["panel"]
+		for entry in boot["panels"]
+		if entry["role"] in {"Tecponto Atendente", "Tecponto Tecnico"}
+	]
+	if set(available_panels) != {"atendente", "tecnico"}:
+		raise AssertionError(f"Multi-role user received invalid contexts: {available_panels}")
+
+	# The visual selector can show Technician while real roles still include Attendant.
+	attendant_api_payload = search_pos_items(query="Película 3D", limit=1)
+	if not attendant_api_payload["items"]:
+		raise AssertionError("Attendant+Technician user lost access to the counter API.")
+	technical_context_payload = get_dashboard_metrics()
+
+	demo_orders = ensure_service_order_detail_demo_data()
+	entry_order = demo_orders["orders"]["entrada"]["name"]
+	frappe.set_user(attendant)
+	technical_api_blocked = False
+	try:
+		move_service_order(entry_order, "Em diagnóstico")
+	except frappe.PermissionError:
+		technical_api_blocked = True
+	if not technical_api_blocked:
+		raise AssertionError("Attendant without technician role moved an order to diagnosis.")
+
+	leaks = contains_sensitive_field(
+		{
+			"technical_context": {"boot": boot, "dashboard": technical_context_payload},
+			"attendant_context": attendant_api_payload,
+		}
+	)
+	if leaks:
+		raise AssertionError(f"Sensitive fields leaked between contexts: {', '.join(leaks)}")
+
+	return {
+		"user": multi_role_user,
+		"roles": ["Tecponto Atendente", "Tecponto Tecnico"],
+		"available_panels": available_panels,
+		"visual_context_checked": "tecnico",
+		"attendant_api_in_technical_context": "allowed",
+		"attendant_only_technical_api": "blocked_403",
+		"sensitive_guard": {"leaked_fields": leaks},
+	}
 
 
 def _check_service_order_api(user: str) -> dict:

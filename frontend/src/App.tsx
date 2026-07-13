@@ -42,6 +42,7 @@ import {
   type DashboardMetrics,
   type NavigationTarget,
   type QuoteSendPayload,
+  type RolePanel,
   type ServiceOrderBudgetLine,
   type ServiceOrderDetailResponse,
   type ServiceOrderPrintLink,
@@ -124,6 +125,7 @@ interface ServiceOrderFilterState {
 
 const SERVICE_ORDERS_VIEW_KEY = "tecponto.service-orders.view";
 const THEME_STORAGE_PREFIX = "tecponto.theme.";
+const CONTEXT_STORAGE_PREFIX = "tecponto.context.";
 const DEFAULT_DASHBOARD_PERIOD: DashboardPeriodFilter = {
   fromDate: "",
   mode: "7d",
@@ -152,12 +154,25 @@ function getThemeStorageKey(userName: string) {
   return `${THEME_STORAGE_PREFIX}${userName}`;
 }
 
+function getContextStorageKey(userName: string) {
+  return `${CONTEXT_STORAGE_PREFIX}${userName}`;
+}
+
 function readStoredTheme(userName: string): AppTheme {
   try {
     const stored = window.localStorage.getItem(getThemeStorageKey(userName));
     return stored === "light" ? "light" : "dark";
   } catch {
     return "dark";
+  }
+}
+
+function readStoredContext(userName: string, availablePanels: RolePanel[], fallback: RolePanel): RolePanel {
+  try {
+    const stored = window.localStorage.getItem(getContextStorageKey(userName)) as RolePanel | null;
+    return stored && availablePanels.includes(stored) ? stored : fallback;
+  } catch {
+    return fallback;
   }
 }
 
@@ -251,6 +266,7 @@ export function App() {
   const [contextMenu, setContextMenu] = useState<TecpontoContextMenuState | null>(null);
   const [selectedOrderName, setSelectedOrderName] = useState<string | null>(null);
   const [pendingOrderFlow, setPendingOrderFlow] = useState<ServiceOrderFlow | null>(null);
+  const [contextOverride, setContextOverride] = useState<RolePanel | null>(null);
   const [serviceOrdersView, setServiceOrdersView] = useState<ServiceOrdersViewMode>(getStoredServiceOrdersView);
   const [theme, setTheme] = useState<AppTheme>("dark");
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -438,6 +454,21 @@ export function App() {
     });
   }, [state]);
 
+  const changeContext = useCallback((nextPanel: RolePanel, availablePanels: RolePanel[]) => {
+    if (state.status !== "ready" || !availablePanels.includes(nextPanel)) {
+      return;
+    }
+    setContextOverride(nextPanel);
+    setActiveView("overview");
+    setSelectedOrderName(null);
+    setPendingOrderFlow(null);
+    try {
+      window.localStorage.setItem(getContextStorageKey(state.boot.user.name), nextPanel);
+    } catch {
+      // Context is a visual preference; authorization remains on the server.
+    }
+  }, [state]);
+
   const contextMenuItems = useMemo<Array<ContextMenuItem>>(() => {
     if (!contextMenu) {
       return [];
@@ -608,7 +639,22 @@ export function App() {
     );
   }
 
-  const panel = panelDefinitions[state.boot.user.panel] ?? panelDefinitions.sem_papel;
+  const contextOptions = state.boot.panels.filter((option) => state.boot.user.roles.includes(option.role));
+  const availablePanels = contextOptions.map((option) => option.panel);
+  const fallbackPanel = state.boot.user.panel;
+  const storedContext = readStoredContext(state.boot.user.name, availablePanels, fallbackPanel);
+  const selectedContextPanel = contextOverride && availablePanels.includes(contextOverride) ? contextOverride : storedContext;
+  const selectedContext = contextOptions.find((option) => option.panel === selectedContextPanel);
+  const visualUser = selectedContext
+    ? {
+      ...state.boot.user,
+      panel: selectedContext.panel,
+      role_label: selectedContext.label,
+      role_name: selectedContext.role,
+      subtitle: selectedContext.subtitle,
+    }
+    : state.boot.user;
+  const panel = panelDefinitions[visualUser.panel] ?? panelDefinitions.sem_papel;
   const currentView = activeView === "overview" ? null : viewTitles[activeView];
 
   return (
@@ -619,15 +665,18 @@ export function App() {
         onOpenHelp={() => setHelpOpen(true)}
         onNavigate={setActiveView}
         sections={panel.nav}
-        user={state.boot.user}
+        user={visualUser}
       />
       <Topbar
         onLogout={logout}
         onOpenNotifications={toggleNotifications}
         onOpenSearch={() => setGlobalSearchOpen(true)}
         onToggleTheme={toggleTheme}
+        contextOptions={contextOptions}
+        onContextChange={(nextPanel) => changeContext(nextPanel, availablePanels)}
+        selectedContextPanel={visualUser.panel}
         theme={theme}
-        user={state.boot.user}
+        user={visualUser}
       />
 
       <main className="tp-main-shell p-4">

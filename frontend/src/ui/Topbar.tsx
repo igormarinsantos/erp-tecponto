@@ -1,20 +1,35 @@
-import { useEffect } from "react";
-import { Bell, LogOut, Moon, Search, Sun } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Bell, ChevronDown, LogOut, Moon, Search, Sun } from "lucide-react";
 
-import type { LoggedUser } from "../api";
+import type { BootResponse, LoggedUser, RolePanel } from "../api";
 import { WhatsAppLogo } from "./WhatsAppLogo";
 
 interface TopbarProps {
+  contextOptions: BootResponse["panels"];
   onOpenNotifications: () => void;
   onOpenSearch: () => void;
+  onContextChange: (panel: RolePanel) => void;
   onToggleTheme: () => void;
+  selectedContextPanel: RolePanel;
   theme: "dark" | "light";
   user: LoggedUser;
   onLogout: () => void;
 }
 
-export function Topbar({ onLogout, onOpenNotifications, onOpenSearch, onToggleTheme, theme, user }: TopbarProps) {
+export function Topbar({
+  contextOptions,
+  onContextChange,
+  onLogout,
+  onOpenNotifications,
+  onOpenSearch,
+  onToggleTheme,
+  selectedContextPanel,
+  theme,
+  user,
+}: TopbarProps) {
   const nextThemeLabel = theme === "dark" ? "tema claro" : "tema escuro";
+  const [contextOpen, setContextOpen] = useState(false);
+  const contextSelectorRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -27,6 +42,28 @@ export function Topbar({ onLogout, onOpenNotifications, onOpenSearch, onToggleTh
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
   }, [onOpenSearch]);
+
+  useEffect(() => {
+    if (!contextOpen) {
+      return;
+    }
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!contextSelectorRef.current?.contains(event.target as Node)) {
+        setContextOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setContextOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [contextOpen]);
 
   return (
     <header className="tp-topbar-shell sticky top-0 z-20 flex h-[var(--tp-topbar-height)] items-center gap-4 border-b border-tec-border/20">
@@ -77,6 +114,47 @@ export function Topbar({ onLogout, onOpenNotifications, onOpenSearch, onToggleTh
       >
         {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
       </button>
+      {contextOptions.length > 1 ? (
+        <div className="relative shrink-0" ref={contextSelectorRef}>
+          <button
+            aria-expanded={contextOpen}
+            aria-haspopup="menu"
+            className="tp-role-context flex h-10 items-center gap-2 rounded-control border border-tec-border/25 bg-tec-field px-3 text-left transition hover:border-tec-orange/50"
+            data-testid="role-context-trigger"
+            onClick={() => setContextOpen((current) => !current)}
+            title="Trocar contexto visual"
+            type="button"
+          >
+            <span className="hidden text-[11px] font-semibold text-tec-muted xl:inline">Operando como:</span>
+            <span className="text-sm font-bold text-white">{user.role_label}</span>
+            <ChevronDown aria-hidden="true" className={contextOpen ? "text-tec-orange transition rotate-180" : "text-tec-muted transition"} size={15} />
+          </button>
+          {contextOpen ? (
+            <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 min-w-[216px] overflow-hidden rounded-card border border-tec-border/25 bg-tec-panel-strong p-1.5 shadow-panel" data-testid="role-context-menu" role="menu">
+              <p className="px-2.5 py-2 text-[11px] font-bold uppercase text-tec-muted">Operando como</p>
+              {contextOptions.map((context) => (
+                <button
+                  className={context.panel === selectedContextPanel ? "flex w-full items-center justify-between gap-4 rounded-control bg-tec-orange px-2.5 py-2.5 text-left text-tec-ink" : "flex w-full items-center justify-between gap-4 rounded-control px-2.5 py-2.5 text-left text-tec-subtle transition hover:bg-tec-field hover:text-white"}
+                  key={context.panel}
+                  onClick={() => {
+                    setContextOpen(false);
+                    onContextChange(context.panel);
+                  }}
+                  role="menuitemradio"
+                  aria-checked={context.panel === selectedContextPanel}
+                  type="button"
+                >
+                  <span>
+                    <span className="block text-sm font-bold">{context.label}</span>
+                    <span className={context.panel === selectedContextPanel ? "mt-0.5 block text-xs text-tec-ink/75" : "mt-0.5 block text-xs text-tec-muted"}>{context.subtitle}</span>
+                  </span>
+                  {context.panel === selectedContextPanel ? <span className="text-xs font-bold">Ativo</span> : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="tp-topbar-user min-w-[172px] shrink-0 items-center gap-2 rounded-control border border-tec-border/25 bg-tec-field px-2 py-1.5">
         <div className="grid h-8 w-8 place-items-center rounded-full bg-tec-blue text-xs font-bold text-white">
           {user.initials}
