@@ -1,0 +1,25 @@
+{% extends "templates/web.html" %}
+
+{% block title %}Aceite Tecponto{% endblock %}
+
+{% block header %}{% endblock %}
+
+{% block style %}
+<style>
+html, body { background: #15181b; color: #f5f6f7; }
+.navbar, .web-footer, .page-breadcrumbs { display: none !important; }
+.page-content-wrapper, .page-content-wrapper > .container, .web-page-content { max-width: none !important; margin: 0 !important; padding: 0 !important; width: 100% !important; }
+</style>
+{% endblock %}
+
+{% block page_content %}
+<main class="tp-acceptance" data-token="{{ token | e }}">
+  <section class="tp-acceptance-card" aria-live="polite">
+    <p class="tp-acceptance-brand">TECPONTO</p>
+    <h1>Carregando aceite</h1>
+    <p>Validando seu link seguro.</p>
+  </section>
+</main>
+<link rel="stylesheet" href="/assets/tecponto_app/css/acceptance.css">
+<script src="/assets/tecponto_app/js/acceptance.js"></script>
+{% endblock %}

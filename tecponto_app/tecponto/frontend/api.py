@@ -384,6 +384,14 @@ def move_service_order(name: str, target_state: str) -> dict[str, Any]:
 
 
 @frappe.whitelist()
+def issue_os_acceptance(service_order: str, acceptance_type: str, signer_role: str = "Dono") -> dict[str, Any]:
+	"""Issue a public, read-only acceptance link for the authenticated operator."""
+	_require_checkin_role()
+	from tecponto_app.tecponto.acceptance import issue_acceptance
+	return issue_acceptance(service_order, acceptance_type, signer_role)
+
+
+@frappe.whitelist()
 def get_service_order_detail(name: str) -> dict[str, Any]:
 	_require_frontend_role()
 	name = (name or "").strip()

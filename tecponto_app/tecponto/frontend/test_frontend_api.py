@@ -15,6 +15,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_boot,
 	get_service_order_detail,
 	get_service_order_kanban,
+	issue_os_acceptance,
 	create_customer,
 	list_customer_devices,
 	list_service_orders,
@@ -29,6 +30,7 @@ from tecponto_app.tecponto.frontend.api import (
 	set_tradein_approved_value,
 	submit_stock_transfer,
 )
+from tecponto_app.tecponto.acceptance import get_public_acceptance
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.requests import (
 	approve_request,
@@ -106,6 +108,7 @@ def run_foundation_checks() -> dict:
 		daily_action_checks = run_daily_action_checks()
 		quick_stage_checks = run_quick_stage_move_checks()
 		customer_registration_checks = run_customer_registration_checks()
+		public_acceptance_checks = run_public_acceptance_checks()
 
 		return {
 			"status": "ok",
@@ -124,6 +127,7 @@ def run_foundation_checks() -> dict:
 			"daily_action_checks": daily_action_checks,
 			"quick_stage_checks": quick_stage_checks,
 			"customer_registration_checks": customer_registration_checks,
+			"public_acceptance_checks": public_acceptance_checks,
 		}
 	finally:
 		frappe.set_user(previous_user)
@@ -488,6 +492,68 @@ def run_notification_checks() -> dict:
 		return {"status": "ok", "request": request["name"], "decision_notified": True, "unread_before": before_read, "unread_after": after_read, "service_order_link": service_order_notification["link"], "async_failure_isolated": True}
 	finally:
 		frappe.enqueue = original_enqueue
+		frappe.set_user(previous_user)
+
+
+def run_public_acceptance_checks() -> dict:
+	"""Public acceptance is read-only, guest-safe and token-limited."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		service_order = _create_action_request_service_order(attendant)
+
+		frappe.set_user(attendant)
+		issued = issue_os_acceptance(service_order, "Entrada")
+		raw_token = issued["link"].rstrip("/").rsplit("/", 1)[-1]
+		acceptance = frappe.get_doc("OS Acceptance", issued["acceptance"])
+		if raw_token in frappe.as_json(acceptance.as_dict()) or not acceptance.token_hash:
+			raise AssertionError("Token bruto não pode ser persistido no OS Acceptance.")
+		if not issued["qr_svg"].startswith("data:image/svg+xml;base64,"):
+			raise AssertionError("Emissão não retornou QR SVG local.")
+
+		frappe.set_user("Guest")
+		public = get_public_acceptance(raw_token)
+		if not public.get("valid") or public["service_order"].get("number") != service_order:
+			raise AssertionError("Guest não recebeu a projeção pública read-only esperada.")
+		forbidden_keys = {"services", "parts", "rate", "cost", "valuation_rate", "sales_invoice", "customer_email"}
+		if forbidden_keys & set(public["service_order"]):
+			raise AssertionError("Projeção pública expôs dado interno da OS.")
+		if frappe.db.get_value("OS Acceptance", acceptance.name, "status") != "Pendente":
+			raise AssertionError("Consulta pública não pode consumir ou alterar um aceite pendente.")
+
+		# Reemitir invalida o link anterior antes mesmo da captura de selfie/assinatura.
+		frappe.set_user(attendant)
+		reissued = issue_os_acceptance(service_order, "Entrada")
+		frappe.set_user("Guest")
+		if get_public_acceptance(raw_token).get("valid"):
+			raise AssertionError("Um link substituído continuou utilizável.")
+		if not get_public_acceptance(reissued["link"].rstrip("/").rsplit("/", 1)[-1]).get("valid"):
+			raise AssertionError("O novo link de aceite não ficou disponível.")
+
+		invalid = get_public_acceptance("token-invalido-que-nao-existe")
+		if invalid.get("valid"):
+			raise AssertionError("Token inválido foi aceito pela rota pública.")
+
+		frappe.set_user(attendant)
+		expiring = issue_os_acceptance(service_order, "Retirada")
+		expiring_token = expiring["link"].rstrip("/").rsplit("/", 1)[-1]
+		frappe.db.set_value("OS Acceptance", expiring["acceptance"], "expires_on", add_to_date(now_datetime(), hours=-1))
+		frappe.set_user("Guest")
+		expired = get_public_acceptance(expiring_token)
+		if expired.get("valid") or frappe.db.get_value("OS Acceptance", expiring["acceptance"], "status") != "Expirado":
+			raise AssertionError("Token expirado continuou utilizável.")
+
+		return {
+			"status": "ok",
+			"acceptance": acceptance.name,
+			"guest_read_only": True,
+			"reissued_token_invalidated": True,
+			"invalid_token_blocked": not invalid.get("valid"),
+			"expired_token_blocked": not expired.get("valid"),
+		}
+	finally:
 		frappe.set_user(previous_user)
 
 

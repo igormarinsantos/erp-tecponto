@@ -356,6 +356,7 @@ after_migrate = [
 website_route_rules = [
 	{"from_route": "/tecponto", "to_route": "tecponto"},
 	{"from_route": "/tecponto/caixa", "to_route": "tecponto"},
+	{"from_route": "/tecponto/aceite/<token>", "to_route": "aceite"},
 ]
 
 role_home_page = {

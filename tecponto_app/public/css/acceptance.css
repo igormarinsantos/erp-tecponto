@@ -1,0 +1,12 @@
+:root { color-scheme: dark; font-family: "Space Grotesk", Arial, sans-serif; }
+.tp-acceptance { align-items: center; background: #15181b; display: flex; justify-content: center; min-height: 100vh; padding: 24px; }
+.tp-acceptance-card { background: #1d2125; border: 1px solid rgba(245,246,247,.16); border-radius: 16px; box-sizing: border-box; max-width: 640px; padding: 32px; width: 100%; }
+.tp-acceptance-brand { color: #fe5000; font-size: 14px; font-weight: 700; letter-spacing: .08em; margin: 0 0 24px; }
+.tp-acceptance-card h1 { font-size: 28px; margin: 0 0 8px; }
+.tp-acceptance-card p { color: #adb4ba; line-height: 1.5; }
+.tp-acceptance-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 24px 0; }
+.tp-acceptance-field { background: #24292e; border-radius: 10px; padding: 14px; }
+.tp-acceptance-field b { color: #adb4ba; display: block; font-size: 12px; margin-bottom: 6px; }
+.tp-acceptance-notice { border-left: 3px solid #fe5000; color: #adb4ba; font-size: 14px; line-height: 1.55; margin-top: 20px; padding: 12px 16px; }
+.tp-acceptance-readonly { color: #adb4ba; font-size: 13px; margin-top: 24px; }
+.tp-acceptance-error { border-color: rgba(239,68,68,.6); }

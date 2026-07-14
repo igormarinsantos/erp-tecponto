@@ -2,7 +2,7 @@ import { FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, us
 import {
   ArrowLeft,
   ArrowRight,
-	ArrowRightLeft,
+  ArrowRightLeft,
   BadgeInfo,
   Barcode,
   Box,
@@ -24,6 +24,7 @@ import {
   ShoppingCart,
   Smartphone,
   Tag,
+	QrCode,
   UserRound,
   Wrench,
   XCircle,
@@ -38,6 +39,7 @@ import {
   pos,
   serviceOrders,
   type BudgetItemSummary,
+	type AcceptanceIssueResponse,
   type BudgetLineType,
   type BudgetWarehouseSummary,
   type BootResponse,
@@ -2063,6 +2065,7 @@ function ServiceOrderDetail({
   const [budgetLineType, setBudgetLineType] = useState<BudgetLineType | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [quoteSendOpen, setQuoteSendOpen] = useState(false);
+  const [acceptanceType, setAcceptanceType] = useState<"Entrada" | "Retirada" | null>(null);
   const [moveApproval, setMoveApproval] = useState<{ targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
   const initialFlowRef = useRef(initialFlow);
 
@@ -2077,6 +2080,7 @@ function ServiceOrderDetail({
     setBudgetLineType(null);
     setHistoryOpen(false);
     setQuoteSendOpen(false);
+		setAcceptanceType(null);
     setMoveApproval(null);
     setState({ status: "loading" });
     serviceOrders
@@ -2275,6 +2279,10 @@ function ServiceOrderDetail({
       <ServiceOrderActionsModal
         detail={detail}
         onClose={() => setActionsOpen(false)}
+		onOpenAcceptance={(type) => {
+			setActionsOpen(false);
+			setAcceptanceType(type);
+		}}
         onOpenBudgetEditor={(type) => {
           setActionsOpen(false);
           setBudgetLineType(type);
@@ -2290,6 +2298,12 @@ function ServiceOrderDetail({
         onRefresh={() => void refreshServiceOrder("OS atualizada.")}
         open={actionsOpen}
       />
+		<AcceptanceLinkModal
+			acceptanceType={acceptanceType}
+			serviceOrder={detail.name}
+			onClose={() => setAcceptanceType(null)}
+			onToast={onToast}
+		/>
       <ApprovalRequestModal
         onClose={() => setMoveApproval(null)}
         onCreated={() => setMoveApproval(null)}
@@ -3438,6 +3452,7 @@ function timelineIcon(tone: ServiceOrderTimelineEvent["tone"]) {
 function ServiceOrderActionsModal({
   detail,
   onClose,
+	onOpenAcceptance,
   onOpenBudgetEditor,
   onOpenHistory,
   onOpenQuoteSend,
@@ -3446,6 +3461,7 @@ function ServiceOrderActionsModal({
 }: {
   detail: ServiceOrderDetailResponse;
   onClose: () => void;
+	onOpenAcceptance: (type: "Entrada" | "Retirada") => void;
   onOpenBudgetEditor: (type: BudgetLineType) => void;
   onOpenHistory: () => void;
   onOpenQuoteSend: () => void;
@@ -3469,6 +3485,30 @@ function ServiceOrderActionsModal({
           <span className="mt-4 block text-base font-bold text-white">Adicionar serviço</span>
           <span className="mt-1 block text-sm text-tec-muted">Inclui mão de obra no orçamento desta OS.</span>
         </button>
+
+		<button
+			className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+			onClick={() => onOpenAcceptance("Entrada")}
+			type="button"
+		>
+			<span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+				<QrCode size={20} />
+			</span>
+			<span className="mt-4 block text-base font-bold text-white">Gerar aceite de entrada</span>
+			<span className="mt-1 block text-sm text-tec-muted">Exibe link e QR somente-leitura para o cliente confirmar o check-in.</span>
+		</button>
+
+		<button
+			className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+			onClick={() => onOpenAcceptance("Retirada")}
+			type="button"
+		>
+			<span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange">
+				<QrCode size={20} />
+			</span>
+			<span className="mt-4 block text-base font-bold text-white">Gerar aceite de retirada</span>
+			<span className="mt-1 block text-sm text-tec-muted">Prepara o link seguro para a confirmação de retirada.</span>
+		</button>
 
         <button
           className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
@@ -3525,6 +3565,67 @@ function ServiceOrderActionsModal({
       </div>
     </Modal>
   );
+}
+
+function AcceptanceLinkModal({
+	acceptanceType,
+	onClose,
+	onToast,
+	serviceOrder,
+}: {
+	acceptanceType: "Entrada" | "Retirada" | null;
+	onClose: () => void;
+	onToast: (message: string, tone?: ToastState["tone"]) => void;
+	serviceOrder: string;
+}) {
+	const [result, setResult] = useState<AcceptanceIssueResponse | null>(null);
+	const [busy, setBusy] = useState(false);
+
+	useEffect(() => {
+		setResult(null);
+		setBusy(false);
+	}, [acceptanceType, serviceOrder]);
+
+	const issue = async () => {
+		if (!acceptanceType) return;
+		setBusy(true);
+		try {
+			const response = await balcao.issueAcceptance(serviceOrder, acceptanceType);
+			setResult(response);
+			onToast("Link de aceite gerado. Ele expira em 24 horas.");
+		} catch (error) {
+			onToast(error instanceof Error ? error.message : "Não foi possível gerar o link de aceite.", "error");
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const copyLink = async () => {
+		if (!result) return;
+		try {
+			await navigator.clipboard.writeText(result.link);
+			onToast("Link copiado para a área de transferência.");
+		} catch {
+			onToast("Copie o link manualmente.", "error");
+		}
+	};
+
+	return (
+		<Modal className="max-w-xl" onClose={onClose} open={Boolean(acceptanceType)} title={`Aceite por link — ${acceptanceType ?? ""}`}>
+			{result ? (
+				<div className="space-y-4">
+					<p className="text-sm text-tec-subtle">Entregue este QR ao cliente. O link é de uso único e expira em {formatDate(result.expires_on)}.</p>
+					<div className="flex justify-center rounded-card bg-white p-4"><img alt="QR Code do aceite" className="h-56 w-56" src={result.qr_svg} /></div>
+					<label className="block text-sm font-bold text-tec-text">Link seguro
+						<input className="tp-input mt-2 w-full" readOnly value={result.link} />
+					</label>
+					<div className="flex justify-end gap-2"><Button onClick={copyLink} variant="secondary">Copiar link</Button><Button onClick={onClose} variant="primary">Concluir</Button></div>
+				</div>
+			) : (
+				<div className="space-y-4"><p className="text-sm leading-6 text-tec-subtle">O cliente verá somente o resumo da OS e a minuta de privacidade. Nenhum dado do atendimento poderá ser alterado por este link.</p><Button disabled={busy} icon={<QrCode size={17} />} onClick={() => void issue()} variant="primary">{busy ? "Gerando..." : "Gerar link e QR"}</Button></div>
+			)}
+		</Modal>
+	);
 }
 
 function PrintPrimaryLink({ links }: { links: ServiceOrderPrintLink[] }) {

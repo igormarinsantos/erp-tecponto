@@ -1,5 +1,6 @@
 import { rpc } from "./client";
 import type {
+	AcceptanceIssueResponse,
 	CreateCustomerPayload,
 	CreateCustomerResponse,
   CreateCustomerDevicePayload,
@@ -19,6 +20,11 @@ export const balcao = {
   getDashboardMetrics() {
     return rpc<DashboardMetrics>(`${API}.get_dashboard_metrics`);
   },
+	issueAcceptance(serviceOrder: string, acceptanceType: "Entrada" | "Retirada", signerRole = "Dono") {
+		return rpc<AcceptanceIssueResponse>(`${API}.issue_os_acceptance`, {
+			body: { service_order: serviceOrder, acceptance_type: acceptanceType, signer_role: signerRole },
+		});
+	},
   searchCustomers(query = "", limit = 12) {
     return rpc<CustomerSearchResponse>(`${API}.search_customers`, {
       query: { query, limit },

@@ -125,6 +125,14 @@ export interface ServiceOrderMoveResponse {
   changed: boolean;
 }
 
+export interface AcceptanceIssueResponse {
+  acceptance: string;
+  acceptance_type: "Entrada" | "Retirada";
+  expires_on: string;
+  link: string;
+  qr_svg: string;
+}
+
 export interface StockTransferSummary {
   name: string;
   item_code: string | null;

@@ -8,6 +8,7 @@ export { dailyActions } from "./dailyActions";
 export type { ApprovalRequest } from "./requests";
 export { serviceOrders, type ServiceOrderQueryParams } from "./serviceOrders";
 export type {
+	AcceptanceIssueResponse,
   BudgetDecisionPayload,
   BudgetItemSearchResponse,
   BudgetItemSummary,
