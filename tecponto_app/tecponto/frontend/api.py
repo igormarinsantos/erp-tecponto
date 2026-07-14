@@ -17,6 +17,7 @@ from tecponto_app.tecponto.customer import (
 	validate_customer_contact_document,
 )
 from tecponto_app.tecponto.pos import get_commercial_item_groups, get_retail_item_groups
+from tecponto_app.tecponto.pending import action_for_service_order_state
 from tecponto_app.tecponto.stock import normalize_barcode
 from tecponto_app.tecponto.service_order.print_formats import (
 	PF_ETIQUETA_QR,
@@ -1106,6 +1107,7 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 		"technician": item.get("technician"),
 		"priority": item.get("priority"),
 		"workflow_state": item.get("workflow_state"),
+		"next_action": action_for_service_order_state(item.get("workflow_state")),
 		"reported_defect": item.get("reported_defect"),
 		"approval_status": item.get("approval_status"),
 		"approval_deadline": str(item.get("approval_deadline") or ""),

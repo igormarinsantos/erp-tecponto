@@ -1,0 +1,29 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:TPT-{#####}",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["title", "due_date", "reference_doctype", "reference_name", "status", "owner_user", "completed_at"],
+ "fields": [
+  {"fieldname":"title","fieldtype":"Data","label":"Titulo","reqd":1,"in_list_view":1},
+  {"fieldname":"due_date","fieldtype":"Date","label":"Prazo","in_list_view":1},
+  {"fieldname":"reference_doctype","fieldtype":"Link","label":"Tipo do documento","options":"DocType"},
+  {"fieldname":"reference_name","fieldtype":"Dynamic Link","label":"Documento","options":"reference_doctype"},
+  {"fieldname":"status","fieldtype":"Select","label":"Status","options":"Aberta\nConcluida","default":"Aberta","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"owner_user","fieldtype":"Link","label":"Responsavel","options":"User","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"completed_at","fieldtype":"Datetime","label":"Concluida em","read_only":1}
+ ],
+ "module": "Tecponto",
+ "name": "Tecponto Task",
+ "permissions": [
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1},
+  {"role":"Tecponto Atendente","read":1,"create":1,"write":1},
+  {"role":"Tecponto Tecnico","read":1,"create":1,"write":1},
+  {"role":"Tecponto Gestor","read":1,"create":1,"write":1},
+  {"role":"Tecponto Diretor","read":1,"create":1,"write":1}
+ ],
+ "sort_field": "due_date",
+ "sort_order": "ASC",
+ "track_changes": 1
+}

@@ -57,6 +57,35 @@ export interface NotificationListResponse {
   unread_count: number;
 }
 
+export interface DailyAction {
+  key: string;
+  kind: "derived";
+  title: string;
+  description: string;
+  urgency: "high" | "normal" | "low";
+  link: string;
+  reference_doctype: string | null;
+  reference_name: string | null;
+  tone: "orange" | "amber" | "blue" | "green" | "muted";
+}
+
+export interface TecpontoTask {
+  name: string;
+  title: string;
+  due_date: string;
+  reference_doctype: string | null;
+  reference_name: string | null;
+  status: "Aberta" | "Concluida";
+  kind?: "manual";
+  urgency?: "high" | "normal" | "low";
+}
+
+export interface DailyActionsResponse {
+  derived: DailyAction[];
+  manual: TecpontoTask[];
+  count: number;
+}
+
 export interface ServiceOrderSummary {
   name: string;
   customer: string | null;
@@ -66,6 +95,7 @@ export interface ServiceOrderSummary {
   technician: string | null;
   priority: string | null;
   workflow_state: string | null;
+  next_action?: { label: string; tone: "orange" | "amber" | "blue" | "green" | "muted" };
   reported_defect: string | null;
   approval_status: string | null;
   approval_deadline: string;

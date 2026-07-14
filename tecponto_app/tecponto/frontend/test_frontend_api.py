@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 
 import frappe
+from frappe.utils import today
 from frappe.utils import add_days, add_to_date, flt, now_datetime, nowdate
 from pypdf import PdfReader
 
@@ -52,6 +53,7 @@ from tecponto_app.tecponto.pos import (
 	ensure_item_barcode_source_field,
 )
 from tecponto_app.tecponto import notify
+from tecponto_app.tecponto.pending import complete_manual_task, create_manual_task, list_daily_actions
 
 
 TEST_USERS = {
@@ -92,6 +94,7 @@ def run_foundation_checks() -> dict:
 		multi_role_context = _check_multi_role_context(users["Tecponto Atendente"])
 		action_request_checks = run_action_request_checks()
 		notification_checks = run_notification_checks()
+		daily_action_checks = run_daily_action_checks()
 
 		return {
 			"status": "ok",
@@ -106,6 +109,7 @@ def run_foundation_checks() -> dict:
 			"multi_role_context": multi_role_context,
 			"action_request_checks": action_request_checks,
 			"notification_checks": notification_checks,
+			"daily_action_checks": daily_action_checks,
 		}
 	finally:
 		frappe.set_user(previous_user)
@@ -171,6 +175,53 @@ def ensure_service_order_detail_demo_data() -> dict:
 
 		return {"status": "ok", "attendant_user": attendant, "orders": result}
 	finally:
+		frappe.set_user(previous_user)
+
+
+def run_daily_action_checks() -> dict:
+	"""Pendencias derivadas disappear with the source document; manual tasks are explicit."""
+	previous_user = frappe.session.user
+	original_state = None
+	order_name = None
+	try:
+		demo = ensure_service_order_detail_demo_data()
+		attendant = demo["attendant_user"]
+		order_name = demo["orders"]["aprovacao"]["name"]
+		original_state = frappe.db.get_value("Service Order", order_name, "workflow_state")
+
+		frappe.set_user(attendant)
+		before = list_daily_actions("atendente")
+		if not any(item["reference_name"] == order_name for item in before["derived"]):
+			raise AssertionError("OS aguardando aprovacao nao apareceu nas pendencias do Atendente.")
+
+		frappe.db.set_value("Service Order", order_name, "workflow_state", "Entregue", update_modified=False)
+		after = list_daily_actions("atendente")
+		if any(item["reference_name"] == order_name for item in after["derived"]):
+			raise AssertionError("Pendencia derivada continuou apos a OS ser resolvida.")
+
+		task = create_manual_task("Retornar para cliente da pendencia diaria", str(today()))
+		with_task = list_daily_actions("atendente")
+		if not any(item["name"] == task["name"] for item in with_task["manual"]):
+			raise AssertionError("Tarefa manual criada nao apareceu para o proprio usuario.")
+		complete_manual_task(task["name"])
+		after_task = list_daily_actions("atendente")
+		if any(item["name"] == task["name"] for item in after_task["manual"]):
+			raise AssertionError("Tarefa manual concluida continuou na lista aberta.")
+
+		technician = _find_or_create_user("Tecponto Tecnico")
+		frappe.set_user(technician)
+		technical = list_daily_actions("tecnico")
+		if any(item.get("reference_name") == order_name for item in technical["derived"]):
+			raise AssertionError("Tecnico recebeu pendencia de OS atribuida ao Atendente.")
+		return {
+			"status": "ok",
+			"derived_disappears": True,
+			"manual_task_lifecycle": True,
+			"role_scoped": True,
+		}
+	finally:
+		if order_name and original_state:
+			frappe.db.set_value("Service Order", order_name, "workflow_state", original_state, update_modified=False)
 		frappe.set_user(previous_user)
 
 
@@ -1204,6 +1255,7 @@ def _check_sensitive_guard(user: str) -> dict:
 		"boot": get_boot(),
 		"metrics": get_dashboard_metrics(),
 		"service_orders": list_service_orders(limit=20),
+		"daily_actions": list_daily_actions("tecnico"),
 		"customers": search_customers(limit=5),
 		"devices": list_customer_devices(limit=5),
 		"trade_evaluations": list_trade_evaluations(limit=5),
@@ -1217,9 +1269,10 @@ def _check_sensitive_guard(user: str) -> dict:
 		"user": user,
 		"checked_payloads": [
 			"get_boot",
-			"get_dashboard_metrics",
-			"list_service_orders",
-			"search_customers",
+		"get_dashboard_metrics",
+		"list_service_orders",
+		"list_daily_actions",
+		"search_customers",
 			"list_customer_devices",
 			"list_trade_evaluations",
 			"list_stock_items",

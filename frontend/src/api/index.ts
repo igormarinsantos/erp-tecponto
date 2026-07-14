@@ -4,6 +4,7 @@ export { getBoot, getLoggedUser, logout } from "./auth";
 export { pos } from "./pos";
 export { approvalRequests } from "./requests";
 export { notifications } from "./notifications";
+export { dailyActions } from "./dailyActions";
 export type { ApprovalRequest } from "./requests";
 export { serviceOrders, type ServiceOrderQueryParams } from "./serviceOrders";
 export type {
@@ -24,6 +25,8 @@ export type {
   CustomerSearchResponse,
   CustomerSummary,
   DashboardMetrics,
+  DailyAction,
+  DailyActionsResponse,
   LoggedUser,
   NavigationTarget,
   NotificationListResponse,
@@ -57,6 +60,7 @@ export type {
   StockItemListResponse,
   StockItemSummary,
   TecpontoNotification,
+  TecpontoTask,
   TradeEvaluationListResponse,
   TradeEvaluationSummary,
 } from "./types";

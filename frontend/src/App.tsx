@@ -30,6 +30,7 @@ import {
 
 import {
   balcao,
+  dailyActions,
   getBoot,
   logout,
   notifications,
@@ -43,6 +44,7 @@ import {
   type CustomerDeviceSummary,
   type CustomerSummary,
   type DashboardMetrics,
+  type DailyActionsResponse,
   type NavigationTarget,
   type NotificationListResponse,
   type QuoteSendPayload,
@@ -56,6 +58,7 @@ import {
   type ServiceOrderSummary,
   type StockItemSummary,
   type TecpontoNotification,
+  type TecpontoTask,
   type TradeEvaluationSummary,
 } from "./api";
 import { login } from "./api/auth";
@@ -800,6 +803,7 @@ export function App() {
               onToast={showToast}
               orders={state.orders}
               panel={panel}
+              panelName={visualUser.panel}
             />
           ) : (
             <NavigationContent
@@ -1271,6 +1275,7 @@ function OverviewContent({
   onStartCheckin,
   orders,
   panel,
+  panelName,
 }: {
   actions: ActionDefinition[];
   metrics: DashboardMetrics;
@@ -1281,6 +1286,7 @@ function OverviewContent({
   onStartCheckin: () => void;
   orders: ServiceOrderSummary[];
   panel: (typeof panelDefinitions)[keyof typeof panelDefinitions];
+  panelName: RolePanel;
 }) {
   const [periodFilter, setPeriodFilter] = useState<DashboardPeriodFilter>(DEFAULT_DASHBOARD_PERIOD);
   const periodOrders = useMemo(() => filterOrdersByDashboardPeriod(orders, periodFilter), [orders, periodFilter]);
@@ -1316,6 +1322,9 @@ function OverviewContent({
           onOpenNotifications={onOpenNotifications}
           onStartCheckin={onStartCheckin}
         />
+      </div>
+      <div className="mt-4">
+        <DailyActionsPanel onOpenOrder={onOpenServiceOrder} onToast={onToast} panel={panelName} />
       </div>
       <div className="mt-4">
         <ApprovalRequestsPanel onToast={onToast} />
@@ -1918,6 +1927,9 @@ function nextActionForOrder(order: ServiceOrderSummary): {
   label: string;
   tone: "amber" | "blue" | "green" | "muted" | "orange";
 } {
+  if (order.next_action) {
+    return order.next_action;
+  }
   switch (order.workflow_state) {
     case "Entrada criada":
       return { label: "Aguardar tecnico", tone: "muted" };
@@ -4303,6 +4315,129 @@ function ActionPanel({
           Selecione uma ação no painel principal.
         </div>
       )}
+    </Card>
+  );
+}
+
+function DailyActionsPanel({
+  onOpenOrder,
+  onToast,
+  panel,
+}: {
+  onOpenOrder: (name: string) => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+  panel: RolePanel;
+}) {
+  const [state, setState] = useState<DailyActionsResponse | null>(null);
+  const [title, setTitle] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      setState(await dailyActions.list(panel));
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Falha ao carregar pendencias.", "error");
+    }
+  }, [onToast, panel]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const addTask = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!title.trim()) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await dailyActions.create(title.trim(), dueDate || undefined);
+      setTitle("");
+      setDueDate("");
+      await refresh();
+      onToast("Tarefa adicionada para voce.");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Nao foi possivel criar a tarefa.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const completeTask = async (task: TecpontoTask) => {
+    try {
+      await dailyActions.complete(task.name);
+      await refresh();
+      onToast("Tarefa concluida.");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Nao foi possivel concluir a tarefa.", "error");
+    }
+  };
+
+  const derived = state?.derived ?? [];
+  const manual = state?.manual ?? [];
+  const count = state?.count ?? 0;
+
+  return (
+    <Card className="p-5" data-testid="daily-actions-panel">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-white">Precisa de voce hoje</h2>
+            <span className="rounded-full bg-tec-orange/15 px-2 py-1 text-xs font-bold text-tec-orange">{count}</span>
+          </div>
+          <p className="mt-1 text-sm text-tec-muted">Pendencias operacionais somem quando o trabalho real e resolvido.</p>
+        </div>
+        <Button icon={<RefreshCw size={16} />} onClick={() => void refresh()} variant="secondary">
+          Atualizar
+        </Button>
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
+        <section>
+          <div className="mb-3 flex items-center gap-2">
+            <span className="grid h-8 w-8 place-items-center rounded-control bg-tec-orange/10 text-tec-orange"><Clock3 size={16} /></span>
+            <h3 className="font-bold text-white">Geradas pela operacao</h3>
+          </div>
+          <div className="space-y-2">
+            {derived.length ? derived.map((item) => (
+              <button
+                className="flex w-full items-center justify-between gap-3 rounded-control border border-tec-border/20 bg-tec-field/55 px-3 py-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
+                key={item.key}
+                onClick={() => item.reference_doctype === "Service Order" && item.reference_name ? onOpenOrder(item.reference_name) : undefined}
+                title={item.reference_doctype === "Service Order" ? "Abrir ordem de servico" : item.title}
+                type="button"
+              >
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2"><span className={cx("h-2.5 w-2.5 shrink-0 rounded-full", item.urgency === "high" ? "bg-tec-red" : "bg-tec-orange")} /><span className="block truncate text-sm font-bold text-white">{item.title}</span></span>
+                  <span className="mt-1 block truncate text-xs text-tec-muted">{item.description}</span>
+                </span>
+                <ArrowRight className="shrink-0 text-tec-muted" size={17} />
+              </button>
+            )) : <p className="rounded-control border border-dashed border-tec-border/20 px-4 py-5 text-sm text-tec-muted">Nenhuma pendencia derivada para este contexto.</p>}
+          </div>
+        </section>
+
+        <section className="border-t border-tec-border/15 pt-5 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="grid h-8 w-8 place-items-center rounded-control bg-tec-blue/10 text-tec-blue"><Plus size={16} /></span>
+            <h3 className="font-bold text-white">Minhas tarefas</h3>
+          </div>
+          <form className="flex flex-wrap gap-2" onSubmit={(event) => void addTask(event)}>
+            <input aria-label="Nova tarefa" className="min-w-0 flex-1 rounded-control border border-tec-border/20 bg-tec-field px-3 py-2 text-sm text-tec-text outline-none focus:border-tec-orange/70" maxLength={140} onChange={(event) => setTitle(event.target.value)} placeholder="Adicionar tarefa" value={title} />
+            <input aria-label="Prazo da tarefa" className="rounded-control border border-tec-border/20 bg-tec-field px-2 py-2 text-xs text-tec-text outline-none focus:border-tec-orange/70" onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} />
+            <Button disabled={saving || !title.trim()} icon={<Plus size={16} />} type="submit">Adicionar</Button>
+          </form>
+          <div className="mt-3 space-y-2">
+            {manual.length ? manual.map((task) => (
+              <div className="flex items-center justify-between gap-3 rounded-control border border-tec-border/20 bg-tec-field/45 px-3 py-2.5" key={task.name}>
+                <span className="min-w-0"><span className="block truncate text-sm font-semibold text-tec-text">{task.title}</span><span className="text-xs text-tec-muted">{task.due_date || "Sem prazo"}</span></span>
+                <button className="rounded-control border border-tec-success/35 px-2 py-1 text-xs font-bold text-tec-success transition hover:bg-tec-success/10" onClick={() => void completeTask(task)} title="Concluir tarefa" type="button"><CheckCircle2 size={15} /></button>
+              </div>
+            )) : <p className="rounded-control bg-tec-field/45 px-3 py-4 text-sm text-tec-muted">Sem tarefas manuais.</p>}
+          </div>
+        </section>
+      </div>
     </Card>
   );
 }
