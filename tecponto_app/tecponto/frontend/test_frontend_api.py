@@ -219,9 +219,10 @@ def run_quick_stage_move_checks() -> dict:
 		if not permission_blocked:
 			raise AssertionError("Atendente moveu OS técnica sem passar pela autorização do motor.")
 		request = create_request("service_order_move", request_order, "Encaminhar para diagnóstico técnico.", {"target_state": "Em diagnóstico"})
-		frappe.set_user(manager)
+		workflow_approver = _find_or_create_user(request["approver_role"])
+		frappe.set_user(workflow_approver)
 		if request["name"] not in {row["name"] for row in list_pending_approvals()}:
-			raise AssertionError("Gestor não recebeu a solicitação gerada pelo controle rápido.")
+			raise AssertionError("A role exigida pelo workflow não recebeu a solicitação do controle rápido.")
 
 		direct_order = _create_action_request_service_order(attendant)
 		frappe.set_user(manager)
@@ -699,7 +700,11 @@ def run_action_request_checks() -> dict:
 		if flt(frappe.db.get_value("Device Trade Evaluation", trade.name, "approved_value")) != 150:
 			raise AssertionError("Aprovação da troca não reaplicou o valor no motor.")
 
-		# OS: a transição é executada pela role que o workflow exige, não por um bypass do solicitante.
+		# OS: a transição é executada pela role que o workflow exige, não por um bypass
+		# do solicitante. A OS precisa estar atribuída ao técnico que irá executá-la:
+		# este é o mesmo recorte de leitura aplicado pelo motor em produção.
+		workflow_approver = _find_or_create_user("Tecponto Tecnico")
+		frappe.db.set_value("Service Order", order_name, "technician", workflow_approver, update_modified=False)
 		frappe.set_user(attendant)
 		move_request = create_request(
 			"service_order_move",
@@ -707,7 +712,8 @@ def run_action_request_checks() -> dict:
 			"Técnico precisa iniciar o diagnóstico desta OS.",
 			{"target_state": "Em diagnóstico"},
 		)
-		workflow_approver = _find_or_create_user(move_request["approver_role"])
+		if move_request["approver_role"] != "Tecponto Tecnico":
+			raise AssertionError("A transição Entrada criada → Em diagnóstico deve exigir Técnico.")
 		frappe.set_user(workflow_approver)
 		move_approved = approve_request(move_request["name"])
 		if move_approved["status"] != "Aprovada" or frappe.db.get_value("Service Order", order_name, "workflow_state") != "Em diagnóstico":
