@@ -21,11 +21,13 @@ from tecponto_app.tecponto.frontend.api import (
 	list_stock_items,
 	list_trade_evaluations,
 	move_service_order,
+	create_stock_transfer,
 	resolve_panel,
 	search_budget_items,
 	search_customers,
 	search_pos_items,
 	set_tradein_approved_value,
+	submit_stock_transfer,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.requests import (
@@ -645,6 +647,55 @@ def run_action_request_checks() -> dict:
 		if move_approved["status"] != "Aprovada" or frappe.db.get_value("Service Order", order_name, "workflow_state") != "Em diagnóstico":
 			raise AssertionError("Aprovação da mudança de etapa não moveu a OS pelo workflow real.")
 
+		# Transferência: o atendente prepara o mesmo Stock Entry, mas não o submete.
+		demo_pos = _ensure_pos_demo_records()
+		repair_warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+		commercial_warehouse = demo_pos["commercial_warehouse"]
+		transfer_item = POS_BARCODE_ITEM
+		commercial_before = _bin_qty(transfer_item, commercial_warehouse)
+		repair_before = _bin_qty(transfer_item, repair_warehouse)
+		frappe.set_user(attendant)
+		transfer = create_stock_transfer(transfer_item, 1, commercial_warehouse, "")
+		transfer_blocked = False
+		try:
+			submit_stock_transfer(transfer["item"]["name"])
+		except frappe.PermissionError as error:
+			transfer_blocked = "exige o Gestor" in str(error)
+		if not transfer_blocked:
+			raise AssertionError("Atendente submeteu transferência entre estoques sem aprovação.")
+		transfer_request = create_request(
+			"stock_transfer",
+			transfer["item"]["name"],
+			"Reposição urgente de peça no Reparo.",
+		)
+		frappe.set_user(manager)
+		approve_request(transfer_request["name"])
+		if frappe.db.get_value("Stock Entry", transfer["item"]["name"], "docstatus") != 1:
+			raise AssertionError("Aprovação da transferência não submeteu o Stock Entry.")
+		if _bin_qty(transfer_item, commercial_warehouse) != commercial_before - 1 or _bin_qty(transfer_item, repair_warehouse) != repair_before + 1:
+			raise AssertionError("Transferência aprovada não movimentou os dois depósitos corretamente.")
+
+		# OS faturada: o mesmo workflow só segue quando o Gestor reexecuta o cancelamento.
+		billed_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", billed_order, "sales_invoice", pos_result["sale"], update_modified=False)
+		frappe.set_user(attendant)
+		billed_cancel_blocked = False
+		try:
+			move_service_order(billed_order, "Cancelado")
+		except frappe.PermissionError as error:
+			billed_cancel_blocked = "OS faturada" in str(error)
+		if not billed_cancel_blocked:
+			raise AssertionError("Atendente cancelou OS faturada sem aprovação.")
+		billed_cancel_request = create_request(
+			"billed_service_order_cancel",
+			billed_order,
+			"Cliente desistiu após o faturamento; solicitar cancelamento registrado.",
+		)
+		frappe.set_user(manager)
+		approve_request(billed_cancel_request["name"])
+		if frappe.db.get_value("Service Order", billed_order, "workflow_state") != "Cancelado":
+			raise AssertionError("Aprovação não cancelou a OS faturada pelo workflow real.")
+
 		return {
 			"status": "ok",
 			"created_pending": created["name"],
@@ -657,6 +708,8 @@ def run_action_request_checks() -> dict:
 			"pos_price_floor": {"request": floor_request["name"], "sale": floor_result["sale"], "executed": True},
 			"tradein_over_max": {"request": trade_request["name"], "evaluation": trade.name, "executed": True},
 			"service_order_move": {"request": move_request["name"], "state": "Em diagnóstico", "executed": True},
+			"stock_transfer": {"request": transfer_request["name"], "stock_entry": transfer["item"]["name"], "executed": True},
+			"billed_service_order_cancel": {"request": billed_cancel_request["name"], "service_order": billed_order, "executed": True},
 		}
 	finally:
 		frappe.set_user(previous_user)

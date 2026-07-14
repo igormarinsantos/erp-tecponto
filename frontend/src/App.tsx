@@ -2,6 +2,7 @@ import { FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, us
 import {
   ArrowLeft,
   ArrowRight,
+	ArrowRightLeft,
   BadgeInfo,
   Barcode,
   Box,
@@ -1780,7 +1781,7 @@ function OperationsTable({
   const [searchOpen, setSearchOpen] = useState(false);
   const [tableQuery, setTableQuery] = useState("");
   const [movingOrder, setMovingOrder] = useState<string | null>(null);
-  const [moveApproval, setMoveApproval] = useState<{ name: string; targetState: string } | null>(null);
+  const [moveApproval, setMoveApproval] = useState<{ name: string; targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
 
   async function handleQuickMove(row: ServiceOrderSummary, action: ServiceOrderWorkflowAction) {
     if (["Aprovado", "Reprovado", "Entregue"].includes(action.next_state)) {
@@ -1794,8 +1795,10 @@ function OperationsTable({
       onToast(result.changed ? `OS ${row.name} movida para ${result.item.workflow_state}.` : `OS ${row.name} já estava nesta etapa.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Transição recusada pelo workflow.";
-      if (message.includes("Seu papel não permite mover")) {
-        setMoveApproval({ name: row.name, targetState: action.next_state });
+      if (message.includes("OS faturada") && action.next_state === "Cancelado") {
+        setMoveApproval({ name: row.name, targetState: action.next_state, requestType: "billed_service_order_cancel" });
+      } else if (message.includes("Seu papel não permite mover")) {
+        setMoveApproval({ name: row.name, targetState: action.next_state, requestType: "service_order_move" });
       } else {
         onToast(message, "error");
       }
@@ -1974,10 +1977,12 @@ function OperationsTable({
         onCreated={() => setMoveApproval(null)}
         onToast={onToast}
         open={Boolean(moveApproval)}
-        payload={{ target_state: moveApproval?.targetState ?? "" }}
+        payload={moveApproval?.requestType === "service_order_move" ? { target_state: moveApproval.targetState } : {}}
         referenceName={moveApproval?.name ?? ""}
-        requestType="service_order_move"
-        title={`Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
+        requestType={moveApproval?.requestType ?? "service_order_move"}
+        title={moveApproval?.requestType === "billed_service_order_cancel"
+          ? "Esta OS já possui nota fiscal. Deseja solicitar ao Gestor o cancelamento faturado?"
+          : `Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
       />
     </Card>
   );
@@ -2058,7 +2063,7 @@ function ServiceOrderDetail({
   const [budgetLineType, setBudgetLineType] = useState<BudgetLineType | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [quoteSendOpen, setQuoteSendOpen] = useState(false);
-  const [moveApproval, setMoveApproval] = useState<string | null>(null);
+  const [moveApproval, setMoveApproval] = useState<{ targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
   const initialFlowRef = useRef(initialFlow);
 
   useEffect(() => {
@@ -2134,8 +2139,10 @@ function ServiceOrderDetail({
       onToast(moveResult.changed ? `OS movida para ${updated.workflow_state}.` : `OS já estava em ${updated.workflow_state}.`);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Não foi possível avançar o workflow.";
-      if (message.includes("Seu papel não permite mover")) {
-        setMoveApproval(nextState);
+      if (message.includes("OS faturada") && nextState === "Cancelado") {
+        setMoveApproval({ targetState: nextState, requestType: "billed_service_order_cancel" });
+      } else if (message.includes("Seu papel não permite mover")) {
+        setMoveApproval({ targetState: nextState, requestType: "service_order_move" });
       } else {
         onToast(message, "error");
       }
@@ -2288,10 +2295,12 @@ function ServiceOrderDetail({
         onCreated={() => setMoveApproval(null)}
         onToast={onToast}
         open={Boolean(moveApproval)}
-        payload={{ target_state: moveApproval ?? "" }}
+        payload={moveApproval?.requestType === "service_order_move" ? { target_state: moveApproval.targetState } : {}}
         referenceName={detail.name}
-        requestType="service_order_move"
-        title={`Seu papel não permite mover esta OS para ${moveApproval ?? "esta etapa"}. Deseja solicitar aprovação?`}
+        requestType={moveApproval?.requestType ?? "service_order_move"}
+        title={moveApproval?.requestType === "billed_service_order_cancel"
+          ? "Esta OS já possui nota fiscal. Deseja solicitar ao Gestor o cancelamento faturado?"
+          : `Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
       />
     </div>
   );
@@ -4173,6 +4182,14 @@ function StockLookup({
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [registrationBarcode, setRegistrationBarcode] = useState<string | null>(null);
+	const [transferItem, setTransferItem] = useState<StockItemSummary | null>(null);
+	const [transferQty, setTransferQty] = useState("1");
+	const [transferBusy, setTransferBusy] = useState(false);
+	const [transferApproval, setTransferApproval] = useState<{ name: string; itemName: string } | null>(null);
+  const canTransfer = scope === "repair-parts" || scope === "commercial-products";
+  const transferDirection = scope === "repair-parts"
+    ? { source: "Reparo", target: "Comercial" }
+    : { source: "Comercial", target: "Reparo" };
 
   const search = useCallback(async (nextQuery: string) => {
     setStatus("loading");
@@ -4209,6 +4226,42 @@ function StockLookup({
       setBusyItem(null);
     }
   }, [onToast]);
+
+  const sendTransfer = async () => {
+    if (!transferItem) return;
+    const qty = Number(transferQty.replace(",", "."));
+    if (!Number.isFinite(qty) || qty <= 0) {
+      onToast("Informe uma quantidade maior que zero.", "error");
+      return;
+    }
+    setTransferBusy(true);
+    try {
+      const prepared = await balcao.createStockTransfer(
+        transferItem.item_code,
+        qty,
+		transferItem.warehouse ?? "",
+		"",
+      );
+      try {
+        await balcao.submitStockTransfer(prepared.item.name);
+        onToast("Transferência concluída.");
+        setTransferItem(null);
+        void search("");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "A transferência exige aprovação.";
+        if (message.includes("exige o Gestor")) {
+          setTransferApproval({ name: prepared.item.name, itemName: transferItem.item_name ?? transferItem.item_code });
+          setTransferItem(null);
+        } else {
+          onToast(message, "error");
+        }
+      }
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Não foi possível preparar a transferência.", "error");
+    } finally {
+      setTransferBusy(false);
+    }
+  };
 
   const columns = useMemo<Array<TableColumn<StockItemSummary>>>(
     () => [
@@ -4250,8 +4303,17 @@ function StockLookup({
           </Button>
         ),
       },
+		...(canTransfer ? [{
+			key: "transfer",
+			label: "Transferir",
+			render: (row: StockItemSummary) => (
+				<Button icon={<ArrowRightLeft size={15} />} onClick={() => { setTransferItem(row); setTransferQty("1"); }}>
+					Transferir
+				</Button>
+			),
+		}] : []),
     ],
-    [busyItem, generateBarcode, isCommercialCatalog, scope],
+	[busyItem, canTransfer, generateBarcode, isCommercialCatalog, scope],
   );
 
   return (
@@ -4295,6 +4357,38 @@ function StockLookup({
           open={registrationOpen}
         />
       ) : null}
+		<Modal
+			onClose={() => setTransferItem(null)}
+			open={Boolean(transferItem)}
+			title="Transferir entre estoques"
+		>
+			{transferItem ? (
+				<div className="space-y-4">
+					<p className="text-sm text-tec-subtle">{transferItem.item_name ?? transferItem.item_code}</p>
+					<div className="rounded-card border border-tec-border/15 bg-tec-field/55 p-3 text-sm font-semibold text-tec-text">
+						{transferDirection.source} para {transferDirection.target}. A movimentação só será efetivada após a validação do motor.
+					</div>
+					<label className="block text-sm font-bold text-tec-text">
+						Quantidade
+						<input className="tp-input mt-2 w-full" inputMode="decimal" min="0.001" onChange={(event) => setTransferQty(event.target.value)} type="number" value={transferQty} />
+					</label>
+					<div className="flex justify-end gap-2">
+						<Button onClick={() => setTransferItem(null)} variant="secondary">Cancelar</Button>
+						<Button disabled={transferBusy} icon={<ArrowRightLeft size={16} />} onClick={() => void sendTransfer()} variant="primary">{transferBusy ? "Validando..." : "Transferir"}</Button>
+					</div>
+				</div>
+			) : null}
+		</Modal>
+		<ApprovalRequestModal
+			onClose={() => setTransferApproval(null)}
+			onCreated={() => setTransferApproval(null)}
+			onToast={onToast}
+			open={Boolean(transferApproval)}
+			payload={{}}
+			referenceName={transferApproval?.name ?? ""}
+			requestType="stock_transfer"
+			title={`A transferência de ${transferApproval?.itemName ?? "estoque"} entre Reparo e Comercial exige o Gestor. Deseja solicitar aprovação?`}
+		/>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import type {
   CustomerSearchResponse,
   DashboardMetrics,
   StockItemListResponse,
+	StockTransferResponse,
 	TradeEvaluationListResponse,
 	SetTradeInApprovedValueResponse,
 } from "./types";
@@ -53,4 +54,12 @@ export const balcao = {
       query: { query, limit, scope },
     });
   },
+	createStockTransfer(itemCode: string, qty: number, sourceWarehouse: string, targetWarehouse: string) {
+		return rpc<StockTransferResponse>(`${API}.create_stock_transfer`, {
+			body: { item_code: itemCode, qty, source_warehouse: sourceWarehouse, target_warehouse: targetWarehouse },
+		});
+	},
+	submitStockTransfer(name: string) {
+		return rpc<StockTransferResponse>(`${API}.submit_stock_transfer`, { body: { name } });
+	},
 };

@@ -65,7 +65,7 @@ export function ServiceOrderKanban({
   const [expandedState, setExpandedState] = useState<string | null>(null);
   const [compactMode, setCompactMode] = useState(false);
   const [moving, setMoving] = useState<string | null>(null);
-  const [moveApproval, setMoveApproval] = useState<{ name: string; targetState: string } | null>(null);
+  const [moveApproval, setMoveApproval] = useState<{ name: string; targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
 
   const loadKanban = useCallback(async (quiet = false) => {
     if (!quiet) {
@@ -150,8 +150,10 @@ export function ServiceOrderKanban({
       } catch (error) {
         setState({ status: "ready", data: previous });
         const message = error instanceof Error ? error.message : "Transição recusada pelo workflow.";
-        if (message.includes("Seu papel não permite mover")) {
-          setMoveApproval({ name: dragged.name, targetState });
+        if (message.includes("OS faturada") && targetState === "Cancelado") {
+          setMoveApproval({ name: dragged.name, targetState, requestType: "billed_service_order_cancel" });
+        } else if (message.includes("Seu papel não permite mover")) {
+          setMoveApproval({ name: dragged.name, targetState, requestType: "service_order_move" });
         } else {
           onToast(message, "error");
         }
@@ -178,8 +180,10 @@ export function ServiceOrderKanban({
       onToast(result.changed ? `OS ${item.name} movida para ${result.item.workflow_state}.` : `OS ${item.name} já estava nesta etapa.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Transição recusada pelo workflow.";
-      if (message.includes("Seu papel não permite mover")) {
-        setMoveApproval({ name: item.name, targetState });
+      if (message.includes("OS faturada") && targetState === "Cancelado") {
+        setMoveApproval({ name: item.name, targetState, requestType: "billed_service_order_cancel" });
+      } else if (message.includes("Seu papel não permite mover")) {
+        setMoveApproval({ name: item.name, targetState, requestType: "service_order_move" });
       } else {
         onToast(message, "error");
       }
@@ -268,10 +272,12 @@ export function ServiceOrderKanban({
       onCreated={() => setMoveApproval(null)}
       onToast={onToast}
       open={Boolean(moveApproval)}
-      payload={{ target_state: moveApproval?.targetState ?? "" }}
+      payload={moveApproval?.requestType === "service_order_move" ? { target_state: moveApproval.targetState } : {}}
       referenceName={moveApproval?.name ?? ""}
-      requestType="service_order_move"
-      title={`Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
+      requestType={moveApproval?.requestType ?? "service_order_move"}
+      title={moveApproval?.requestType === "billed_service_order_cancel"
+        ? "Esta OS já possui nota fiscal. Deseja solicitar ao Gestor o cancelamento faturado?"
+        : `Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
     />
     </>
   );

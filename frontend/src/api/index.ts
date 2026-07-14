@@ -62,6 +62,8 @@ export type {
   QuoteSendPayload,
   StockItemListResponse,
   StockItemSummary,
+	StockTransferResponse,
+	StockTransferSummary,
   TecpontoNotification,
   TecpontoTask,
   TradeEvaluationListResponse,

@@ -145,6 +145,10 @@ def validate_transfer_role(doc, method=None) -> None:
 	)
 	if not is_material_transfer:
 		return
+	# Operational staff may prepare a draft. The approval gate protects the
+	# stock movement itself, which only exists after submission.
+	if int(doc.get("docstatus") or 0) != 1:
+		return
 
 	operational_warehouses = _get_operational_warehouses()
 	if not operational_warehouses:

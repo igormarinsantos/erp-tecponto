@@ -147,9 +147,9 @@ def _execute_as_approver(request_type: str, reference_name: str, data: dict[str,
 			doc.save()
 			return {"evaluation": doc.name, "approved_value": doc.approved_value}
 		if request_type == "stock_transfer":
-			doc = frappe.get_doc("Stock Entry", reference_name)
-			doc.submit()
-			return {"stock_entry": doc.name, "docstatus": doc.docstatus}
+			from tecponto_app.tecponto.frontend.api import submit_approved_stock_transfer
+			result = submit_approved_stock_transfer(reference_name)
+			return {"stock_entry": result["item"]["name"], "docstatus": result["item"]["docstatus"]}
 		if request_type == "billed_service_order_cancel":
 			from tecponto_app.tecponto.frontend.api import move_service_order
 			return move_service_order(reference_name, "Cancelado")

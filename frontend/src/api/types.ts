@@ -125,6 +125,19 @@ export interface ServiceOrderMoveResponse {
   changed: boolean;
 }
 
+export interface StockTransferSummary {
+  name: string;
+  item_code: string | null;
+  qty: number;
+  source_warehouse: string;
+  target_warehouse: string;
+  docstatus: number;
+}
+
+export interface StockTransferResponse {
+  item: StockTransferSummary;
+}
+
 export interface ServiceOrderDetailResponse {
   name: string;
   workflow_state: string | null;

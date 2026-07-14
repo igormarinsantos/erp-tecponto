@@ -363,6 +363,11 @@ def move_service_order(name: str, target_state: str) -> dict[str, Any]:
 		return {"item": _serialize_service_order(doc.as_dict()), "changed": False}
 	if target_state in KANBAN_BLOCKED_TARGETS:
 		frappe.throw(_(KANBAN_BLOCKED_TARGETS[target_state]), frappe.ValidationError)
+	# Surface the billed-cancellation gate before the workflow-role message so the
+	# user receives the correct approval path. The Service Order policy validates
+	# the same rule again when the Gestor executes the transition.
+	if target_state == "Cancelado" and doc.get("sales_invoice") and not _current_user_is_manager():
+		frappe.throw(_("OS faturada so pode ser cancelada pelo Gestor."), frappe.PermissionError)
 
 	action = _get_allowed_kanban_action(current_state, target_state)
 	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), action)
@@ -1016,6 +1021,83 @@ def set_tradein_approved_value(name: str, approved_value: float) -> dict[str, An
 
 
 @frappe.whitelist()
+def create_stock_transfer(item_code: str, qty: float, source_warehouse: str, target_warehouse: str) -> dict[str, Any]:
+	"""Prepare a constrained transfer draft; submission remains role-gated."""
+	_require_frontend_role()
+	item_code = (item_code or "").strip()
+	source_warehouse = (source_warehouse or "").strip()
+	target_warehouse = (target_warehouse or "").strip()
+	qty = flt(qty, 3)
+	repair, commercial = _operational_warehouse_pair()
+	if not target_warehouse:
+		target_warehouse = commercial if source_warehouse == repair else repair
+	if {source_warehouse, target_warehouse} != {repair, commercial}:
+		frappe.throw(_("A transferência deve ocorrer somente entre Reparo e Comercial."), frappe.PermissionError)
+	if source_warehouse == target_warehouse or qty <= 0:
+		frappe.throw(_("Informe depósitos diferentes e uma quantidade maior que zero."), frappe.ValidationError)
+	if not frappe.db.exists("Item", item_code):
+		frappe.throw(_("Item não encontrado."), frappe.DoesNotExistError)
+	available = flt(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": source_warehouse}, "actual_qty") or 0)
+	if available < qty:
+		frappe.throw(_("Saldo insuficiente no depósito de origem."), frappe.ValidationError)
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Material Transfer",
+			"purpose": "Material Transfer",
+			"from_warehouse": source_warehouse,
+			"to_warehouse": target_warehouse,
+			"items": [
+				{
+					"item_code": item_code,
+					"qty": qty,
+					"s_warehouse": source_warehouse,
+					"t_warehouse": target_warehouse,
+				}
+			],
+		}
+	)
+	# Only the fixed pair, item, and quantity above are persisted. Submission
+	# continues through the regular Stock Entry validator under the real actor.
+	doc.insert(ignore_permissions=True)
+	return {"item": _serialize_stock_transfer(doc)}
+
+
+@frappe.whitelist()
+def submit_stock_transfer(name: str) -> dict[str, Any]:
+	_require_frontend_role()
+	doc = frappe.get_doc("Stock Entry", (name or "").strip())
+	if doc.owner != frappe.session.user:
+		frappe.throw(_("Somente quem preparou esta transferência pode enviá-la."), frappe.PermissionError)
+	if not _current_user_is_manager():
+		frappe.throw(_("Transferencia entre estoques exige o Gestor."), frappe.PermissionError)
+	return _submit_operational_transfer(doc)
+
+
+def submit_approved_stock_transfer(name: str) -> dict[str, Any]:
+	"""Execute a pending operational transfer for the real approving Gestor."""
+	_require_frontend_role()
+	if not _current_user_is_manager():
+		frappe.throw(_("Transferencia entre estoques exige o Gestor."), frappe.PermissionError)
+	doc = frappe.get_doc("Stock Entry", (name or "").strip())
+	return _submit_operational_transfer(doc)
+
+
+def _submit_operational_transfer(doc) -> dict[str, Any]:
+	if doc.docstatus != 0:
+		frappe.throw(_("Esta transferência não está pendente."), frappe.ValidationError)
+	repair, commercial = _operational_warehouse_pair()
+	if doc.stock_entry_type != "Material Transfer" or {doc.from_warehouse, doc.to_warehouse} != {repair, commercial}:
+		frappe.throw(_("Transferência inválida."), frappe.ValidationError)
+	# The endpoint deliberately bypasses only DocType ACLs: the prepared draft,
+	# warehouses, manager role, and native Stock Entry validations remain enforced.
+	doc.flags.ignore_permissions = True
+	doc.submit()
+	return {"item": _serialize_stock_transfer(doc)}
+
+
+@frappe.whitelist()
 def list_stock_items(query: str = "", limit: int = 12, scope: str = "parts-stock") -> dict[str, Any]:
 	_require_frontend_role()
 	limit = max(1, min(int(limit or 12), 50))
@@ -1213,6 +1295,31 @@ def _serialize_stock_item(item: dict[str, Any]) -> dict[str, Any]:
 		"is_commercial_item": bool(item.get("is_commercial_item")),
 		"warehouse": item.get("warehouse"),
 		"available_qty": float(item.get("available_qty") or 0),
+	}
+
+
+def _operational_warehouse_pair() -> tuple[str, str]:
+	repair = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+	commercial = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
+	if not repair or not commercial:
+		frappe.throw(_("Configure os depósitos de Reparo e Comercial antes de transferir."), frappe.ValidationError)
+	return repair, commercial
+
+
+def _current_user_is_manager() -> bool:
+	roles = set(frappe.get_roles(frappe.session.user))
+	return frappe.session.user == "Administrator" or bool({"Tecponto Gestor", "System Manager"} & roles)
+
+
+def _serialize_stock_transfer(doc) -> dict[str, Any]:
+	row = (doc.get("items") or [None])[0]
+	return {
+		"name": doc.name,
+		"item_code": row.item_code if row else None,
+		"qty": flt(row.qty if row else 0),
+		"source_warehouse": doc.from_warehouse,
+		"target_warehouse": doc.to_warehouse,
+		"docstatus": int(doc.docstatus or 0),
 	}
 
 
