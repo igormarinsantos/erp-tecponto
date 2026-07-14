@@ -25,6 +25,9 @@ MANIFEST
 
 # Environments
 .env
+.env.*
+site_config.json
+sites/*/site_config.json
 .venv
 env/
 venv/
@@ -37,6 +40,11 @@ node_modules/
 jspm_packages/
 tecponto_app/public/frontend/
 artifacts/
+
+# Certificates and private keys
+*.pem
+*.pfx
+*.key
 
 # IDEs and editors
 .vscode/
