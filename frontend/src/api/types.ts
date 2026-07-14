@@ -39,6 +39,24 @@ export interface BootResponse {
   }>;
 }
 
+export interface TecpontoNotification {
+  name: string;
+  type: string;
+  title: string;
+  body: string;
+  link: string;
+  reference_doctype: string | null;
+  reference_name: string | null;
+  is_read: boolean;
+  read_at: string;
+  creation: string;
+}
+
+export interface NotificationListResponse {
+  items: TecpontoNotification[];
+  unread_count: number;
+}
+
 export interface ServiceOrderSummary {
   name: string;
   customer: string | null;

@@ -245,10 +245,12 @@ fixtures = [
 # }
 permission_query_conditions = {
 	"Service Order": "tecponto_app.tecponto.permissions.service_order_query",
+	"Tecponto Notification": "tecponto_app.tecponto.notify.notification_query",
 }
 
 has_permission = {
 	"Service Order": "tecponto_app.tecponto.permissions.service_order_has_permission",
+	"Tecponto Notification": "tecponto_app.tecponto.notify.notification_has_permission",
 }
 
 # Document Events
@@ -278,7 +280,12 @@ doc_events = {
 			"tecponto_app.tecponto.service_order.advance.processar_sinal",
 			"tecponto_app.tecponto.service_order.billing.gerar_nota",
 			"tecponto_app.tecponto.service_order.commission.gerar_comissao",
+			"tecponto_app.tecponto.notify.on_service_order_updated",
 		],
+	},
+	"Tecponto Request": {
+		"after_insert": "tecponto_app.tecponto.notify.on_request_created",
+		"on_update": "tecponto_app.tecponto.notify.on_request_updated",
 	},
 	"Device Trade Evaluation": {
 		"validate": "tecponto_app.tecponto.tradein.evaluation.validar_avaliacao",
@@ -362,6 +369,9 @@ after_build = "tecponto_app.tecponto.frontend.build.build_frontend"
 # ---------------
 
 scheduler_events = {
+	"hourly": [
+		"tecponto_app.tecponto.notify.notify_due_service_orders",
+	],
 	"daily": [
 		"tecponto_app.tecponto.service_order.deadline.expirar_orcamentos",
 		"tecponto_app.tecponto.requests.expire_requests",

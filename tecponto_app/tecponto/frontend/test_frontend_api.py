@@ -51,6 +51,7 @@ from tecponto_app.tecponto.pos import (
 	POS_RECEIPT_PRINT_FORMAT,
 	ensure_item_barcode_source_field,
 )
+from tecponto_app.tecponto import notify
 
 
 TEST_USERS = {
@@ -90,6 +91,7 @@ def run_foundation_checks() -> dict:
 		)
 		multi_role_context = _check_multi_role_context(users["Tecponto Atendente"])
 		action_request_checks = run_action_request_checks()
+		notification_checks = run_notification_checks()
 
 		return {
 			"status": "ok",
@@ -103,6 +105,7 @@ def run_foundation_checks() -> dict:
 			"pos_cost_guard": pos_cost_guard,
 			"multi_role_context": multi_role_context,
 			"action_request_checks": action_request_checks,
+			"notification_checks": notification_checks,
 		}
 	finally:
 		frappe.set_user(previous_user)
@@ -168,6 +171,57 @@ def ensure_service_order_detail_demo_data() -> dict:
 
 		return {"status": "ok", "attendant_user": attendant, "orders": result}
 	finally:
+		frappe.set_user(previous_user)
+
+
+def run_notification_checks() -> dict:
+	"""Covers delivery, ownership, read state and the non-blocking enqueue boundary."""
+	previous_user = frappe.session.user
+	original_enqueue = frappe.enqueue
+	try:
+		frappe.set_user("Administrator")
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		order_name = _create_action_request_service_order(attendant)
+		frappe.db.delete("Tecponto Notification", {"recipient": ["in", [attendant, manager]], "reference_name": ["in", [order_name]]})
+
+		# Execute queued jobs inline here only so the assertion is deterministic.
+		def deliver_inline(method, **kwargs):
+			return notify.send(kwargs["user"], kwargs["template_key"], kwargs["context"])
+		frappe.enqueue = deliver_inline
+
+		frappe.set_user(attendant)
+		request = create_request("service_order_discount", order_name, "Teste de notificacao.", {"discount": 1})
+		frappe.set_user(manager)
+		manager_notifications = notify.list_notifications()
+		if not any(item["reference_name"] == request["name"] for item in manager_notifications["items"]):
+			raise AssertionError(f"Solicitacao criada nao notificou o aprovador. Destinatarios resolvidos: {notify._users_with_role('Tecponto Gestor')}")
+
+		approve_request(request["name"])
+		frappe.set_user(attendant)
+		attendant_notifications = notify.list_notifications()
+		decision = next((item for item in attendant_notifications["items"] if item["reference_name"] == request["name"]), None)
+		if not decision:
+			raise AssertionError("Decisao nao notificou o solicitante.")
+		before_read = attendant_notifications["unread_count"]
+		notify.mark_notification_read(decision["name"])
+		after_read = notify.list_notifications()["unread_count"]
+		if after_read != max(0, before_read - 1):
+			raise AssertionError("Contagem de nao lidas divergiu do banco.")
+
+		frappe.set_user("Administrator")
+		notify.send(attendant, "service_order_state_changed", {"service_order": order_name, "state": "Em diagnostico", "reference_doctype": "Service Order", "reference_name": order_name})
+		frappe.set_user(attendant)
+		service_order_notification = next((item for item in notify.list_notifications()["items"] if item["reference_name"] == order_name), None)
+		if not service_order_notification or "service-orders" not in service_order_notification["link"]:
+			raise AssertionError("Notificacao da OS nao trouxe link seguro para o documento.")
+
+		frappe.enqueue = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("queue offline"))
+		if notify.enqueue(attendant, "service_order_state_changed", {"reference_name": order_name}) is not False:
+			raise AssertionError("Falha de fila nao foi isolada da operacao.")
+		return {"status": "ok", "request": request["name"], "decision_notified": True, "unread_before": before_read, "unread_after": after_read, "service_order_link": service_order_notification["link"], "async_failure_isolated": True}
+	finally:
+		frappe.enqueue = original_enqueue
 		frappe.set_user(previous_user)
 
 

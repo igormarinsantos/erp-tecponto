@@ -3,6 +3,7 @@ export { checkin } from "./checkin";
 export { getBoot, getLoggedUser, logout } from "./auth";
 export { pos } from "./pos";
 export { approvalRequests } from "./requests";
+export { notifications } from "./notifications";
 export type { ApprovalRequest } from "./requests";
 export { serviceOrders, type ServiceOrderQueryParams } from "./serviceOrders";
 export type {
@@ -25,6 +26,7 @@ export type {
   DashboardMetrics,
   LoggedUser,
   NavigationTarget,
+  NotificationListResponse,
   RolePanel,
   ServiceOrderBudgetLine,
   ServiceOrderDetailResponse,
@@ -54,6 +56,7 @@ export type {
   QuoteSendPayload,
   StockItemListResponse,
   StockItemSummary,
+  TecpontoNotification,
   TradeEvaluationListResponse,
   TradeEvaluationSummary,
 } from "./types";

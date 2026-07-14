@@ -53,6 +53,9 @@ def create_request(request_type: str, reference_name: str, reason: str, payload:
 		"expires_on": add_to_date(now_datetime(), hours=72),
 	})
 	doc.insert(ignore_permissions=True)
+	# Keep the request engine reliable for its own API path; the doc event covers other writers.
+	from tecponto_app.tecponto.notify import on_request_created
+	on_request_created(doc)
 	return _serialize(doc)
 
 
@@ -68,7 +71,10 @@ def approve_request(name: str) -> dict[str, Any]:
 	request.approved_by = frappe.session.user
 	request.decision_date = now_datetime()
 	request.execution_result = frappe.as_json(result)
+	request.flags.notify_status_transition = True
 	request.save(ignore_permissions=True)
+	from tecponto_app.tecponto.notify import on_request_updated
+	on_request_updated(request)
 	return _serialize(request)
 
 
@@ -81,7 +87,10 @@ def reject_request(name: str) -> dict[str, Any]:
 	request.status = "Reprovada"
 	request.approved_by = frappe.session.user
 	request.decision_date = now_datetime()
+	request.flags.notify_status_transition = True
 	request.save(ignore_permissions=True)
+	from tecponto_app.tecponto.notify import on_request_updated
+	on_request_updated(request)
 	return _serialize(request)
 
 

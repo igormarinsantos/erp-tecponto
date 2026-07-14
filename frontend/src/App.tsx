@@ -32,6 +32,7 @@ import {
   balcao,
   getBoot,
   logout,
+  notifications,
   pos,
   serviceOrders,
   type BudgetItemSummary,
@@ -43,6 +44,7 @@ import {
   type CustomerSummary,
   type DashboardMetrics,
   type NavigationTarget,
+  type NotificationListResponse,
   type QuoteSendPayload,
   type RolePanel,
   type ServiceOrderBudgetLine,
@@ -53,6 +55,7 @@ import {
   type ServiceOrderWorkflowAction,
   type ServiceOrderSummary,
   type StockItemSummary,
+  type TecpontoNotification,
   type TradeEvaluationSummary,
 } from "./api";
 import { login } from "./api/auth";
@@ -88,7 +91,7 @@ type LoadState =
   | { status: "loading" }
   | { status: "login_required"; reason: LoginReason; message?: string }
   | { status: "no_role"; boot: BootResponse }
-  | { status: "ready"; boot: BootResponse; metrics: DashboardMetrics; orders: ServiceOrderSummary[] }
+  | { status: "ready"; boot: BootResponse; metrics: DashboardMetrics; notifications: NotificationListResponse; orders: ServiceOrderSummary[] }
   | { status: "error"; message: string };
 type ServiceOrderListState =
   | { status: "loading" }
@@ -305,8 +308,8 @@ export function App() {
         setState({ status: "no_role", boot });
         return;
       }
-      const [orderList, metrics] = await Promise.all([serviceOrders.list(12), balcao.getDashboardMetrics()]);
-      setState({ status: "ready", boot, metrics, orders: orderList.items });
+      const [orderList, metrics, notificationList] = await Promise.all([serviceOrders.list(12), balcao.getDashboardMetrics(), notifications.list()]);
+      setState({ status: "ready", boot, metrics, notifications: notificationList, orders: orderList.items });
     } catch (error) {
       if (isAuthRequiredError(error)) {
         setState({ status: "login_required", reason: "guest" });
@@ -761,6 +764,7 @@ export function App() {
         onContextChange={(nextPanel) => changeContext(nextPanel, availablePanels)}
         selectedContextPanel={visualUser.panel}
         theme={theme}
+        unreadNotificationCount={state.notifications.unread_count}
         user={visualUser}
       />
 
@@ -846,11 +850,24 @@ export function App() {
         open={globalSearchOpen}
       />
       <NotificationsPanel
-        metrics={state.metrics}
+        notifications={state.notifications}
         onClose={() => setNotificationsOpen(false)}
-        onNavigate={(target) => {
+        onNavigate={(target, orderName) => {
           setNotificationsOpen(false);
           setActiveView(target);
+          if (orderName) {
+            setSelectedOrderName(orderName);
+          }
+        }}
+        onMarkAllRead={async () => {
+          await notifications.markAllRead();
+          const next = await notifications.list();
+          setState((current) => current.status === "ready" ? { ...current, notifications: next } : current);
+        }}
+        onMarkRead={async (name) => {
+          await notifications.markRead(name);
+          const next = await notifications.list();
+          setState((current) => current.status === "ready" ? { ...current, notifications: next } : current);
         }}
         open={notificationsOpen}
       />
@@ -1110,40 +1127,20 @@ function GlobalSearchSection({
 }
 
 function NotificationsPanel({
-  metrics,
+  notifications,
   onClose,
+  onMarkAllRead,
+  onMarkRead,
   onNavigate,
   open,
 }: {
-  metrics: DashboardMetrics;
+  notifications: NotificationListResponse;
   onClose: () => void;
-  onNavigate: (target: NavigationTarget) => void;
+  onMarkAllRead: () => Promise<void>;
+  onMarkRead: (name: string) => Promise<void>;
+  onNavigate: (target: NavigationTarget, orderName?: string) => void;
   open: boolean;
 }) {
-  const items = [
-    {
-      action: "Abrir fila",
-      count: metrics.service_orders.awaiting_approval,
-      description: "OS esperando retorno do cliente.",
-      onClick: () => onNavigate("service-orders"),
-      title: "Aprovações pendentes",
-    },
-    {
-      action: "Ver estoque",
-      count: metrics.service_orders.waiting_part,
-      description: "Reparos dependentes de peça.",
-      onClick: () => onNavigate("parts-stock"),
-      title: "Peças aguardando chegada",
-    },
-    {
-      action: "Abrir WhatsApp",
-      count: 8,
-      description: "Abrir WhatsApp Web para atendimento.",
-      href: "https://web.whatsapp.com/",
-      title: "Mensagens do WhatsApp",
-    },
-  ];
-
   if (!open) {
     return null;
   }
@@ -1157,44 +1154,37 @@ function NotificationsPanel({
       <div className="mb-2 flex items-start justify-between gap-3 px-1">
         <div>
           <h2 className="text-base font-bold text-white">Notificações</h2>
-          <p className="mt-1 text-xs text-tec-muted">Ações que precisam de atenção no balcão.</p>
+          <p className="mt-1 text-xs text-tec-muted">{notifications.unread_count} não lida{notifications.unread_count === 1 ? "" : "s"}.</p>
         </div>
-        <button
-          className="rounded-control px-2 py-1 text-xs font-bold text-tec-muted transition hover:bg-tec-field hover:text-white"
-          onClick={onClose}
-          type="button"
-        >
-          Fechar
-        </button>
+        <div className="flex items-center gap-1">
+          {notifications.unread_count ? <button className="rounded-control px-2 py-1 text-xs font-bold text-tec-orange transition hover:bg-tec-field" onClick={() => void onMarkAllRead()} type="button">Marcar todas</button> : null}
+          <button className="rounded-control px-2 py-1 text-xs font-bold text-tec-muted transition hover:bg-tec-field hover:text-white" onClick={onClose} type="button">Fechar</button>
+        </div>
       </div>
       <div className="space-y-2">
-        {items.map((item) => (
-          <div className="rounded-card border border-tec-border/15 bg-tec-field/55 p-3" key={item.title}>
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <p className="font-bold text-white">{item.title}</p>
-                <p className="mt-1 text-sm text-tec-muted">{item.description}</p>
-              </div>
-              <span className="grid h-8 min-w-8 place-items-center rounded-full bg-tec-orange/20 px-2 text-sm font-bold text-tec-orange">
-                {item.count}
-              </span>
+        {notifications.items.length ? notifications.items.map((item) => (
+          <button
+            className={cx("w-full rounded-card border p-3 text-left transition hover:border-tec-orange/45", item.is_read ? "border-tec-border/15 bg-tec-field/40" : "border-tec-orange/35 bg-tec-field/70")}
+            key={item.name}
+            onClick={() => {
+              if (!item.is_read) void onMarkRead(item.name);
+              const linkedOrderName = item.link
+                ? new URL(item.link, window.location.origin).searchParams.get("order")
+                : null;
+              const orderName = item.reference_doctype === "Service Order"
+                ? item.reference_name
+                : linkedOrderName;
+              if (orderName) onNavigate("service-order-detail", orderName);
+              else onNavigate("overview");
+            }}
+            type="button"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0"><p className="font-bold text-white">{item.title}</p><p className="mt-1 text-sm text-tec-muted">{item.body}</p></div>
+              {!item.is_read ? <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-tec-orange" title="Não lida" /> : null}
             </div>
-            {item.href ? (
-              <a
-                className="mt-3 inline-flex min-h-9 items-center justify-center rounded-control border border-tec-border/20 bg-tec-panel px-3 text-sm font-bold text-tec-text transition hover:border-tec-whatsapp/50"
-                href={item.href}
-                rel="noreferrer"
-                target="_blank"
-              >
-                {item.action}
-              </a>
-            ) : (
-              <Button className="mt-3" onClick={item.onClick}>
-                {item.action}
-              </Button>
-            )}
-          </div>
-        ))}
+          </button>
+        )) : <p className="rounded-control bg-tec-field/45 px-4 py-5 text-center text-sm text-tec-muted">Nenhuma notificação por enquanto.</p>}
       </div>
     </section>
   );

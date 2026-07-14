@@ -14,6 +14,7 @@ interface TopbarProps {
   theme: "dark" | "light";
   user: LoggedUser;
   onLogout: () => void;
+  unreadNotificationCount: number;
 }
 
 export function Topbar({
@@ -26,6 +27,7 @@ export function Topbar({
   selectedContextPanel,
   theme,
   user,
+  unreadNotificationCount,
 }: TopbarProps) {
   const nextThemeLabel = theme === "dark" ? "tema claro" : "tema escuro";
   const [contextOpen, setContextOpen] = useState(false);
@@ -101,9 +103,11 @@ export function Topbar({
         type="button"
       >
         <Bell size={17} />
-        <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-tec-red px-1 text-[9px] font-bold text-white">
-          8
-        </span>
+        {unreadNotificationCount > 0 ? (
+          <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-tec-red px-1 text-[9px] font-bold text-white">
+            {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+          </span>
+        ) : null}
       </button>
       <button
         aria-label={`Alternar para ${nextThemeLabel}`}
