@@ -145,8 +145,6 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
     metrics: [
       { icon: ClipboardList, label: "Minhas OS", tone: "orange", value: (metrics) => metrics.service_orders.total, detail: "Atribuídas a você" },
       { icon: PackageSearch, label: "Aguardando peça", tone: "purple", value: (metrics) => metrics.service_orders.waiting_part, detail: "Solicitações abertas" },
-      { icon: Wrench, label: "Diagnósticos hoje", tone: "blue", value: () => 0, detail: "Registrados" },
-      { icon: ClipboardCheck, label: "Prontas para teste", tone: "green", value: () => 0, detail: "Em bancada" },
     ],
     actions: [
       { icon: Wrench, label: "Atualizar diagnóstico", detail: "Registrar avaliação", target: "service-orders" },
@@ -176,7 +174,6 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       { icon: ShoppingCart, label: "Vendas do dia", tone: "green", value: (metrics) => brl.format(metrics.sales_today_total), detail: "Comercial" },
       { icon: Wrench, label: "OS em andamento", tone: "orange", value: (metrics) => metrics.service_orders.total, detail: "Na operação" },
       { icon: Bell, label: "OS atrasadas", tone: "red", value: (metrics) => metrics.service_orders.overdue, detail: "Ver críticas" },
-      { icon: Target, label: "Meta do dia", tone: "blue", value: () => "R$ 0,00", detail: "Acompanhamento" },
     ],
     actions: [
       ...commonActions,
@@ -203,10 +200,8 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       },
     ],
     metrics: [
-      { icon: CreditCard, label: "Faturamento do mês", tone: "green", value: () => "R$ 0,00", detail: "Consolidado" },
       { icon: ShoppingCart, label: "Vendas de acessórios", tone: "orange", value: (metrics) => brl.format(metrics.sales_today_total), detail: "Comercial" },
       { icon: Wrench, label: "OS concluídas", tone: "blue", value: (metrics) => metrics.service_orders.total, detail: "Período atual" },
-      { icon: Star, label: "Satisfação", tone: "green", value: () => "0,0/5", detail: "Clientes" },
     ],
     actions: [
       {

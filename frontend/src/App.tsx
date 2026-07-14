@@ -4233,12 +4233,7 @@ function RightRail({
             tone="amber"
             title="Peças aguardando chegada"
           />
-          <AlertLine
-            count={8}
-            href="https://web.whatsapp.com/"
-            tone="green"
-            title="Mensagens do WhatsApp"
-          />
+          <IntegrationPendingLine />
         </div>
         <button
           className="mx-auto mt-5 flex items-center gap-2 text-sm font-bold text-tec-orange hover:text-tec-digital-orange"
@@ -4250,6 +4245,21 @@ function RightRail({
         </button>
       </Card>
     </aside>
+  );
+}
+
+function IntegrationPendingLine() {
+  return (
+    <div
+      className="flex items-center justify-between gap-3 rounded-control px-1 py-1.5 text-left"
+      title="A centralização de mensagens chega na Fase 5a."
+    >
+      <span className="flex min-w-0 items-center gap-3 text-tec-muted">
+        <span className="h-2.5 w-2.5 rounded-full bg-tec-muted/65" />
+        <span className="truncate">Mensagens do WhatsApp</span>
+      </span>
+      <span className="shrink-0 rounded-full bg-tec-field px-2 py-1 text-[10px] font-bold uppercase text-tec-muted">Fase 5a</span>
+    </div>
   );
 }
 
