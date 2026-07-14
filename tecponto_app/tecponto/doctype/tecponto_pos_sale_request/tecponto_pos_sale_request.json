@@ -11,6 +11,8 @@
   "request_hash",
   "status",
   "requested_by",
+  "cashier_operator",
+  "cashier_identified_via",
   "customer",
   "result_section",
   "sales_invoice",
@@ -58,6 +60,20 @@
    "options": "User",
    "read_only": 1,
    "reqd": 1
+  },
+  {
+   "fieldname": "cashier_operator",
+   "fieldtype": "Link",
+   "label": "Operador identificado",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cashier_identified_via",
+   "fieldtype": "Select",
+   "label": "Identificado via",
+   "options": "\nbadge\npin",
+   "read_only": 1
   },
   {
    "fieldname": "customer",

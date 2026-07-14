@@ -348,12 +348,14 @@ after_migrate = [
 	"tecponto_app.tecponto.service_order.parts.ensure_stock_reservation_for_service_order",
 	"tecponto_app.tecponto.pos.ensure_pos_profile",
 	"tecponto_app.tecponto.pos.ensure_item_barcode_source_field",
+	"tecponto_app.tecponto.cashier.ensure_cashier_sales_invoice_field",
 	"tecponto_app.tecponto.service_order.kanban.ensure_service_order_kanban",
 	"tecponto_app.tecponto.service_order.print_formats.ensure_service_order_print_formats",
 ]
 
 website_route_rules = [
 	{"from_route": "/tecponto", "to_route": "tecponto"},
+	{"from_route": "/tecponto/caixa", "to_route": "tecponto"},
 ]
 
 role_home_page = {

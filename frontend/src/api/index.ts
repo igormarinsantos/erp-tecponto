@@ -18,6 +18,7 @@ export type {
   BootResponse,
   CheckinPayload,
   CheckinResponse,
+	CashierOperatorIdentity,
   CreateCustomerDevicePayload,
   CreateCustomerDeviceResponse,
   CustomerDeviceListResponse,

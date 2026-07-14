@@ -1,5 +1,6 @@
 import { rpc } from "./client";
 import type {
+	CashierOperatorIdentity,
   PosBarcodeLabelResponse,
   PosItemSearchResponse,
   PosSalePayload,
@@ -28,6 +29,14 @@ export const pos = {
   createSale(payload: PosSalePayload) {
     return rpc<PosSaleResponse>(`${POS_API}.pos_create_sale`, {
       body: { payload: JSON.stringify(payload) },
+    });
+  },
+  cashierBadgeUrl(operator: string) {
+    return `/api/method/${POS_API}.pos_download_cashier_badge?operator=${encodeURIComponent(operator)}`;
+  },
+  identifyCashierOperator({ badgeCode = "", pin = "" }: { badgeCode?: string; pin?: string }) {
+    return rpc<CashierOperatorIdentity>(`${POS_API}.pos_identify_cashier_operator`, {
+      body: { badge_code: badgeCode, pin },
     });
   },
   generateBarcode(itemCode: string) {

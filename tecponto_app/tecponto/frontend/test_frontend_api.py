@@ -35,9 +35,11 @@ from tecponto_app.tecponto.requests import (
 )
 from tecponto_app.tecponto.frontend.pos import (
 	pos_create_sale,
+	pos_download_cashier_badge,
 	pos_download_barcode_label,
 	pos_download_receipt,
 	pos_generate_item_barcode,
+	pos_identify_cashier_operator,
 	pos_lookup_retail_barcode,
 	pos_receive_retail_stock,
 	pos_register_retail_product,
@@ -53,6 +55,7 @@ from tecponto_app.tecponto.pos import (
 	ensure_item_barcode_source_field,
 )
 from tecponto_app.tecponto import notify
+from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD
 from tecponto_app.tecponto.pending import complete_manual_task, create_manual_task, list_daily_actions
 
 
@@ -91,6 +94,7 @@ def run_foundation_checks() -> dict:
 			users["Tecponto Atendente"],
 			users["Tecponto Tecnico"],
 		)
+		cashier_mode_checks = run_cashier_mode_checks()
 		multi_role_context = _check_multi_role_context(users["Tecponto Atendente"])
 		action_request_checks = run_action_request_checks()
 		notification_checks = run_notification_checks()
@@ -106,10 +110,105 @@ def run_foundation_checks() -> dict:
 			"sensitive_guard": guard_check,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
+			"cashier_mode_checks": cashier_mode_checks,
 			"multi_role_context": multi_role_context,
 			"action_request_checks": action_request_checks,
 			"notification_checks": notification_checks,
 			"daily_action_checks": daily_action_checks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_cashier_mode_checks() -> dict:
+	"""Prove badge/PIN attribution without allowing the badge to elevate a session."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		manager = _find_or_create_user("Tecponto Gestor")
+		customer = _get_or_create_demo_customer()
+		demo = _ensure_pos_demo_records()
+		operator = _ensure_cashier_operator(attendant, badge_code="TP-CAIXA-ATENDENTE", pin="2468")
+		manager_operator = _ensure_cashier_operator(manager, badge_code="TP-CAIXA-GESTOR", pin="1357")
+		frappe.db.commit()
+
+		frappe.set_user(attendant)
+		roles_before = sorted(frappe.get_roles(attendant))
+		badge_identity = pos_identify_cashier_operator(badge_code=operator.badge_code)
+		if badge_identity["operator"] != attendant or badge_identity["via"] != "badge":
+			raise AssertionError("Bipe do cracha nao identificou o operador correto.")
+		pin_identity = pos_identify_cashier_operator(pin="2468")
+		if pin_identity["operator"] != attendant or pin_identity["via"] != "pin":
+			raise AssertionError("PIN de fallback nao identificou o operador correto.")
+		if roles_before != sorted(frappe.get_roles(attendant)) or frappe.session.user != attendant:
+			raise AssertionError("Cracha alterou a sessao ou as roles do usuario logado.")
+
+		qty_before = _bin_qty(POS_NAME_ITEM, demo["commercial_warehouse"])
+		sale = pos_create_sale(
+			{
+				"idempotency_key": f"tp-cashier-{frappe.generate_hash(length=20)}",
+				"cashier_operator_token": badge_identity["token"],
+				"customer": customer,
+				"items": [{"item_code": POS_NAME_ITEM, "qty": 1}],
+				"discount_amount": 0,
+				"payments": [{"mode_of_payment": "Pix", "amount": 35.50, "installments": 1}],
+			}
+		)
+		frappe.db.commit()
+		invoice = frappe.get_doc("Sales Invoice", sale["sale"])
+		if invoice.get(CASHIER_OPERATOR_FIELD) != attendant:
+			raise AssertionError("Venda do caixa nao gravou o operador na Sales Invoice.")
+		request = frappe.db.get_value(
+			"Tecponto POS Sale Request",
+			{"sales_invoice": sale["sale"]},
+			["cashier_operator", "cashier_identified_via"],
+			as_dict=True,
+		)
+		if not request or request.cashier_operator != attendant or request.cashier_identified_via != "badge":
+			raise AssertionError("Requisicao idempotente nao reteve a autoria do operador.")
+		if flt(qty_before - _bin_qty(POS_NAME_ITEM, demo["commercial_warehouse"]), 3) != 1:
+			raise AssertionError("Venda identificada nao baixou uma unidade do Comercial.")
+
+		pos_download_cashier_badge(operator.name)
+		badge_pdf = frappe.local.response.get("filecontent") or b""
+		if not badge_pdf.startswith(b"%PDF"):
+			raise AssertionError("Etiqueta do cracha nao renderizou como PDF.")
+		other_badge_blocked = False
+		try:
+			pos_download_cashier_badge(manager_operator.name)
+		except frappe.PermissionError:
+			other_badge_blocked = True
+		if not other_badge_blocked:
+			raise AssertionError("Atendente conseguiu imprimir o cracha de outro operador.")
+
+		frappe.set_user(technician)
+		badge_blocked = False
+		try:
+			pos_identify_cashier_operator(badge_code=operator.badge_code)
+		except frappe.PermissionError:
+			badge_blocked = True
+		if not badge_blocked:
+			raise AssertionError("Tecnico conseguiu usar o endpoint de identificacao do caixa.")
+
+		frappe.set_user(attendant)
+		inventory_blocked = False
+		try:
+			pos_receive_retail_stock({"items": [], "cashier_operator_token": badge_identity["token"]})
+		except frappe.PermissionError:
+			inventory_blocked = True
+		if not inventory_blocked:
+			raise AssertionError("Token do cracha elevou o atendente para registrar estoque.")
+
+		return {
+			"status": "ok",
+			"badge": {"operator": badge_identity["operator"], "via": badge_identity["via"]},
+			"pin": {"operator": pin_identity["operator"], "via": pin_identity["via"]},
+			"sale": {"name": sale["sale"], "operator": invoice.get(CASHIER_OPERATOR_FIELD)},
+			"badge_pdf": badge_pdf.startswith(b"%PDF"),
+			"security": {"session_roles_unchanged": True, "technician_blocked": badge_blocked, "inventory_blocked": inventory_blocked, "other_badge_blocked": other_badge_blocked},
 		}
 	finally:
 		frappe.set_user(previous_user)
@@ -1445,6 +1544,19 @@ def _ensure_pos_demo_records() -> dict:
 		"barcode": POS_BARCODE_VALUE,
 		"valuation_rates": valuation_rates,
 	}
+
+
+def _ensure_cashier_operator(user: str, *, badge_code: str, pin: str):
+	if frappe.db.exists("Tecponto Cashier Operator", user):
+		operator = frappe.get_doc("Tecponto Cashier Operator", user)
+	else:
+		operator = frappe.new_doc("Tecponto Cashier Operator")
+		operator.user = user
+	operator.active = 1
+	operator.badge_code = badge_code
+	operator.pin = pin
+	operator.save(ignore_permissions=True)
+	return operator
 
 
 def _ensure_pos_demo_item(

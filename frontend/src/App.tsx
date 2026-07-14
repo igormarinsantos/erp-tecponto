@@ -64,6 +64,7 @@ import {
 import { login } from "./api/auth";
 import { isAuthRequiredError } from "./api/client";
 import { CheckinWizard } from "./CheckinWizard";
+import { CashierMode } from "./CashierMode";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { ApprovalRequestsPanel } from "./ApprovalRequestsPanel";
 import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
@@ -164,6 +165,7 @@ const DASHBOARD_PERIOD_OPTIONS: Array<{ label: string; value: DashboardPeriodMod
   { label: "Personalizado", value: "custom" },
 ];
 const POS_PENDING_MESSAGE = "Venda no balcão entra na Fase 3.5 com POS restrito, sem Sales User amplo.";
+const CASHIER_ROUTE = "/tecponto/caixa";
 
 function getThemeStorageKey(userName: string) {
   return `${THEME_STORAGE_PREFIX}${userName}`;
@@ -284,6 +286,7 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
 };
 
 export function App() {
+	const cashierMode = window.location.pathname.replace(/\/+$/, "") === CASHIER_ROUTE;
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [activeView, setActiveView] = useState<NavigationTarget>("overview");
   const [checkinOpen, setCheckinOpen] = useState(false);
@@ -701,8 +704,8 @@ export function App() {
 
   const handleLogin = useCallback(async (credentials: { password: string; user: string }) => {
     await login(credentials);
-    window.location.assign("/tecponto");
-  }, []);
+    window.location.assign(cashierMode ? CASHIER_ROUTE : "/tecponto");
+  }, [cashierMode]);
 
   if (state.status === "loading") {
     return <LoadingShell />;
@@ -747,6 +750,15 @@ export function App() {
     : state.boot.user;
   const panel = panelDefinitions[visualUser.panel] ?? panelDefinitions.sem_papel;
   const currentView = activeView === "overview" ? null : viewTitles[activeView];
+
+  if (cashierMode) {
+    return (
+      <>
+        <CashierMode onExit={() => window.location.assign("/tecponto")} onToast={showToast} />
+        {toast ? <Toast message={toast.message} tone={toast.tone} /> : null}
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen">

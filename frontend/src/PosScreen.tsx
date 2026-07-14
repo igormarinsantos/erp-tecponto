@@ -1,7 +1,7 @@
 import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ExternalLink, Percent, RefreshCw, UserRound } from "lucide-react";
 
-import { pos, type CustomerSummary, type PosItemSummary, type PosSalePaymentPayload, type PosSaleResponse } from "./api";
+import { pos, type CashierOperatorIdentity, type CustomerSummary, type PosItemSummary, type PosSalePaymentPayload, type PosSaleResponse } from "./api";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { Button, Modal } from "./ui";
 import { AddProductPanel } from "./pos/AddProductPanel";
@@ -14,7 +14,10 @@ import { SaleSummary } from "./pos/SaleSummary";
 import type { PosCartLine, PosScanFeedback, PosScanStatus, PosSearchStatus, PosToast } from "./pos/types";
 
 interface PosScreenProps {
+	 cashierMode?: boolean;
+	 cashierOperator?: CashierOperatorIdentity | null;
   initialBarcode?: { code: string; id: number } | null;
+	 onCashierSaleCompleted?: (sale: PosSaleResponse) => void;
   onInitialBarcodeHandled?: () => void;
   onRegisterUnknownBarcode?: (barcode: string) => void;
   onToast: PosToast;
@@ -25,7 +28,7 @@ const INITIAL_SCAN_FEEDBACK: PosScanFeedback = {
   title: "Leitor aguardando",
 };
 
-export function PosScreen({ initialBarcode, onInitialBarcodeHandled, onRegisterUnknownBarcode, onToast }: PosScreenProps) {
+export function PosScreen({ cashierMode = false, cashierOperator = null, initialBarcode, onCashierSaleCompleted, onInitialBarcodeHandled, onRegisterUnknownBarcode, onToast }: PosScreenProps) {
   const barcodeRef = useRef<HTMLInputElement>(null);
   const manualRef = useRef<HTMLInputElement>(null);
   const discountRef = useRef<HTMLInputElement>(null);
@@ -268,6 +271,18 @@ export function PosScreen({ initialBarcode, onInitialBarcodeHandled, onRegisterU
     setDiscount(normalized);
   };
 
+  const resetForNextSale = useCallback(() => {
+    clearManualSearch();
+    setBarcode("");
+    setCart([]);
+    setCustomer(null);
+    setDiscount(0);
+    setScanStatus("idle");
+    setScanFeedback(INITIAL_SCAN_FEEDBACK);
+    idempotencyRef.current = null;
+    focusScanner(true);
+  }, [focusScanner]);
+
   const handleFinalize = useCallback(() => {
     if (!cart.length) {
       return;
@@ -277,14 +292,20 @@ export function PosScreen({ initialBarcode, onInitialBarcodeHandled, onRegisterU
       setCustomerOpen(true);
       return;
     }
+
+    if (cashierMode && !cashierOperator?.token) {
+      onToast("Identifique o operador pelo cracha ou PIN antes de finalizar.", "error");
+      return;
+    }
     setCheckoutOpen(true);
-  }, [cart.length, customer, onToast]);
+  }, [cart.length, cashierMode, cashierOperator?.token, customer, onToast]);
 
   const submitSale = async (payments: PosSalePaymentPayload[]) => {
     if (!customer || !cart.length || checkoutLoading) {
       return;
     }
     const requestWithoutKey = {
+		cashier_operator_token: cashierOperator?.token,
       customer: customer.name,
       discount_amount: discount,
       items: cart.map((item) => ({ item_code: item.item_code, qty: item.qty })),
@@ -300,12 +321,17 @@ export function PosScreen({ initialBarcode, onInitialBarcodeHandled, onRegisterU
     setCheckoutLoading(true);
     try {
       const response = await pos.createSale({ ...requestWithoutKey, idempotency_key: idempotencyKey });
-      setCompletedSale(response);
       setCheckoutOpen(false);
-      setCart([]);
-      setDiscount(0);
-      idempotencyRef.current = null;
-      onToast(`Venda ${response.sale} concluída e cupom gerado.`, "success");
+		if (cashierMode) {
+			resetForNextSale();
+			onCashierSaleCompleted?.(response);
+		} else {
+			setCompletedSale(response);
+			setCart([]);
+			setDiscount(0);
+			idempotencyRef.current = null;
+			onToast(`Venda ${response.sale} concluída e cupom gerado.`, "success");
+		}
     } catch (error) {
       const message = error instanceof Error ? error.message : "Não foi possível finalizar a venda.";
       if (message.includes("Desconto acima do limite")) {
@@ -343,8 +369,8 @@ export function PosScreen({ initialBarcode, onInitialBarcodeHandled, onRegisterU
     <div className="space-y-4" data-testid="pos-screen">
       <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white md:text-4xl">PDV do balcão</h1>
-          <p className="mt-1 text-sm text-tec-subtle">Venda rápida por código de barras ou busca de produto.</p>
+          <h1 className="text-3xl font-bold text-white md:text-4xl">{cashierMode ? "Venda no caixa" : "PDV do balcão"}</h1>
+          <p className="mt-1 text-sm text-tec-subtle">{cashierMode ? "Bipe os produtos e finalize. Ao concluir, o caixa volta pronto para a proxima venda." : "Venda rápida por código de barras ou busca de produto."}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button icon={<UserRound size={16} />} onClick={() => setCustomerOpen(true)}><kbd className="rounded-[6px] bg-tec-panel px-1.5 py-0.5 text-[10px]">F2</kbd> Cliente</Button>

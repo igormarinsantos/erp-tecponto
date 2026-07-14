@@ -238,6 +238,7 @@ export interface PosSalePaymentPayload {
 }
 
 export interface PosSalePayload {
+	 cashier_operator_token?: string;
   customer: string;
   discount_amount: number;
   idempotency_key: string;
@@ -247,6 +248,13 @@ export interface PosSalePayload {
     serial_no?: string | null;
   }>;
   payments: PosSalePaymentPayload[];
+}
+
+export interface CashierOperatorIdentity {
+  operator: string;
+  operator_name: string;
+  token: string;
+  via: "badge" | "pin";
 }
 
 export interface PosSaleResponse {

@@ -11,6 +11,7 @@ from frappe import _
 from frappe.utils import add_days, flt, nowdate
 from frappe.utils.pdf import get_pdf
 
+from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD, identify_cashier_operator, resolve_cashier_operator
 from tecponto_app.tecponto.pos import (
 	BARCODE_SOURCE_FIELD,
 	BARCODE_SOURCE_INTERNAL,
@@ -50,7 +51,8 @@ def pos_create_sale(payload: str | dict[str, Any] | None = None) -> dict[str, An
 	_require_pos_sale_role()
 	data = _parse_payload(payload)
 	idempotency_key = _validate_idempotency_key(data.get("idempotency_key"))
-	request = _normalize_request(data)
+	cashier_operator = resolve_cashier_operator(data.get("cashier_operator_token"))
+	request = _normalize_request(data, cashier_operator=cashier_operator)
 	request_hash = _request_hash(request)
 
 	existing = _get_existing_request(idempotency_key, request_hash)
@@ -75,6 +77,8 @@ def pos_create_sale(payload: str | dict[str, Any] | None = None) -> dict[str, An
 				"request_hash": request_hash,
 				"status": "Processing",
 				"requested_by": frappe.session.user,
+				"cashier_operator": request["cashier_operator"],
+				"cashier_identified_via": request["cashier_identified_via"],
 				"customer": request["customer"],
 				"gross_total": gross_total,
 				"discount_amount": discount_amount,
@@ -85,6 +89,7 @@ def pos_create_sale(payload: str | dict[str, Any] | None = None) -> dict[str, An
 		idempotency_doc.insert(ignore_permissions=True)
 
 		invoice = _create_sales_invoice(
+			cashier_operator=request["cashier_operator"],
 			company=company,
 			customer=request["customer"],
 			warehouse=warehouse,
@@ -100,6 +105,47 @@ def pos_create_sale(payload: str | dict[str, Any] | None = None) -> dict[str, An
 	except Exception:
 		frappe.db.rollback(save_point=savepoint)
 		raise
+
+
+@frappe.whitelist()
+def pos_identify_cashier_operator(badge_code: str = "", pin: str = "") -> dict[str, str]:
+	"""Return a sale-attribution token. It never authenticates or changes permissions."""
+	_require_pos_sale_role()
+	return identify_cashier_operator(badge_code=badge_code, pin=pin)
+
+
+@frappe.whitelist()
+def pos_download_cashier_badge(operator: str) -> None:
+	"""Render a small Code-128 badge through the same PDF path used by PDV labels."""
+	_require_pos_sale_role()
+	operator_doc = frappe.get_doc("Tecponto Cashier Operator", operator)
+	roles = set(frappe.get_roles(frappe.session.user))
+	can_manage_badges = frappe.session.user == "Administrator" or bool(roles & {"Tecponto Gestor", "System Manager"})
+	if operator_doc.user != frappe.session.user and not can_manage_badges:
+		raise frappe.PermissionError(_("Somente o proprio operador ou o Gestor pode imprimir este cracha."))
+	if not operator_doc.active:
+		raise frappe.PermissionError(_("Este cracha esta inativo."))
+	user = frappe.db.get_value("User", operator_doc.user, ["full_name", "enabled"], as_dict=True)
+	if not user or not user.enabled:
+		raise frappe.PermissionError(_("O usuario deste cracha esta inativo."))
+	from tecponto_app.tecponto.pos import barcode_svg_data_uri
+
+	body = """
+<div class="tp-barcode-label">
+  <p class="tp-product">{name}</p>
+  <p class="tp-price">CRACHA TEC PONTO</p>
+  <img alt="Codigo do cracha" src="{image}">
+  <p class="tp-code">{code}</p>
+  <p class="tp-sku">Operador de caixa</p>
+</div>
+""".format(name=frappe.utils.escape_html(user.full_name or operator_doc.user), image=barcode_svg_data_uri(operator_doc.badge_code), code=frappe.utils.escape_html(operator_doc.badge_code))
+	from tecponto_app.tecponto.pos import _barcode_label_css
+
+	pdf = _render_barcode_label_pdf(body, _barcode_label_css())
+	frappe.local.response.filename = f"Cracha-{operator_doc.user}.pdf"
+	frappe.local.response.filecontent = pdf
+	frappe.local.response.type = "download"
+	frappe.local.response.display_content_as = "inline"
 
 
 @frappe.whitelist()
@@ -386,7 +432,7 @@ def _validate_idempotency_key(value: Any) -> str:
 	return key
 
 
-def _normalize_request(data: dict[str, Any]) -> dict[str, Any]:
+def _normalize_request(data: dict[str, Any], *, cashier_operator: dict[str, str] | None = None) -> dict[str, Any]:
 	customer = str(data.get("customer") or "").strip()
 	if not customer or not frappe.db.exists("Customer", customer):
 		frappe.throw(_("Selecione um cliente válido para finalizar a venda."), frappe.ValidationError)
@@ -420,6 +466,8 @@ def _normalize_request(data: dict[str, Any]) -> dict[str, Any]:
 		frappe.throw(_("Informe ao menos uma forma de pagamento."), frappe.ValidationError)
 
 	return {
+		"cashier_identified_via": cashier_operator["via"] if cashier_operator else None,
+		"cashier_operator": cashier_operator["operator"] if cashier_operator else None,
 		"customer": customer,
 		"discount_amount": flt(data.get("discount_amount"), 2),
 		"items": [
@@ -673,7 +721,7 @@ def _card_fee(mode: str, installments: int) -> tuple[float, int]:
 
 
 def _create_sales_invoice(
-	*, company: str, customer: str, warehouse: str, items: list[dict[str, Any]], discount_amount: float, payments: list[dict[str, Any]]
+	*, cashier_operator: str | None, company: str, customer: str, warehouse: str, items: list[dict[str, Any]], discount_amount: float, payments: list[dict[str, Any]]
 ):
 	invoice = frappe.get_doc(
 		{
@@ -692,6 +740,8 @@ def _create_sales_invoice(
 			"discount_amount": discount_amount,
 		}
 	)
+	if cashier_operator:
+		invoice.set(CASHIER_OPERATOR_FIELD, cashier_operator)
 	income_account = _income_account(company)
 	expense_account = _expense_account(company)
 	cost_center = _cost_center(company)
