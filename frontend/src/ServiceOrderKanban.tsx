@@ -10,6 +10,7 @@ import {
 } from "./api";
 import { BadgeStatus, Button, Card } from "./ui";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
+import { WorkflowMoveMenu } from "./WorkflowMoveMenu";
 import { cx } from "./ui/utils";
 
 type ToastTone = "success" | "error";
@@ -163,6 +164,30 @@ export function ServiceOrderKanban({
     [dragged, loadKanban, onChanged, onOpenWorkflowFlow, onToast, state],
   );
 
+  const quickMoveCard = useCallback(async (item: ServiceOrderSummary, targetState: string) => {
+    const specialFlow = flowForTargetState(targetState);
+    if (specialFlow) {
+      onOpenWorkflowFlow(item.name, specialFlow);
+      return;
+    }
+    setMoving(item.name);
+    try {
+      const result = await serviceOrders.move(item.name, targetState);
+      await loadKanban(true);
+      onChanged();
+      onToast(result.changed ? `OS ${item.name} movida para ${result.item.workflow_state}.` : `OS ${item.name} já estava nesta etapa.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Transição recusada pelo workflow.";
+      if (message.includes("Seu papel não permite mover")) {
+        setMoveApproval({ name: item.name, targetState });
+      } else {
+        onToast(message, "error");
+      }
+    } finally {
+      setMoving(null);
+    }
+  }, [loadKanban, onChanged, onOpenWorkflowFlow, onToast]);
+
   if (state.status === "loading") {
     return (
       <Card className="min-h-[540px] p-5">
@@ -231,6 +256,7 @@ export function ServiceOrderKanban({
             onDragStart={(item) => setDragged({ name: item.name, sourceState: column.state })}
             onDrop={() => void moveCard(column.state)}
             onOpenOrder={onOpenOrder}
+            onQuickMove={(item, targetState) => void quickMoveCard(item, targetState)}
             onShowList={onShowList}
             onSetDropTarget={setDropTarget}
           />
@@ -263,6 +289,7 @@ function KanbanColumn({
   onDrop,
   onExpand,
   onOpenOrder,
+  onQuickMove,
   onShowList,
   onSetDropTarget,
 }: {
@@ -277,6 +304,7 @@ function KanbanColumn({
   onDragStart: (item: ServiceOrderSummary) => void;
   onDrop: () => void;
   onOpenOrder: (name: string) => void;
+  onQuickMove: (item: ServiceOrderSummary, targetState: string) => void;
   onShowList: () => void;
   onSetDropTarget: (state: string | null) => void;
 }) {
@@ -369,6 +397,7 @@ function KanbanColumn({
               onDragEnd={onDragEnd}
               onDragStart={() => onDragStart(item)}
               onOpenOrder={onOpenOrder}
+              onQuickMove={onQuickMove}
             />
           ))
         ) : (
@@ -399,15 +428,17 @@ function KanbanCard({
   onDragEnd,
   onDragStart,
   onOpenOrder,
+  onQuickMove,
 }: {
   item: ServiceOrderSummary;
   moving: boolean;
   onDragEnd: () => void;
   onDragStart: () => void;
   onOpenOrder: (name: string) => void;
+  onQuickMove: (item: ServiceOrderSummary, targetState: string) => void;
 }) {
   return (
-    <button
+    <article
       className={cx(
         "group w-full cursor-grab rounded-card border border-tec-border/20 bg-tec-panel-strong/70 p-3 text-left shadow-sm transition hover:border-tec-orange/55 hover:bg-tec-panel-strong active:cursor-grabbing",
         moving && "opacity-60",
@@ -418,21 +449,18 @@ function KanbanCard({
       data-tp-name={item.name}
       data-tp-workflow-state={item.workflow_state ?? ""}
       draggable={!moving}
-      onClick={() => onOpenOrder(item.name)}
       onDragEnd={onDragEnd}
-      onDragStart={(event: DragEvent<HTMLButtonElement>) => {
+      onDragStart={(event: DragEvent<HTMLElement>) => {
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", item.name);
         onDragStart();
       }}
-      title={`Abrir ${item.name}`}
-      type="button"
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        <button className="min-w-0 text-left" onClick={() => onOpenOrder(item.name)} title={`Abrir ${item.name}`} type="button">
           <p className="truncate text-sm font-bold text-white">{item.name}</p>
           <p className="mt-1 truncate text-sm text-tec-subtle">{item.customer ?? "Cliente não informado"}</p>
-        </div>
+        </button>
         <GripVertical className="shrink-0 text-tec-muted transition group-hover:text-tec-orange" size={17} />
       </div>
 
@@ -444,9 +472,9 @@ function KanbanCard({
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <BadgeStatus status={item.workflow_state} />
-        <ArrowRight className="text-tec-muted transition group-hover:text-tec-orange" size={16} />
+        <WorkflowMoveMenu actions={item.workflow_transitions} busy={moving} onSelect={(action) => onQuickMove(item, action.next_state)} />
       </div>
-    </button>
+    </article>
   );
 }
 

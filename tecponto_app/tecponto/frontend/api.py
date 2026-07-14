@@ -448,6 +448,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"sales_invoice_status": _get_sales_invoice_status(doc.get("sales_invoice")),
 		},
 		"workflow_actions": _get_visible_workflow_actions(doc),
+		"workflow_transitions": _get_service_order_transition_options(doc.get("workflow_state")),
 		"timeline": _get_service_order_timeline(doc),
 		"print_links": _get_service_order_print_links(doc.name),
 	}
@@ -1107,6 +1108,7 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 		"technician": item.get("technician"),
 		"priority": item.get("priority"),
 		"workflow_state": item.get("workflow_state"),
+		"workflow_transitions": _get_service_order_transition_options(item.get("workflow_state")),
 		"next_action": action_for_service_order_state(item.get("workflow_state")),
 		"reported_defect": item.get("reported_defect"),
 		"approval_status": item.get("approval_status"),
@@ -1480,6 +1482,21 @@ def _get_visible_workflow_actions(doc: Any) -> list[dict[str, str]]:
 			}
 		)
 	return actions
+
+
+def _get_service_order_transition_options(current_state: str | None) -> list[dict[str, str]]:
+	"""Expose workflow-valid destinations only; execution permission remains server-side."""
+	options: list[dict[str, str]] = []
+	seen: set[tuple[str, str]] = set()
+	for transition in _get_service_order_transitions():
+		state, action, next_state, allowed, *rest = transition
+		condition = rest[0] if rest else None
+		key = (action, next_state)
+		if state != current_state or condition == "False" or key in seen:
+			continue
+		seen.add(key)
+		options.append({"action": action, "next_state": next_state, "role": allowed})
+	return options
 
 
 def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:

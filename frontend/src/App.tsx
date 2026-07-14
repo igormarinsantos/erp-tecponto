@@ -73,6 +73,7 @@ import { PosScreen } from "./PosScreen";
 import { RetailProductModal } from "./RetailProductModal";
 import { panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
+import { WorkflowMoveMenu } from "./WorkflowMoveMenu";
 import { BudgetDecisionModal, PickupModal } from "./ServiceOrderFlows";
 import {
   BadgeStatus,
@@ -1323,6 +1324,7 @@ function OverviewContent({
       <div className="tp-layout-grid mt-4">
         <OperationsTable
           onOpenOrder={onOpenServiceOrder}
+          onToast={onToast}
           onShowAll={() => onNavigate("service-orders")}
           orders={periodOrders}
           title={panel.tableTitle}
@@ -1539,6 +1541,7 @@ function NavigationContent({
             <OperationsTable
               filterBar={serviceOrderFilterBar}
               onOpenOrder={(name) => onOpenServiceOrder(name)}
+              onToast={onToast}
               orders={serviceOrderScreenOrders}
               showQuickStatusFilters={false}
               title="Lista de OS"
@@ -1724,6 +1727,7 @@ function ServiceOrderFilterBar({
 function OperationsTable({
   filterBar,
   onOpenOrder,
+  onToast,
   onShowAll,
   orders,
   showQuickStatusFilters = true,
@@ -1731,6 +1735,7 @@ function OperationsTable({
 }: {
   filterBar?: ReactNode;
   onOpenOrder: (name: string) => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
   onShowAll?: () => void;
   orders: ServiceOrderSummary[];
   showQuickStatusFilters?: boolean;
@@ -1739,6 +1744,30 @@ function OperationsTable({
   const [activeFilter, setActiveFilter] = useState<QueueFilter>("all");
   const [searchOpen, setSearchOpen] = useState(false);
   const [tableQuery, setTableQuery] = useState("");
+  const [movingOrder, setMovingOrder] = useState<string | null>(null);
+  const [moveApproval, setMoveApproval] = useState<{ name: string; targetState: string } | null>(null);
+
+  async function handleQuickMove(row: ServiceOrderSummary, action: ServiceOrderWorkflowAction) {
+    if (["Aprovado", "Reprovado", "Entregue"].includes(action.next_state)) {
+      onOpenOrder(row.name);
+      onToast("Esta etapa exige o fluxo completo da OS. Abra o detalhe para concluir.");
+      return;
+    }
+    setMovingOrder(row.name);
+    try {
+      const result = await serviceOrders.move(row.name, action.next_state);
+      onToast(result.changed ? `OS ${row.name} movida para ${result.item.workflow_state}.` : `OS ${row.name} já estava nesta etapa.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Transição recusada pelo workflow.";
+      if (message.includes("Seu papel não permite mover")) {
+        setMoveApproval({ name: row.name, targetState: action.next_state });
+      } else {
+        onToast(message, "error");
+      }
+    } finally {
+      setMovingOrder(null);
+    }
+  }
   const visibleOrders = useMemo(() => {
     const effectiveQuery = filterBar ? "" : tableQuery.trim();
     const statusOrders =
@@ -1815,26 +1844,18 @@ function OperationsTable({
         render: (row) => formatDate(row.modified),
       },
       {
-        className: "w-24 text-right",
+        className: "w-[156px] text-right",
         key: "action",
         label: "",
         render: (row) => (
-          <button
-            className="inline-flex min-h-8 items-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-bold text-tec-text transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenOrder(row.name);
-            }}
-            title={`Abrir ${row.name}`}
-            type="button"
-          >
-            Abrir
-            <ArrowRight size={14} />
-          </button>
+          <div className="flex justify-end gap-2">
+            <WorkflowMoveMenu actions={row.workflow_transitions} busy={movingOrder === row.name} onSelect={(action) => void handleQuickMove(row, action)} />
+            <button className="inline-flex min-h-8 items-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-bold text-tec-text transition hover:border-tec-orange/50 hover:bg-tec-orange/10" onClick={(event) => { event.stopPropagation(); onOpenOrder(row.name); }} title={`Abrir ${row.name}`} type="button">Abrir <ArrowRight size={14} /></button>
+          </div>
         ),
       },
     ],
-    [onOpenOrder],
+    [movingOrder, onOpenOrder, onToast],
   );
 
   return (
@@ -1913,6 +1934,16 @@ function OperationsTable({
           <ArrowRight size={17} />
         </button>
       ) : null}
+      <ApprovalRequestModal
+        onClose={() => setMoveApproval(null)}
+        onCreated={() => setMoveApproval(null)}
+        onToast={onToast}
+        open={Boolean(moveApproval)}
+        payload={{ target_state: moveApproval?.targetState ?? "" }}
+        referenceName={moveApproval?.name ?? ""}
+        requestType="service_order_move"
+        title={`Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
+      />
     </Card>
   );
 }
@@ -2155,7 +2186,7 @@ function ServiceOrderDetail({
             onRefresh={() => void refreshServiceOrder()}
           />
           <WorkflowCard
-            actions={detail.workflow_actions}
+            actions={detail.workflow_transitions}
             detail={detail}
             onOpenFlow={setActiveFlow}
             onOpenHistory={() => setHistoryOpen(true)}
@@ -3102,9 +3133,13 @@ function WorkflowCard({
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-lg font-bold text-white">Ações do workflow</h3>
+        <div>
+          <h3 className="text-lg font-bold text-white">Mover etapa</h3>
+          <p className="mt-1 text-xs text-tec-muted">Escolha a próxima etapa permitida pelo workflow.</p>
+        </div>
         <BadgeStatus status={detail.workflow_state} />
       </div>
+      <WorkflowMoveMenu actions={actions} busy={Boolean(movingTo)} className="mt-4" onSelect={(action) => void handleAction(action)} />
       <div className="mt-4 space-y-3">
         {actions.length ? (
           actions.map((action) => (

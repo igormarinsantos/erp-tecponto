@@ -14,6 +14,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_dashboard_metrics,
 	get_boot,
 	get_service_order_detail,
+	get_service_order_kanban,
 	list_customer_devices,
 	list_service_orders,
 	list_stock_items,
@@ -99,6 +100,7 @@ def run_foundation_checks() -> dict:
 		action_request_checks = run_action_request_checks()
 		notification_checks = run_notification_checks()
 		daily_action_checks = run_daily_action_checks()
+		quick_stage_checks = run_quick_stage_move_checks()
 
 		return {
 			"status": "ok",
@@ -115,6 +117,57 @@ def run_foundation_checks() -> dict:
 			"action_request_checks": action_request_checks,
 			"notification_checks": notification_checks,
 			"daily_action_checks": daily_action_checks,
+			"quick_stage_checks": quick_stage_checks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_quick_stage_move_checks() -> dict:
+	"""Keep the three quick controls tied to workflow metadata and server permission checks."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+
+		request_order = _create_action_request_service_order(attendant)
+		frappe.set_user(attendant)
+		detail = get_service_order_detail(request_order)
+		destinations = {item["next_state"] for item in detail["workflow_transitions"]}
+		expected = {"Em diagnóstico", "Sem conserto", "Cancelado"}
+		if destinations != expected:
+			raise AssertionError(f"Opções rápidas não batem com o workflow: {destinations}")
+		listed = next((row for row in list_service_orders(limit=100)["items"] if row["name"] == request_order), None)
+		kanban = get_service_order_kanban(limit_per_column=40)
+		kanban_item = next((row for column in kanban["columns"] for row in column["items"] if row["name"] == request_order), None)
+		if not listed or not kanban_item or listed["workflow_transitions"] != detail["workflow_transitions"] or kanban_item["workflow_transitions"] != detail["workflow_transitions"]:
+			raise AssertionError("Lista, Kanban e detalhe não receberam as mesmas transições do motor.")
+
+		permission_blocked = False
+		try:
+			move_service_order(request_order, "Em diagnóstico")
+		except frappe.PermissionError:
+			permission_blocked = True
+		if not permission_blocked:
+			raise AssertionError("Atendente moveu OS técnica sem passar pela autorização do motor.")
+		request = create_request("service_order_move", request_order, "Encaminhar para diagnóstico técnico.", {"target_state": "Em diagnóstico"})
+		frappe.set_user(manager)
+		if request["name"] not in {row["name"] for row in list_pending_approvals()}:
+			raise AssertionError("Gestor não recebeu a solicitação gerada pelo controle rápido.")
+
+		direct_order = _create_action_request_service_order(attendant)
+		frappe.set_user(manager)
+		moved = move_service_order(direct_order, "Em diagnóstico")
+		if not moved["changed"] or moved["item"]["workflow_state"] != "Em diagnóstico":
+			raise AssertionError("Gestor não conseguiu mover a OS diretamente pelo workflow.")
+
+		return {
+			"status": "ok",
+			"destinations": sorted(destinations),
+			"three_surfaces": ["detail", "list", "kanban"],
+			"permission_request": request["name"],
+			"direct_move": moved["item"]["name"],
 		}
 	finally:
 		frappe.set_user(previous_user)

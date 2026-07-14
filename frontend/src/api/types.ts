@@ -95,6 +95,7 @@ export interface ServiceOrderSummary {
   technician: string | null;
   priority: string | null;
   workflow_state: string | null;
+  workflow_transitions: ServiceOrderWorkflowAction[];
   next_action?: { label: string; tone: "orange" | "amber" | "blue" | "green" | "muted" };
   reported_defect: string | null;
   approval_status: string | null;
@@ -179,6 +180,7 @@ export interface ServiceOrderDetailResponse {
     sales_invoice_status: string | null;
   };
   workflow_actions: ServiceOrderWorkflowAction[];
+  workflow_transitions: ServiceOrderWorkflowAction[];
   timeline: ServiceOrderTimelineEvent[];
   print_links: ServiceOrderPrintLink[];
 }
