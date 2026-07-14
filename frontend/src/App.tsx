@@ -1,4 +1,4 @@
-import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -293,6 +293,7 @@ export function App() {
   const [activeView, setActiveView] = useState<NavigationTarget>("overview");
   const [checkinOpen, setCheckinOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+	const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<TecpontoContextMenuState | null>(null);
@@ -775,7 +776,33 @@ export function App() {
       <Topbar
         onLogout={logout}
         onOpenNotifications={toggleNotifications}
-        onOpenSearch={() => setGlobalSearchOpen(true)}
+		onGlobalSearchChange={(value) => {
+			setGlobalSearchQuery(value);
+			setGlobalSearchOpen(true);
+		}}
+		globalSearchOpen={globalSearchOpen}
+		globalSearchQuery={globalSearchQuery}
+		onOpenSearch={() => setGlobalSearchOpen(true)}
+		searchDropdown={
+			<GlobalSearchDropdown
+				onClose={() => {
+					setGlobalSearchOpen(false);
+					setGlobalSearchQuery("");
+				}}
+				onNavigate={(target, message) => {
+					setGlobalSearchOpen(false);
+					setGlobalSearchQuery("");
+					setActiveView(target);
+					if (message) showToast(message);
+				}}
+				onOpenOrder={(name) => {
+					setGlobalSearchOpen(false);
+					setGlobalSearchQuery("");
+					openServiceOrder(name);
+				}}
+				query={globalSearchQuery}
+			/>
+		}
         onToggleTheme={toggleTheme}
         contextOptions={contextOptions}
         onContextChange={(nextPanel) => changeContext(nextPanel, availablePanels)}
@@ -852,21 +879,6 @@ export function App() {
         onOpenOrder={openServiceOrder}
         open={checkinOpen}
       />
-      <GlobalSearchModal
-        onClose={() => setGlobalSearchOpen(false)}
-        onNavigate={(target, message) => {
-          setGlobalSearchOpen(false);
-          setActiveView(target);
-          if (message) {
-            showToast(message);
-          }
-        }}
-        onOpenOrder={(name) => {
-          setGlobalSearchOpen(false);
-          openServiceOrder(name);
-        }}
-        open={globalSearchOpen}
-      />
       <NotificationsPanel
         notifications={state.notifications}
         onClose={() => setNotificationsOpen(false)}
@@ -928,37 +940,22 @@ type GlobalSearchState =
     }
   | { status: "error"; message: string };
 
-function GlobalSearchModal({
+function GlobalSearchDropdown({
   onClose,
   onNavigate,
   onOpenOrder,
-  open,
+  query,
 }: {
   onClose: () => void;
   onNavigate: (target: NavigationTarget, message?: string) => void;
   onOpenOrder: (name: string) => void;
-  open: boolean;
+  query: string;
 }) {
-  const [query, setQuery] = useState("");
   const [searchState, setSearchState] = useState<GlobalSearchState>({ status: "idle" });
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const trimmedQuery = query.trim();
 
   useEffect(() => {
-    if (!open) {
-      setQuery("");
-      setSearchState({ status: "idle" });
-      return;
-    }
-
-    window.setTimeout(() => searchInputRef.current?.focus(), 0);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
     if (trimmedQuery.length < 2) {
       setSearchState({ status: "idle" });
       return;
@@ -997,7 +994,58 @@ function GlobalSearchModal({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, trimmedQuery]);
+  }, [trimmedQuery]);
+
+  const results = searchState.status === "ready"
+    ? [
+      ...searchState.orders.map((item) => ({ kind: "order" as const, item })),
+      ...searchState.customers.map((item) => ({ kind: "customer" as const, item })),
+      ...searchState.devices.map((item) => ({ kind: "device" as const, item })),
+    ]
+    : [];
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [trimmedQuery, searchState.status]);
+
+  const chooseResult = useCallback((index: number) => {
+    const result = results[index];
+    if (!result) return;
+    if (result.kind === "order") {
+      onOpenOrder(result.item.name);
+      return;
+    }
+    if (result.kind === "customer") {
+      onNavigate("customers", `Cliente localizado: ${result.item.customer_name ?? result.item.name}`);
+      return;
+    }
+    onNavigate("devices", `Aparelho localizado: ${result.item.imei_serial ?? result.item.name}`);
+  }, [onNavigate, onOpenOrder, results]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (!results.length) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setSelectedIndex((current) => (current + 1) % results.length);
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setSelectedIndex((current) => (current - 1 + results.length) % results.length);
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        chooseResult(selectedIndex);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [chooseResult, onClose, results.length, selectedIndex]);
 
   const totalResults =
     searchState.status === "ready"
@@ -1005,48 +1053,34 @@ function GlobalSearchModal({
       : 0;
 
   return (
-    <Modal className="max-w-4xl" onClose={onClose} open={open} title="Busca global">
-      <div className="space-y-4">
-        <div className="relative">
-          <SearchIcon className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tec-muted" size={18} />
-          <input
-            className="h-12 w-full rounded-control border border-tec-border/20 bg-tec-field pl-11 pr-4 text-sm font-semibold text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Digite OS, cliente, telefone, CPF, IMEI ou aparelho..."
-            ref={searchInputRef}
-            type="search"
-            value={query}
-          />
-        </div>
-
+    <div className="absolute left-0 top-[calc(100%+0.5rem)] z-50 w-full overflow-hidden rounded-card border border-tec-border/25 bg-tec-panel-strong p-2 shadow-panel" role="listbox">
+      <div className="max-h-[min(62vh,540px)] space-y-2 overflow-y-auto p-1">
         {searchState.status === "idle" ? (
-          <div className="rounded-card border border-tec-border/15 bg-tec-panel-strong p-4 text-sm text-tec-muted">
+          <div className="rounded-control bg-tec-field/60 px-3 py-3 text-sm text-tec-muted">
             Digite pelo menos 2 caracteres para buscar OS, clientes e aparelhos.
           </div>
         ) : null}
 
         {searchState.status === "loading" ? (
-          <div className="flex items-center gap-3 rounded-card border border-tec-border/15 bg-tec-panel-strong p-4 text-sm font-semibold text-tec-subtle">
+          <div className="flex items-center gap-3 rounded-control bg-tec-field/60 px-3 py-3 text-sm font-semibold text-tec-subtle">
             <span className="h-5 w-5 animate-spin rounded-full border-2 border-tec-orange border-t-transparent" />
             Buscando registros...
           </div>
         ) : null}
 
         {searchState.status === "error" ? (
-          <div className="rounded-card border border-tec-red/30 bg-tec-red/10 p-4 text-sm font-semibold text-red-100">
+          <div className="rounded-control border border-tec-red/30 bg-tec-red/10 px-3 py-3 text-sm font-semibold text-red-100">
             {searchState.message}
           </div>
         ) : null}
 
         {searchState.status === "ready" ? (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-tec-subtle">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3 px-2 py-1">
+              <p className="text-xs font-semibold text-tec-subtle">
                 {totalResults} resultado{totalResults === 1 ? "" : "s"} para <span className="text-white">{searchState.term}</span>
               </p>
-              <Button onClick={() => onNavigate("service-orders", `Filtro aberto para ${searchState.term}.`)}>
-                Abrir fila de OS
-              </Button>
+              <span className="text-[11px] font-semibold text-tec-muted">↑↓ navegar · Enter abrir · Esc fechar</span>
             </div>
 
             <GlobalSearchSection
@@ -1055,9 +1089,9 @@ function GlobalSearchModal({
             >
               {searchState.orders.map((order) => (
                 <button
-                  className="flex w-full items-center justify-between gap-4 rounded-control border border-tec-border/15 bg-tec-field/55 px-4 py-3 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+                  className={`flex w-full items-center justify-between gap-4 rounded-control border px-3 py-2.5 text-left transition ${selectedIndex === searchState.orders.indexOf(order) ? "border-tec-orange/60 bg-tec-orange/10" : "border-tec-border/15 bg-tec-field/55 hover:border-tec-orange/45 hover:bg-tec-orange/10"}`}
                   key={order.name}
-                  onClick={() => onOpenOrder(order.name)}
+                  onClick={() => chooseResult(searchState.orders.indexOf(order))}
                   type="button"
                 >
                   <span className="min-w-0">
@@ -1077,9 +1111,9 @@ function GlobalSearchModal({
             >
               {searchState.customers.map((customer) => (
                 <button
-                  className="flex w-full items-center justify-between gap-4 rounded-control border border-tec-border/15 bg-tec-field/55 px-4 py-3 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+                  className={`flex w-full items-center justify-between gap-4 rounded-control border px-3 py-2.5 text-left transition ${selectedIndex === searchState.orders.length + searchState.customers.indexOf(customer) ? "border-tec-orange/60 bg-tec-orange/10" : "border-tec-border/15 bg-tec-field/55 hover:border-tec-orange/45 hover:bg-tec-orange/10"}`}
                   key={customer.name}
-                  onClick={() => onNavigate("customers", `Cliente localizado: ${customer.customer_name ?? customer.name}`)}
+                  onClick={() => chooseResult(searchState.orders.length + searchState.customers.indexOf(customer))}
                   type="button"
                 >
                   <span className="min-w-0">
@@ -1099,9 +1133,9 @@ function GlobalSearchModal({
             >
               {searchState.devices.map((device) => (
                 <button
-                  className="flex w-full items-center justify-between gap-4 rounded-control border border-tec-border/15 bg-tec-field/55 px-4 py-3 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+                  className={`flex w-full items-center justify-between gap-4 rounded-control border px-3 py-2.5 text-left transition ${selectedIndex === searchState.orders.length + searchState.customers.length + searchState.devices.indexOf(device) ? "border-tec-orange/60 bg-tec-orange/10" : "border-tec-border/15 bg-tec-field/55 hover:border-tec-orange/45 hover:bg-tec-orange/10"}`}
                   key={device.name}
-                  onClick={() => onNavigate("devices", `Aparelho localizado: ${device.imei_serial ?? device.name}`)}
+                  onClick={() => chooseResult(searchState.orders.length + searchState.customers.length + searchState.devices.indexOf(device))}
                   type="button"
                 >
                   <span className="min-w-0">
@@ -1119,7 +1153,7 @@ function GlobalSearchModal({
           </div>
         ) : null}
       </div>
-    </Modal>
+    </div>
   );
 }
 
@@ -3561,6 +3595,8 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [registrationOpen, setRegistrationOpen] = useState(false);
+	const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+	const [selectedSuggestion, setSelectedSuggestion] = useState(0);
 
   const search = useCallback(async (nextQuery: string) => {
     setStatus("loading");
@@ -3576,6 +3612,45 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
   useEffect(() => {
     void search("");
   }, [search]);
+
+	useEffect(() => {
+		const term = query.trim();
+		if (term.length < 2) {
+			setSuggestionsOpen(false);
+			return;
+		}
+		const timer = window.setTimeout(() => {
+			void search(term);
+			setSuggestionsOpen(true);
+			setSelectedSuggestion(0);
+		}, 220);
+		return () => window.clearTimeout(timer);
+	}, [query, search]);
+
+	const chooseCustomer = useCallback((customer: CustomerSummary) => {
+		setSelectedCustomer(customer);
+		setSuggestionsOpen(false);
+	}, []);
+
+	const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+		if (event.key === "Escape") {
+			setSuggestionsOpen(false);
+			return;
+		}
+		if (!suggestionsOpen || !rows.length) return;
+		if (event.key === "ArrowDown") {
+			event.preventDefault();
+			setSelectedSuggestion((current) => (current + 1) % rows.length);
+		}
+		if (event.key === "ArrowUp") {
+			event.preventDefault();
+			setSelectedSuggestion((current) => (current - 1 + rows.length) % rows.length);
+		}
+		if (event.key === "Enter") {
+			event.preventDefault();
+			chooseCustomer(rows[selectedSuggestion]);
+		}
+	};
 
   const columns = useMemo<Array<TableColumn<CustomerSummary>>>(
     () => [
@@ -3598,14 +3673,36 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
             Cadastrar cliente
           </Button>
         }
-        onRowClick={setSelectedCustomer}
+		onRowClick={chooseCustomer}
         onSearch={(event) => {
           event.preventDefault();
           void search(query);
         }}
+		onSearchFocus={() => setSuggestionsOpen(query.trim().length >= 2)}
+		onSearchKeyDown={handleSearchKeyDown}
         placeholder="Buscar cliente por nome, telefone ou e-mail"
         query={query}
         rows={rows}
+		searchSuggestions={
+			suggestionsOpen ? (
+				<div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-control border border-tec-border/25 bg-tec-panel-strong p-1.5 shadow-panel" role="listbox">
+					{status === "loading" ? <p className="px-3 py-2 text-sm text-tec-muted">Buscando clientes...</p> : null}
+					{status === "ready" && rows.length === 0 ? <p className="px-3 py-2 text-sm text-tec-muted">Nenhum cliente encontrado.</p> : null}
+					{status === "ready" ? rows.slice(0, 6).map((customer, index) => (
+						<button
+							className={selectedSuggestion === index ? "flex w-full items-center justify-between gap-3 rounded-control bg-tec-orange/10 px-3 py-2.5 text-left ring-1 ring-tec-orange/55" : "flex w-full items-center justify-between gap-3 rounded-control px-3 py-2.5 text-left hover:bg-tec-field"}
+							key={customer.name}
+							onClick={() => chooseCustomer(customer)}
+							role="option"
+							type="button"
+						>
+							<span className="min-w-0"><span className="block truncate text-sm font-bold text-white">{customer.customer_name ?? customer.name}</span><span className="mt-0.5 block truncate text-xs text-tec-muted">{customer.custom_whatsapp || customer.mobile_no || customer.email_id || customer.name}</span></span>
+							<ArrowRight className="shrink-0 text-tec-muted" size={16} />
+						</button>
+					)) : null}
+				</div>
+			) : null
+		}
         setQuery={setQuery}
         status={status}
         title="Clientes"
@@ -4259,10 +4356,13 @@ function LookupCard<T>({
   emptyLabel,
   headerAction,
   onSearch,
+	onSearchFocus,
+	onSearchKeyDown,
   onRowClick,
   placeholder,
   query,
   rows,
+	searchSuggestions,
   setQuery,
   status,
   tableMinWidthClassName,
@@ -4272,10 +4372,13 @@ function LookupCard<T>({
   emptyLabel: string;
   headerAction?: ReactNode;
   onSearch: (event: FormEvent<HTMLFormElement>) => void;
+	onSearchFocus?: () => void;
+	onSearchKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
   onRowClick?: (row: T) => void;
   placeholder: string;
   query: string;
   rows: T[];
+	searchSuggestions?: ReactNode;
   setQuery: (query: string) => void;
   status: "loading" | "ready" | "error";
   tableMinWidthClassName?: string;
@@ -4289,10 +4392,13 @@ function LookupCard<T>({
           <input
             className="h-11 w-full rounded-control border border-tec-border/25 bg-tec-field pl-11 pr-4 text-sm text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
             onChange={(event) => setQuery(event.target.value)}
+			onFocus={onSearchFocus}
+			onKeyDown={onSearchKeyDown}
             placeholder={placeholder}
             type="search"
             value={query}
           />
+			{searchSuggestions}
         </div>
         <Button icon={<SearchIcon size={17} />} type="submit" variant="primary">
           Buscar

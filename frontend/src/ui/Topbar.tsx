@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Bell, ChevronDown, LogOut, Moon, Search, Sun } from "lucide-react";
 
 import type { BootResponse, LoggedUser, RolePanel } from "../api";
@@ -8,6 +8,10 @@ interface TopbarProps {
   contextOptions: BootResponse["panels"];
   onOpenNotifications: () => void;
   onOpenSearch: () => void;
+	globalSearchOpen: boolean;
+	globalSearchQuery: string;
+	onGlobalSearchChange: (value: string) => void;
+	searchDropdown?: ReactNode;
   onContextChange: (panel: RolePanel) => void;
   onToggleTheme: () => void;
   selectedContextPanel: RolePanel;
@@ -23,6 +27,10 @@ export function Topbar({
   onLogout,
   onOpenNotifications,
   onOpenSearch,
+	globalSearchOpen,
+	globalSearchQuery,
+	onGlobalSearchChange,
+	searchDropdown,
   onToggleTheme,
   selectedContextPanel,
   theme,
@@ -73,16 +81,18 @@ export function Topbar({
         <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tec-muted" size={17} />
         <input
           className="h-10 w-full rounded-control border border-tec-border/25 bg-tec-field pl-10 pr-16 text-sm text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
+          onChange={(event) => onGlobalSearchChange(event.target.value)}
           onClick={onOpenSearch}
           onFocus={onOpenSearch}
           placeholder="Buscar atendimento, cliente, aparelho, OS, venda..."
-          readOnly
           title="Abrir busca global"
           type="search"
+          value={globalSearchQuery}
         />
         <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded bg-tec-panel px-2 py-1 text-[11px] text-tec-muted">
           Ctrl K
         </kbd>
+		{globalSearchOpen ? searchDropdown : null}
       </div>
 
       <a
