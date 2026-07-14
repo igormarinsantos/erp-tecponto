@@ -15,6 +15,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_boot,
 	get_service_order_detail,
 	get_service_order_kanban,
+	create_customer,
 	list_customer_devices,
 	list_service_orders,
 	list_stock_items,
@@ -101,6 +102,7 @@ def run_foundation_checks() -> dict:
 		notification_checks = run_notification_checks()
 		daily_action_checks = run_daily_action_checks()
 		quick_stage_checks = run_quick_stage_move_checks()
+		customer_registration_checks = run_customer_registration_checks()
 
 		return {
 			"status": "ok",
@@ -118,6 +120,64 @@ def run_foundation_checks() -> dict:
 			"notification_checks": notification_checks,
 			"daily_action_checks": daily_action_checks,
 			"quick_stage_checks": quick_stage_checks,
+			"customer_registration_checks": customer_registration_checks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_customer_registration_checks() -> dict:
+	"""Prove counter customer registration is validated by the backend and searchable by the OS wizard."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(attendant)
+		suffix = frappe.generate_hash(length=10).upper()
+		base = {
+			"customer_name": f"Cliente Cadastro 3.9-3 {suffix}",
+			"mobile_no": "11999998888",
+		}
+
+		missing_identity_blocked = False
+		try:
+			create_customer(base)
+		except frappe.ValidationError:
+			missing_identity_blocked = True
+		if not missing_identity_blocked:
+			raise AssertionError("Motor aceitou cliente sem CPF e sem RG.")
+
+		rg_required_blocked = False
+		try:
+			create_customer({**base, "custom_nao_possui_cpf": 1})
+		except frappe.ValidationError:
+			rg_required_blocked = True
+		if not rg_required_blocked:
+			raise AssertionError("Motor aceitou 'não possui CPF' sem exigir RG.")
+
+		created = create_customer({**base, "custom_cpf": "12345678909", "email_id": "cliente.393@tecponto.local"})["item"]
+		searchable = any(item["name"] == created["name"] for item in search_customers(created["name"], limit=12)["items"])
+		if not searchable:
+			raise AssertionError("Cliente cadastrado não ficou disponível na busca usada pelo wizard de OS.")
+
+		without_cpf = create_customer(
+			{
+				"customer_name": f"Cliente RG 3.9-3 {suffix}",
+				"mobile_no": "11999997777",
+				"custom_nao_possui_cpf": 1,
+				"custom_rg": "MG-12.345.678",
+			}
+		)["item"]
+		if not without_cpf["custom_nao_possui_cpf"] or not without_cpf["custom_rg"]:
+			raise AssertionError("Cadastro com RG não reteve a opção 'não possui CPF'.")
+
+		return {
+			"status": "ok",
+			"created_customer": created["name"],
+			"searchable_in_checkin": searchable,
+			"missing_identity_blocked": missing_identity_blocked,
+			"rg_required_when_no_cpf": rg_required_blocked,
+			"rg_customer": without_cpf["name"],
 		}
 	finally:
 		frappe.set_user(previous_user)

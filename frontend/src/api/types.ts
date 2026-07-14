@@ -427,6 +427,20 @@ export interface CustomerSearchResponse {
   fields: string[];
 }
 
+export interface CreateCustomerPayload {
+  customer_name: string;
+  mobile_no: string;
+  custom_whatsapp?: string;
+  custom_cpf?: string;
+  custom_rg?: string;
+  custom_nao_possui_cpf?: boolean;
+  email_id?: string;
+}
+
+export interface CreateCustomerResponse {
+  item: CustomerSummary;
+}
+
 export interface CustomerDeviceSummary {
   name: string;
   customer: string | null;

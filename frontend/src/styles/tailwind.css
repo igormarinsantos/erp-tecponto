@@ -64,6 +64,27 @@ textarea {
   background: rgb(var(--tp-field));
 }
 
+.tp-input {
+  height: 2.75rem;
+  width: 100%;
+  border: 1px solid rgb(var(--tp-border) / 0.25);
+  border-radius: var(--tp-radius-control);
+  background: rgb(var(--tp-field));
+  color: rgb(var(--tp-text));
+  outline: none;
+  padding: 0 0.875rem;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.tp-input::placeholder {
+  color: rgb(var(--tp-muted));
+}
+
+.tp-input:focus {
+  border-color: rgb(var(--tp-orange) / 0.72);
+  box-shadow: 0 0 0 3px rgb(var(--tp-orange) / 0.12);
+}
+
 .tp-row-border {
   border-color: rgb(var(--tp-border) / 0.18);
 }

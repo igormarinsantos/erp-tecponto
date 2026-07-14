@@ -41,6 +41,7 @@ import {
   type BudgetWarehouseSummary,
   type BootResponse,
   type CheckinResponse,
+  type CreateCustomerPayload,
   type CustomerDeviceSummary,
   type CustomerSummary,
   type DashboardMetrics,
@@ -1563,7 +1564,7 @@ function NavigationContent({
   }
 
   if (activeView === "customers") {
-    return <CustomerLookup />;
+      return <CustomerLookup onToast={onToast} />;
   }
 
   if (activeView === "devices") {
@@ -3554,11 +3555,12 @@ function TotalPill({ label, strong, value }: { label: string; strong?: boolean; 
   );
 }
 
-function CustomerLookup() {
+function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastState["tone"]) => void }) {
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<CustomerSummary[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [registrationOpen, setRegistrationOpen] = useState(false);
 
   const search = useCallback(async (nextQuery: string) => {
     setStatus("loading");
@@ -3591,6 +3593,11 @@ function CustomerLookup() {
       <LookupCard
         columns={columns}
         emptyLabel={status === "error" ? "Falha ao buscar clientes." : "Nenhum cliente encontrado."}
+        headerAction={
+          <Button icon={<Plus size={17} />} onClick={() => setRegistrationOpen(true)} variant="primary">
+            Cadastrar cliente
+          </Button>
+        }
         onRowClick={setSelectedCustomer}
         onSearch={(event) => {
           event.preventDefault();
@@ -3603,8 +3610,111 @@ function CustomerLookup() {
         status={status}
         title="Clientes"
       />
+      <CustomerRegistrationModal
+        onClose={() => setRegistrationOpen(false)}
+        onCreated={(customer) => {
+          setRows((current) => [customer, ...current.filter((row) => row.name !== customer.name)]);
+          setSelectedCustomer(customer);
+          onToast(`Cliente ${customer.customer_name || customer.name} cadastrado.`);
+        }}
+        open={registrationOpen}
+      />
       <CustomerDetailModal customer={selectedCustomer} onClose={() => setSelectedCustomer(null)} />
     </>
+  );
+}
+
+function CustomerRegistrationModal({
+  onClose,
+  onCreated,
+  open,
+}: {
+  onClose: () => void;
+  onCreated: (customer: CustomerSummary) => void;
+  open: boolean;
+}) {
+  const [form, setForm] = useState<CreateCustomerPayload>({ customer_name: "", mobile_no: "", custom_cpf: "", email_id: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const noCpf = Boolean(form.custom_nao_possui_cpf);
+
+  useEffect(() => {
+    if (!open) {
+      setForm({ customer_name: "", mobile_no: "", custom_cpf: "", email_id: "" });
+      setError("");
+      setSubmitting(false);
+    }
+  }, [open]);
+
+  const update = (key: keyof CreateCustomerPayload, value: string | boolean) => {
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await balcao.createCustomer({
+        ...form,
+        custom_cpf: noCpf ? "" : form.custom_cpf,
+        custom_rg: noCpf ? form.custom_rg : "",
+        custom_whatsapp: form.mobile_no,
+      });
+      onCreated(response.item);
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível cadastrar o cliente.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal className="max-w-xl" onClose={onClose} open={open} title="Cadastrar cliente">
+      <form className="space-y-4" onSubmit={submit}>
+        <p className="text-sm text-tec-muted">Os campos marcados são conferidos pelo motor antes de salvar.</p>
+        <CustomerFormField label="Nome completo" required>
+          <input autoFocus className="tp-input" onChange={(event) => update("customer_name", event.target.value)} placeholder="Nome do cliente" value={form.customer_name} />
+        </CustomerFormField>
+        <CustomerFormField label="WhatsApp / telefone" required>
+          <input className="tp-input" inputMode="tel" onChange={(event) => update("mobile_no", event.target.value)} placeholder="(11) 99999-9999" value={form.mobile_no} />
+        </CustomerFormField>
+        <label className="flex cursor-pointer items-center gap-3 rounded-control border border-tec-border/20 bg-tec-field/55 px-3 py-3 text-sm font-semibold text-tec-text">
+          <input checked={noCpf} className="h-4 w-4 accent-tec-orange" onChange={(event) => update("custom_nao_possui_cpf", event.target.checked)} type="checkbox" />
+          Cliente não possui CPF
+        </label>
+        {noCpf ? (
+          <CustomerFormField label="RG" required>
+            <input className="tp-input" onChange={(event) => update("custom_rg", event.target.value)} placeholder="Informe o RG" value={form.custom_rg || ""} />
+          </CustomerFormField>
+        ) : (
+          <CustomerFormField label="CPF" required>
+            <input className="tp-input" inputMode="numeric" onChange={(event) => update("custom_cpf", event.target.value)} placeholder="000.000.000-00" value={form.custom_cpf || ""} />
+          </CustomerFormField>
+        )}
+        <CustomerFormField label="E-mail" optional>
+          <input className="tp-input" inputMode="email" onChange={(event) => update("email_id", event.target.value)} placeholder="cliente@email.com" type="email" value={form.email_id || ""} />
+        </CustomerFormField>
+        {error ? <p className="rounded-control border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-300">{error}</p> : null}
+        <div className="flex justify-end gap-3 border-t border-tec-border/15 pt-4">
+          <Button onClick={onClose} type="button" variant="secondary">Cancelar</Button>
+          <Button disabled={submitting} icon={<Plus size={17} />} type="submit" variant="primary">{submitting ? "Salvando..." : "Cadastrar cliente"}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function CustomerFormField({ children, label, optional, required }: { children: ReactNode; label: string; optional?: boolean; required?: boolean }) {
+  return (
+    <label className="block space-y-2 text-sm font-bold text-tec-text">
+      <span className="flex items-center justify-between gap-3">
+        {label}
+        <span className={required ? "text-xs uppercase text-tec-orange" : "text-xs uppercase text-tec-muted"}>{required ? "Obrigatório" : optional ? "Opcional" : ""}</span>
+      </span>
+      {children}
+    </label>
   );
 }
 

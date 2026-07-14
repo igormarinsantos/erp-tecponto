@@ -896,6 +896,31 @@ def search_customers(query: str = "", limit: int = 12) -> dict[str, Any]:
 
 
 @frappe.whitelist()
+def create_customer(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Create an individual customer from the counter without opening core Customer."""
+	_require_checkin_role()
+	data = _parse_payload(payload)
+	validate_customer_contact_document(data)
+
+	customer = frappe.get_doc(
+		{
+			"doctype": "Customer",
+			"customer_name": data["customer_name"].strip(),
+			"customer_type": "Individual",
+			"mobile_no": (data.get("mobile_no") or data.get("custom_whatsapp") or "").strip(),
+			"custom_whatsapp": (data.get("custom_whatsapp") or data.get("mobile_no") or "").strip(),
+			"custom_cpf": (data.get("custom_cpf") or "").strip(),
+			"custom_rg": (data.get("custom_rg") or "").strip(),
+			CUSTOMER_NO_CPF_FIELD: 1 if data.get(CUSTOMER_NO_CPF_FIELD) else 0,
+			"email_id": (data.get("email_id") or "").strip(),
+		}
+	)
+	customer.insert(ignore_permissions=True)
+	item = frappe.db.get_value("Customer", customer.name, list(SAFE_CUSTOMER_FIELDS), as_dict=True)
+	return {"item": _serialize_customer(item)}
+
+
+@frappe.whitelist()
 def list_customer_devices(query: str = "", limit: int = 12) -> dict[str, Any]:
 	_require_frontend_role()
 	limit = max(1, min(int(limit or 12), 50))
