@@ -8,7 +8,8 @@ import type {
   CustomerSearchResponse,
   DashboardMetrics,
   StockItemListResponse,
-  TradeEvaluationListResponse,
+	TradeEvaluationListResponse,
+	SetTradeInApprovedValueResponse,
 } from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
@@ -42,6 +43,11 @@ export const balcao = {
       query: { query, limit },
     });
   },
+	setTradeInApprovedValue(name: string, approvedValue: number) {
+		return rpc<SetTradeInApprovedValueResponse>(`${API}.set_tradein_approved_value`, {
+			body: { name, approved_value: approvedValue },
+		});
+	},
   listStockItems(query = "", limit = 12, scope = "parts-stock") {
     return rpc<StockItemListResponse>(`${API}.list_stock_items`, {
       query: { query, limit, scope },

@@ -66,4 +66,5 @@ export type {
   TecpontoTask,
   TradeEvaluationListResponse,
   TradeEvaluationSummary,
+	SetTradeInApprovedValueResponse,
 } from "./types";

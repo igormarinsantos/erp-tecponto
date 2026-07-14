@@ -25,6 +25,7 @@ from tecponto_app.tecponto.frontend.api import (
 	search_budget_items,
 	search_customers,
 	search_pos_items,
+	set_tradein_approved_value,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.requests import (
@@ -566,6 +567,70 @@ def run_action_request_checks() -> dict:
 		if pos_approved["status"] != "Aprovada" or not pos_result.get("sale"):
 			raise AssertionError("Aprovação do desconto do PDV não criou a venda pelo endpoint cirúrgico.")
 
+		# Piso de custo: a venda é novamente resolvida no servidor quando o Gestor aprova.
+		previous_discount_limit = frappe.db.get_single_value("Tecponto Settings", "discount_limit")
+		floor_request = None
+		floor_result = None
+		try:
+			frappe.db.set_single_value("Tecponto Settings", "discount_limit", 999)
+			floor_payload = {
+				"customer": _get_or_create_demo_customer(),
+				"items": [{"item_code": POS_BARCODE_ITEM, "qty": 1}],
+				"discount_amount": 70,
+				"payments": [{"mode_of_payment": "Pix", "amount": 9.90, "installments": 1}],
+				"idempotency_key": f"tp-request-floor-{frappe.generate_hash(length=20)}",
+			}
+			frappe.set_user(attendant)
+			floor_blocked = False
+			try:
+				pos_create_sale(floor_payload)
+			except frappe.ValidationError:
+				floor_blocked = True
+			if not floor_blocked:
+				raise AssertionError("Atendente concluiu venda abaixo do custo sem solicitar aprovação.")
+			floor_request = create_request(
+				"pos_price_floor",
+				floor_payload["customer"],
+				"Preço promocional abaixo do custo autorizado pelo cliente.",
+				{"sale_payload": floor_payload},
+			)
+			frappe.set_user(manager)
+			approve_request(floor_request["name"])
+			floor_result = frappe.parse_json(frappe.db.get_value("Tecponto Request", floor_request["name"], "execution_result"))
+			if not floor_result.get("sale"):
+				raise AssertionError("Aprovação do piso de custo não reexecutou a venda pelo motor.")
+		finally:
+			frappe.db.set_single_value("Tecponto Settings", "discount_limit", previous_discount_limit)
+
+		# Troca: a tentativa do atendente bate na faixa; a aprovação reaplica o valor sob o Gestor.
+		frappe.set_user("Administrator")
+		trade = frappe.get_doc(
+			{
+				"doctype": "Device Trade Evaluation",
+				"customer": _get_or_create_demo_customer(),
+				"device_type": "iPhone",
+				"evaluated_device_desc": "Teste solicitação acima da tabela",
+				"imei": f"TP-TRADE-{frappe.generate_hash(length=12)}",
+				"table_min": 50,
+				"table_max": 100,
+				"destination": "Venda",
+			}
+		)
+		trade.insert(ignore_permissions=True)
+		frappe.set_user(attendant)
+		trade_blocked = False
+		try:
+			set_tradein_approved_value(trade.name, 150)
+		except frappe.ValidationError:
+			trade_blocked = True
+		if not trade_blocked:
+			raise AssertionError("Atendente registrou valor acima da tabela sem solicitar aprovação.")
+		trade_request = create_request("tradein_over_max", trade.name, "Oferta excepcional para fechar a troca.", {"approved_value": 150})
+		frappe.set_user(manager)
+		approve_request(trade_request["name"])
+		if flt(frappe.db.get_value("Device Trade Evaluation", trade.name, "approved_value")) != 150:
+			raise AssertionError("Aprovação da troca não reaplicou o valor no motor.")
+
 		# OS: a transição é executada pela role que o workflow exige, não por um bypass do solicitante.
 		frappe.set_user(attendant)
 		move_request = create_request(
@@ -589,6 +654,8 @@ def run_action_request_checks() -> dict:
 			"expired_count": expired_count,
 			"self_approval_blocked": self_approval_blocked,
 			"pos_discount": {"request": pos_request["name"], "sale": pos_result["sale"], "executed": True},
+			"pos_price_floor": {"request": floor_request["name"], "sale": floor_result["sale"], "executed": True},
+			"tradein_over_max": {"request": trade_request["name"], "evaluation": trade.name, "executed": True},
 			"service_order_move": {"request": move_request["name"], "state": "Em diagnóstico", "executed": True},
 		}
 	finally:

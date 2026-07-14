@@ -1606,7 +1606,7 @@ function NavigationContent({
   }
 
   if (activeView === "trade-ins") {
-    return <TradeLookup />;
+    return <TradeLookup onToast={onToast} />;
   }
 
   if (activeView === "parts-stock" || activeView === "repair-parts" || activeView === "commercial-products" || activeView === "used-devices") {
@@ -3977,7 +3977,7 @@ function DetailPill({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TradeLookup() {
+function TradeLookup({ onToast }: { onToast: (message: string, tone?: ToastState["tone"]) => void }) {
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<TradeEvaluationSummary[]>([]);
   const [selectedTrade, setSelectedTrade] = useState<TradeEvaluationSummary | null>(null);
@@ -4026,7 +4026,15 @@ function TradeLookup() {
         status={status}
         title="Trocas"
       />
-      <TradeEvaluationDetailModal evaluation={selectedTrade} onClose={() => setSelectedTrade(null)} />
+		<TradeEvaluationDetailModal
+			evaluation={selectedTrade}
+			onClose={() => setSelectedTrade(null)}
+			onSaved={(updated) => {
+				setRows((current) => current.map((row) => row.name === updated.name ? updated : row));
+				setSelectedTrade(updated);
+			}}
+			onToast={onToast}
+		/>
     </>
   );
 }
@@ -4034,13 +4042,50 @@ function TradeLookup() {
 function TradeEvaluationDetailModal({
   evaluation,
   onClose,
+	onSaved,
+	onToast,
 }: {
   evaluation: TradeEvaluationSummary | null;
   onClose: () => void;
+	onSaved: (evaluation: TradeEvaluationSummary) => void;
+	onToast: (message: string, tone?: ToastState["tone"]) => void;
 }) {
+	const [approvedValue, setApprovedValue] = useState("");
+	const [saving, setSaving] = useState(false);
+	const [approvalNeeded, setApprovalNeeded] = useState(false);
+
+	useEffect(() => {
+		setApprovedValue(evaluation?.approved_value ? String(evaluation.approved_value) : "");
+		setApprovalNeeded(false);
+	}, [evaluation?.name, evaluation?.approved_value]);
+
   const deviceLabel = evaluation
     ? evaluation.evaluated_device_desc || [evaluation.device_type, evaluation.model].filter(Boolean).join(" ") || "Aparelho avaliado"
     : "Aparelho avaliado";
+
+	const saveApprovedValue = async () => {
+		if (!evaluation) return;
+		const value = Number(approvedValue.replace(",", "."));
+		if (!Number.isFinite(value) || value <= 0) {
+			onToast("Informe um valor de troca maior que zero.", "error");
+			return;
+		}
+		setSaving(true);
+		try {
+			const response = await balcao.setTradeInApprovedValue(evaluation.name, value);
+			onSaved(response.item);
+			onToast("Valor da troca registrado.", "success");
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Não foi possível registrar o valor.";
+			if (message.includes("acima do maximo") || message.includes("acima do máximo")) {
+				setApprovalNeeded(true);
+			} else {
+				onToast(message, "error");
+			}
+		} finally {
+			setSaving(false);
+		}
+	};
 
   return (
     <Modal className="max-w-2xl" onClose={onClose} open={Boolean(evaluation)} title="Detalhe da avaliação">
@@ -4059,10 +4104,29 @@ function TradeEvaluationDetailModal({
             <DetailPill label="Estado físico" value={evaluation.physical_state || "Não informado"} />
             <DetailPill label="Destino" value={evaluation.destination || "Não definido"} />
             <DetailPill label="Tipo" value={evaluation.device_type || "Não definido"} />
+			<DetailPill label="Faixa máxima" value={evaluation.table_max ? evaluation.table_max.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "Não definida"} />
             <DetailPill label="Atualização" value={formatDate(evaluation.modified)} />
           </dl>
+			<div className="mt-5 rounded-card border border-tec-border/15 bg-tec-field/45 p-4">
+				<p className="text-sm font-bold text-white">Valor aprovado na troca</p>
+				<p className="mt-1 text-sm text-tec-muted">O valor acima da tabela exige autorização registrada do Gestor.</p>
+				<div className="mt-3 flex flex-col gap-2 sm:flex-row">
+					<input className="tp-input flex-1" inputMode="decimal" onChange={(event) => setApprovedValue(event.target.value)} placeholder="R$ 0,00" value={approvedValue} />
+					<Button disabled={saving} onClick={() => void saveApprovedValue()} variant="primary">{saving ? "Validando..." : "Registrar valor"}</Button>
+				</div>
+			</div>
         </Card>
       ) : null}
+		<ApprovalRequestModal
+			onClose={() => setApprovalNeeded(false)}
+			onCreated={() => setApprovalNeeded(false)}
+			onToast={onToast}
+			open={approvalNeeded}
+			payload={{ approved_value: Number(approvedValue.replace(",", ".")) }}
+			referenceName={evaluation?.name ?? ""}
+			requestType="tradein_over_max"
+			title="Este valor supera a faixa da tabela. Deseja solicitar aprovação do Gestor?"
+		/>
     </Modal>
   );
 }

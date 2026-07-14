@@ -135,6 +135,8 @@ SAFE_TRADE_EVALUATION_FIELDS = (
 	"imei",
 	"physical_state",
 	"destination",
+	"table_max",
+	"approved_value",
 	"workflow_state",
 	"modified",
 )
@@ -1001,6 +1003,19 @@ def list_trade_evaluations(query: str = "", limit: int = 12) -> dict[str, Any]:
 
 
 @frappe.whitelist()
+def set_tradein_approved_value(name: str, approved_value: float) -> dict[str, Any]:
+	"""Attempt the normal evaluation save so the trade table guard remains authoritative."""
+	_require_frontend_role()
+	doc = frappe.get_doc("Device Trade Evaluation", (name or "").strip())
+	doc.approved_value = flt(approved_value, 2)
+	# This endpoint exposes only the table-governed value. Validation still runs under
+	# the caller, while an approved request later saves normally under the Gestor.
+	doc.save(ignore_permissions=True)
+	item = frappe.db.get_value("Device Trade Evaluation", doc.name, list(SAFE_TRADE_EVALUATION_FIELDS), as_dict=True)
+	return {"item": _serialize_trade_evaluation(item)}
+
+
+@frappe.whitelist()
 def list_stock_items(query: str = "", limit: int = 12, scope: str = "parts-stock") -> dict[str, Any]:
 	_require_frontend_role()
 	limit = max(1, min(int(limit or 12), 50))
@@ -1181,6 +1196,8 @@ def _serialize_trade_evaluation(item: dict[str, Any]) -> dict[str, Any]:
 		"imei": item.get("imei"),
 		"physical_state": item.get("physical_state"),
 		"destination": item.get("destination"),
+		"table_max": flt(item.get("table_max") or 0),
+		"approved_value": flt(item.get("approved_value") or 0),
 		"workflow_state": item.get("workflow_state"),
 		"modified": str(item.get("modified") or ""),
 	}

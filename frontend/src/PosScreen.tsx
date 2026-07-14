@@ -52,9 +52,11 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [completedSale, setCompletedSale] = useState<PosSaleResponse | null>(null);
-  const [discountApproval, setDiscountApproval] = useState<{
+  const [saleApproval, setSaleApproval] = useState<{
     payload: Record<string, unknown>;
     referenceName: string;
+		requestType: "pos_discount" | "pos_price_floor";
+		title: string;
   } | null>(null);
 
   const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.standard_rate * line.qty, 0), [cart]);
@@ -334,11 +336,16 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
 		}
     } catch (error) {
       const message = error instanceof Error ? error.message : "Não foi possível finalizar a venda.";
-      if (message.includes("Desconto acima do limite")) {
+		if (message.includes("Desconto acima do limite") || message.includes("Preco abaixo do custo") || message.includes("Preço abaixo do custo")) {
         setCheckoutOpen(false);
-        setDiscountApproval({
+		const isPriceFloor = message.includes("Preco abaixo do custo") || message.includes("Preço abaixo do custo");
+		setSaleApproval({
           payload: { sale_payload: { ...requestWithoutKey, idempotency_key: idempotencyKey } },
           referenceName: customer.name,
+			requestType: isPriceFloor ? "pos_price_floor" : "pos_discount",
+			title: isPriceFloor
+				? "Este preço fica abaixo do custo. Deseja solicitar aprovação do Gestor?"
+				: "Este desconto ultrapassa seu limite. Deseja solicitar aprovação do Gestor?",
         });
       } else {
         onToast(message, "error");
@@ -455,14 +462,14 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
         open={customerOpen}
       />
       <ApprovalRequestModal
-        onClose={() => setDiscountApproval(null)}
-        onCreated={() => setDiscountApproval(null)}
+		onClose={() => setSaleApproval(null)}
+		onCreated={() => setSaleApproval(null)}
         onToast={onToast}
-        open={Boolean(discountApproval)}
-        payload={discountApproval?.payload ?? {}}
-        referenceName={discountApproval?.referenceName ?? ""}
-        requestType="pos_discount"
-        title="Este desconto ultrapassa seu limite. Deseja solicitar aprovação do Gestor?"
+		open={Boolean(saleApproval)}
+		payload={saleApproval?.payload ?? {}}
+		referenceName={saleApproval?.referenceName ?? ""}
+		requestType={saleApproval?.requestType ?? "pos_price_floor"}
+		title={saleApproval?.title ?? "Esta venda exige aprovação do Gestor."}
       />
       <CheckoutModal
         customerName={customer?.customer_name ?? customer?.name ?? "Cliente"}

@@ -487,8 +487,14 @@ export interface TradeEvaluationSummary {
   imei: string | null;
   physical_state: string | null;
   destination: string | null;
+	approved_value: number;
+	table_max: number;
   workflow_state: string | null;
   modified: string;
+}
+
+export interface SetTradeInApprovedValueResponse {
+  item: TradeEvaluationSummary;
 }
 
 export interface TradeEvaluationListResponse {
