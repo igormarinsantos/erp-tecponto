@@ -5,6 +5,13 @@ app_description = "Custom ERP app for Tecponto"
 app_email = "admin@tecponto.local"
 app_license = "mit"
 
+# Tecponto owns the visual identity everywhere Frappe renders a page, including
+# login, Desk and the public acceptance/tracking pages.
+website_context = {
+	"favicon": "/assets/tecponto_app/branding/favicon.ico",
+}
+base_template = "tecponto_app/templates/base.html"
+
 jinja = {
 	"methods": [
 		"tecponto_app.tecponto.service_order.print_formats.get_service_order_print_context",
@@ -354,6 +361,7 @@ after_migrate = [
 	"tecponto_app.tecponto.service_order.print_formats.ensure_service_order_print_formats",
 	"tecponto_app.tecponto.tracking.ensure_tracking_lifecycle",
 	"tecponto_app.tecponto.service_catalog.ensure_service_catalog",
+	"tecponto_app.tecponto.branding.ensure_branding_assets",
 ]
 
 website_route_rules = [

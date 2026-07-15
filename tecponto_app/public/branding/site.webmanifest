@@ -1,0 +1,20 @@
+{
+  "name": "Tecponto",
+  "short_name": "Tecponto",
+  "start_url": "/tecponto",
+  "display": "standalone",
+  "background_color": "#15181B",
+  "theme_color": "#15181B",
+  "icons": [
+    {
+      "src": "/assets/tecponto_app/branding/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/tecponto_app/branding/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
