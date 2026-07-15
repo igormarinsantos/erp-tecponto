@@ -113,7 +113,7 @@ def list_pending_approvals() -> list[dict[str, Any]]:
 	_require_frontend_role()
 	roles = set(frappe.get_roles())
 	filters = {"status": "Pendente"}
-	rows = frappe.get_all("Tecponto Request", filters=filters, fields=["name", "status", "requested_by", "approver_role", "expires_on", "request_type", "reason"], order_by="creation asc", limit_page_length=50)
+	rows = frappe.get_all("Tecponto Request", filters=filters, fields=["name", "status", "requested_by", "approver_role", "expires_on", "request_type", "reason"], order_by="creation desc", limit_page_length=50)
 	return [_serialize(row) for row in rows if row.approver_role in roles or "System Manager" in roles or frappe.session.user == "Administrator"]
 
 

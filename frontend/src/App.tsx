@@ -53,7 +53,6 @@ import {
   type NavigationTarget,
   type NotificationListResponse,
   type QuoteSendPayload,
-  type RolePanel,
   type ServiceOrderBudgetLine,
   type ServiceOrderDetailResponse,
   type ServiceOrderPrintLink,
@@ -79,7 +78,7 @@ import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
 import { LoginScreen, type LoginReason } from "./LoginScreen";
 import { PosScreen } from "./PosScreen";
 import { RetailProductModal } from "./RetailProductModal";
-import { panelDefinitions, type ActionDefinition } from "./roleConfig";
+import { getUnifiedPanelDefinition, type ActionDefinition, type PanelDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
 import { WorkflowMoveMenu } from "./WorkflowMoveMenu";
@@ -150,7 +149,6 @@ interface ServiceOrderFilterState {
 
 const SERVICE_ORDERS_VIEW_KEY = "tecponto.service-orders.view";
 const THEME_STORAGE_PREFIX = "tecponto.theme.";
-const CONTEXT_STORAGE_PREFIX = "tecponto.context.";
 const BARCODE_MIN_LENGTH = 6;
 const BARCODE_KEY_INTERVAL_MS = 100;
 const DEFAULT_DASHBOARD_PERIOD: DashboardPeriodFilter = {
@@ -181,25 +179,12 @@ function getThemeStorageKey(userName: string) {
   return `${THEME_STORAGE_PREFIX}${userName}`;
 }
 
-function getContextStorageKey(userName: string) {
-  return `${CONTEXT_STORAGE_PREFIX}${userName}`;
-}
-
 function readStoredTheme(userName: string): AppTheme {
   try {
     const stored = window.localStorage.getItem(getThemeStorageKey(userName));
     return stored === "light" ? "light" : "dark";
   } catch {
     return "dark";
-  }
-}
-
-function readStoredContext(userName: string, availablePanels: RolePanel[], fallback: RolePanel): RolePanel {
-  try {
-    const stored = window.localStorage.getItem(getContextStorageKey(userName)) as RolePanel | null;
-    return stored && availablePanels.includes(stored) ? stored : fallback;
-  } catch {
-    return fallback;
   }
 }
 
@@ -313,7 +298,6 @@ export function App() {
   const [pendingOrderFlow, setPendingOrderFlow] = useState<ServiceOrderFlow | null>(null);
   const [pendingPosBarcode, setPendingPosBarcode] = useState<PendingPosBarcode | null>(null);
   const [pendingRetailBarcode, setPendingRetailBarcode] = useState<PendingRetailBarcode | null>(null);
-  const [contextOverride, setContextOverride] = useState<RolePanel | null>(null);
   const [serviceOrdersView, setServiceOrdersView] = useState<ServiceOrdersViewMode>(getStoredServiceOrdersView);
   const [theme, setTheme] = useState<AppTheme>("dark");
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -563,21 +547,6 @@ export function App() {
     });
   }, [state]);
 
-  const changeContext = useCallback((nextPanel: RolePanel, availablePanels: RolePanel[]) => {
-    if (state.status !== "ready" || !availablePanels.includes(nextPanel)) {
-      return;
-    }
-    setContextOverride(nextPanel);
-    setActiveView("overview");
-    setSelectedOrderName(null);
-    setPendingOrderFlow(null);
-    try {
-      window.localStorage.setItem(getContextStorageKey(state.boot.user.name), nextPanel);
-    } catch {
-      // Context is a visual preference; authorization remains on the server.
-    }
-  }, [state]);
-
   const contextMenuItems = useMemo<Array<ContextMenuItem>>(() => {
     if (!contextMenu) {
       return [];
@@ -749,21 +718,16 @@ export function App() {
   }
 
   const contextOptions = state.boot.panels.filter((option) => state.boot.user.roles.includes(option.role));
-  const availablePanels = contextOptions.map((option) => option.panel);
-  const fallbackPanel = state.boot.user.panel;
-  const storedContext = readStoredContext(state.boot.user.name, availablePanels, fallbackPanel);
-  const selectedContextPanel = contextOverride && availablePanels.includes(contextOverride) ? contextOverride : storedContext;
-  const selectedContext = contextOptions.find((option) => option.panel === selectedContextPanel);
-  const visualUser = selectedContext
+  const rolePanels = contextOptions.map((option) => option.panel);
+  const visualUser = rolePanels.length > 1
     ? {
       ...state.boot.user,
-      panel: selectedContext.panel,
-      role_label: selectedContext.label,
-      role_name: selectedContext.role,
-      subtitle: selectedContext.subtitle,
+      role_label: contextOptions.map((option) => option.label).join(" + "),
+      role_name: contextOptions.map((option) => option.role).join(", "),
+      subtitle: "Visao unificada",
     }
     : state.boot.user;
-  const panel = panelDefinitions[visualUser.panel] ?? panelDefinitions.sem_papel;
+  const panel = getUnifiedPanelDefinition(rolePanels, state.boot.user.full_name);
   const currentView = activeView === "overview" ? null : viewTitles[activeView];
 
   if (cashierMode) {
@@ -816,9 +780,6 @@ export function App() {
 			/>
 		}
         onToggleTheme={toggleTheme}
-        contextOptions={contextOptions}
-        onContextChange={(nextPanel) => changeContext(nextPanel, availablePanels)}
-        selectedContextPanel={visualUser.panel}
         theme={theme}
         unreadNotificationCount={state.notifications.unread_count}
         user={visualUser}
@@ -856,7 +817,7 @@ export function App() {
               onToast={showToast}
               orders={state.orders}
               panel={panel}
-              panelName={visualUser.panel}
+              panelNames={rolePanels}
             />
           ) : (
             <NavigationContent
@@ -1336,7 +1297,7 @@ function OverviewContent({
   onStartCheckin,
   orders,
   panel,
-  panelName,
+  panelNames,
 }: {
   actions: ActionDefinition[];
   metrics: DashboardMetrics;
@@ -1346,8 +1307,8 @@ function OverviewContent({
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   onStartCheckin: () => void;
   orders: ServiceOrderSummary[];
-  panel: (typeof panelDefinitions)[keyof typeof panelDefinitions];
-  panelName: RolePanel;
+  panel: PanelDefinition;
+  panelNames: string[];
 }) {
   const [periodFilter, setPeriodFilter] = useState<DashboardPeriodFilter>(DEFAULT_DASHBOARD_PERIOD);
   const periodOrders = useMemo(() => filterOrdersByDashboardPeriod(orders, periodFilter), [orders, periodFilter]);
@@ -1386,7 +1347,7 @@ function OverviewContent({
         />
       </div>
       <div className="mt-4">
-        <DailyActionsPanel onOpenOrder={onOpenServiceOrder} onToast={onToast} panel={panelName} />
+        <DailyActionsPanel onOpenOrder={onOpenServiceOrder} onToast={onToast} panels={panelNames} />
       </div>
       <div className="mt-4">
         <ApprovalRequestsPanel onToast={onToast} />
@@ -5085,24 +5046,36 @@ function ActionPanel({
 function DailyActionsPanel({
   onOpenOrder,
   onToast,
-  panel,
+  panels,
 }: {
   onOpenOrder: (name: string) => void;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
-  panel: RolePanel;
+  panels: string[];
 }) {
   const [state, setState] = useState<DailyActionsResponse | null>(null);
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const panelsKey = panels.join("|");
+
   const refresh = useCallback(async () => {
     try {
-      setState(await dailyActions.list(panel));
+      const requestedPanels = panelsKey.split("|").filter(Boolean);
+      const responses = await Promise.all(requestedPanels.map((panel) => dailyActions.list(panel)));
+      const seen = new Set<string>();
+      const derived = responses.flatMap((response) => response.derived).filter((action) => {
+        const key = `${action.reference_doctype}:${action.reference_name}:${action.title}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      const manual = responses[0]?.manual ?? [];
+      setState({ count: derived.length + manual.length, derived, manual });
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Falha ao carregar pendencias.", "error");
     }
-  }, [onToast, panel]);
+  }, [onToast, panelsKey]);
 
   useEffect(() => {
     void refresh();

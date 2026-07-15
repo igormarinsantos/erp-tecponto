@@ -129,7 +129,7 @@ def run_foundation_checks() -> dict:
 			users["Tecponto Tecnico"],
 		)
 		cashier_mode_checks = run_cashier_mode_checks()
-		multi_role_context = _check_multi_role_context(users["Tecponto Atendente"])
+		multi_role_context = _check_multi_role_union(users["Tecponto Atendente"])
 		# Each group intentionally creates documents with naming series. Commit the
 		# completed fixtures before the approval suite starts a fresh transaction.
 		frappe.db.commit()
@@ -157,7 +157,7 @@ def run_foundation_checks() -> dict:
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
 			"cashier_mode_checks": cashier_mode_checks,
-			"multi_role_context": multi_role_context,
+			"multi_role_union": multi_role_context,
 			"action_request_checks": action_request_checks,
 			"notification_checks": notification_checks,
 			"daily_action_checks": daily_action_checks,
@@ -1996,7 +1996,7 @@ def _find_or_create_multi_role_user() -> str:
 		)
 	user.reload()
 	assigned_roles = {entry.role for entry in user.roles}
-	for role in ("Tecponto Atendente", "Tecponto Tecnico"):
+	for role in ("Tecponto Atendente", "Tecponto Gestor"):
 		if role not in assigned_roles:
 			user.append("roles", {"role": role})
 	user.save(ignore_permissions=True)
@@ -2199,51 +2199,53 @@ def _check_role_panels(users: dict[str, str]) -> list[dict]:
 	return results
 
 
-def _check_multi_role_context(attendant: str) -> dict:
+def _check_multi_role_union(attendant: str) -> dict:
+	"""The front shows a union; the server remains the authorization authority."""
 	multi_role_user = _find_or_create_multi_role_user()
 	frappe.set_user(multi_role_user)
 	boot = get_boot()
 	available_panels = [
 		entry["panel"]
 		for entry in boot["panels"]
-		if entry["role"] in {"Tecponto Atendente", "Tecponto Tecnico"}
+		if entry["role"] in {"Tecponto Atendente", "Tecponto Gestor"}
 	]
-	if set(available_panels) != {"atendente", "tecnico"}:
-		raise AssertionError(f"Usuário multipapel recebeu contextos incorretos: {available_panels}")
+	if set(available_panels) != {"atendente", "gestor"}:
+		raise AssertionError(f"Usuário multipapel recebeu papéis incorretos: {available_panels}")
 
-	# O seletor do front pode estar em Técnico, mas as roles reais ainda incluem Atendente.
+	# The combined account can use counter and manager APIs through real roles.
 	attendant_api_payload = search_pos_items(query="Película 3D", limit=1)
 	if not attendant_api_payload["items"]:
-		raise AssertionError("Usuário Atendente+Técnico perdeu acesso à API de balcão.")
-	technical_context_payload = get_dashboard_metrics()
+		raise AssertionError("Usuário Atendente+Gestor perdeu acesso à API de balcão.")
+	manager_reference = save_catalog_reference(
+		"category",
+		{"value": f"Multi papel {frappe.generate_hash(length=8)}", "active": True},
+	)["item"]
 
-	demo_orders = ensure_service_order_detail_demo_data()
-	entry_order = demo_orders["orders"]["entrada"]["name"]
 	frappe.set_user(attendant)
-	technical_api_blocked = False
+	manager_api_blocked = False
 	try:
-		move_service_order(entry_order, "Em diagnóstico")
+		save_catalog_reference("category", {"name": manager_reference["name"], "value": "Nao deve editar"})
 	except frappe.PermissionError:
-		technical_api_blocked = True
-	if not technical_api_blocked:
-		raise AssertionError("Atendente sem papel técnico conseguiu mover OS para diagnóstico.")
+		manager_api_blocked = True
+	if not manager_api_blocked:
+		raise AssertionError("Atendente sem papel Gestor conseguiu editar o catálogo.")
 
 	leaks = contains_sensitive_field(
 		{
-			"technical_context": {"boot": boot, "dashboard": technical_context_payload},
-			"attendant_context": attendant_api_payload,
+			"unified_roles": {"boot": boot, "manager_reference": manager_reference},
+			"attendant_api": attendant_api_payload,
 		}
 	)
 	if leaks:
-		raise AssertionError(f"Campos sensíveis vazaram entre contextos: {', '.join(leaks)}")
+		raise AssertionError(f"Campos sensíveis vazaram na visão unificada: {', '.join(leaks)}")
 
 	return {
 		"user": multi_role_user,
-		"roles": ["Tecponto Atendente", "Tecponto Tecnico"],
+		"roles": ["Tecponto Atendente", "Tecponto Gestor"],
 		"available_panels": available_panels,
-		"visual_context_checked": "tecnico",
-		"attendant_api_in_technical_context": "allowed",
-		"attendant_only_technical_api": "blocked_403",
+		"unified_visual_contract": "front_unifies_panels_without_changing_roles",
+		"attendant_api_for_multi_role": "allowed",
+		"attendant_only_manager_api": "blocked_403",
 		"sensitive_guard": {"leaked_fields": leaks},
 	}
 

@@ -237,3 +237,82 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
     actions: [],
   },
 };
+
+const panelOrder: RolePanel[] = ["atendente", "tecnico", "gestor", "diretor"];
+
+const panelLabels: Record<RolePanel, string> = {
+  atendente: "Atendente",
+  tecnico: "Tecnico",
+  gestor: "Gestor",
+  diretor: "Diretor",
+  sem_papel: "Sem papel",
+};
+
+const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
+  overview: "Inicio",
+  "service-orders": "Reparo",
+  "repair-parts": "Reparo",
+  "parts-stock": "Reparo",
+  pos: "Venda",
+  sales: "Venda",
+  "commercial-products": "Venda",
+  "trade-ins": "Troca",
+  "used-devices": "Troca",
+  customers: "Cadastros",
+  devices: "Cadastros",
+  services: "Cadastros",
+};
+
+function unifiedNavigation(panels: RolePanel[]): NavSection[] {
+  const sections = new Map<string, NavSection>();
+  const seenTargets = new Set<NavigationTarget>();
+
+  for (const panelName of panels) {
+    for (const sourceSection of panelDefinitions[panelName].nav) {
+      for (const item of sourceSection.items) {
+        if (seenTargets.has(item.id)) continue;
+        seenTargets.add(item.id);
+        const label = pillarForTarget[item.id] ?? sourceSection.label;
+        const section = sections.get(label) ?? { label, items: [] };
+        section.items.push(item);
+        sections.set(label, section);
+      }
+    }
+  }
+
+  const preferredOrder = ["Inicio", "Reparo", "Venda", "Troca", "Cadastros"];
+  return [...sections.values()].sort((left, right) => {
+    const leftIndex = preferredOrder.indexOf(left.label);
+    const rightIndex = preferredOrder.indexOf(right.label);
+    return (leftIndex < 0 ? preferredOrder.length : leftIndex) - (rightIndex < 0 ? preferredOrder.length : rightIndex);
+  });
+}
+
+function uniqueByLabel<T extends { label: string }>(items: T[]): T[] {
+  const labels = new Set<string>();
+  return items.filter((item) => {
+    if (labels.has(item.label)) return false;
+    labels.add(item.label);
+    return true;
+  });
+}
+
+/** Display-only union: authorization remains entirely server-side. */
+export function getUnifiedPanelDefinition(panels: RolePanel[], fullName: string): PanelDefinition {
+  const resolvedPanels = panelOrder.filter((panel) => panels.includes(panel));
+  if (resolvedPanels.length === 1) return panelDefinitions[resolvedPanels[0]];
+  if (!resolvedPanels.length) return panelDefinitions.sem_papel;
+
+  const definitions = resolvedPanels.map((panel) => panelDefinitions[panel]);
+  const labels = resolvedPanels.map((panel) => panelLabels[panel]);
+  const firstName = fullName.trim().split(/\s+/)[0] || "Tecponto";
+
+  return {
+    title: `Ola, ${firstName}!`,
+    subtitle: `Visao unificada: ${labels.join(" + ")}.`,
+    tableTitle: "Operacao unificada",
+    nav: unifiedNavigation(resolvedPanels),
+    metrics: uniqueByLabel(definitions.flatMap((definition) => definition.metrics)),
+    actions: uniqueByLabel(definitions.flatMap((definition) => definition.actions)),
+  };
+}
