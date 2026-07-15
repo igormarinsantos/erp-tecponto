@@ -33,7 +33,13 @@ from tecponto_app.tecponto.frontend.api import (
 	submit_stock_transfer,
 )
 from tecponto_app.tecponto.acceptance import complete_public_acceptance, get_public_acceptance, save_public_acceptance_selfie
-from tecponto_app.tecponto.tracking import INVALID_LINK_MESSAGE, TRACKING_STAGES, get_public_tracking, issue_tracking_link
+from tecponto_app.tecponto.tracking import (
+	INVALID_LINK_MESSAGE,
+	TRACKING_STAGES,
+	decide_public_tracking_budget,
+	get_public_tracking,
+	issue_tracking_link,
+)
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.requests import (
 	approve_request,
@@ -90,7 +96,9 @@ POS_DEMO_ITEMS = (
 
 def run_foundation_checks() -> dict:
 	previous_user = frappe.session.user
+	previous_in_test = frappe.flags.in_test
 	try:
+		frappe.flags.in_test = True
 		ensure_frontend_foundation()
 		users = {role: _find_or_create_user(role) for role in FRONTEND_ROLES}
 		panel_checks = _check_role_panels(users)
@@ -117,6 +125,7 @@ def run_foundation_checks() -> dict:
 		customer_registration_checks = run_customer_registration_checks()
 		public_acceptance_checks = run_public_acceptance_checks()
 		tracking_checks = run_public_tracking_checks()
+		tracking_budget_checks = run_public_tracking_budget_checks()
 
 		return {
 			"status": "ok",
@@ -137,8 +146,10 @@ def run_foundation_checks() -> dict:
 			"customer_registration_checks": customer_registration_checks,
 			"public_acceptance_checks": public_acceptance_checks,
 			"tracking_checks": tracking_checks,
+			"tracking_budget_checks": tracking_budget_checks,
 		}
 	finally:
+		frappe.flags.in_test = previous_in_test
 		frappe.set_user(previous_user)
 
 
@@ -206,6 +217,110 @@ def run_public_tracking_checks() -> dict:
 			"imei_partial": public["service_order"]["imei_suffix"],
 			"tampered_token_blocked": True,
 			"expired_token_blocked": True,
+			"sensitive_guard": {"leaked_fields": leaks},
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_public_tracking_budget_checks() -> dict:
+	"""Prove a guest decision reuses the motor and cannot bypass deadline or reason rules."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+
+		def prepare_order() -> str:
+			frappe.set_user(attendant)
+			order_name = _create_action_request_service_order(attendant)
+			frappe.db.set_value(
+				"Service Order",
+				order_name,
+				{
+					"workflow_state": "Aguardando aprovação",
+					"approval_status": "Pendente",
+					"approval_deadline": add_days(now_datetime(), 2),
+					"entry_photos": "/private/files/tracking-entry.jpg",
+					"entry_signature": "data:image/png;base64,tracking-entry-signature",
+				},
+				update_modified=True,
+			)
+			part = (frappe.get_doc("Service Order", order_name).get("parts") or [None])[0]
+			if not part:
+				raise AssertionError("OS de rastreio não possui a peça necessária ao teste de aprovação.")
+			valuation_rate = flt(frappe.db.get_value("Item", part.item_code, "valuation_rate") or 10)
+			_ensure_pos_demo_stock(part.item_code, part.warehouse, valuation_rate)
+			return order_name
+
+		approve_order = prepare_order()
+		approve_link = issue_tracking_link(approve_order)
+		approve_token = approve_link["link"].rstrip("/").rsplit("/", 1)[-1]
+		frappe.set_user("Guest")
+		public_budget = get_public_tracking(approve_token)
+		budget = public_budget.get("budget") or {}
+		if not budget.get("services") or not budget.get("parts") or not budget.get("total"):
+			raise AssertionError("Rastreio em aprovação não exibiu orçamento de serviço, peça e total.")
+		for line in [*budget["services"], *budget["parts"]]:
+			if set(line) != {"description", "quantity", "unit_price", "line_total"}:
+				raise AssertionError("Linha pública do orçamento contém campo interno.")
+		leaks = contains_sensitive_field(public_budget)
+		if leaks:
+			raise AssertionError(f"Orçamento público expôs campo sensível: {', '.join(leaks)}")
+		approval = decide_public_tracking_budget(approve_token, "approve")
+		approved_doc = frappe.get_doc("Service Order", approve_order)
+		if (
+			not approval.get("completed")
+			or approved_doc.workflow_state != "Aprovado"
+			or approved_doc.approval_channel != "Link"
+			or not approved_doc.approval_date
+			or not approved_doc.quote_locked
+		):
+			raise AssertionError("Aprovação pelo link não reexecutou o motor com canal Link e timestamp.")
+		decision_repeat_blocked = False
+		try:
+			decide_public_tracking_budget(approve_token, "approve")
+		except frappe.ValidationError:
+			decision_repeat_blocked = True
+		if not decision_repeat_blocked:
+			raise AssertionError("Link permitiu decidir duas vezes o mesmo orçamento.")
+
+		reject_order = prepare_order()
+		reject_link = issue_tracking_link(reject_order)
+		reject_token = reject_link["link"].rstrip("/").rsplit("/", 1)[-1]
+		frappe.set_user("Guest")
+		rejection_reason_required = False
+		try:
+			decide_public_tracking_budget(reject_token, "reject")
+		except frappe.ValidationError:
+			rejection_reason_required = True
+		if not rejection_reason_required:
+			raise AssertionError("Reprovação por link aceitou motivo vazio.")
+		rejection = decide_public_tracking_budget(reject_token, "reject", "Prefiro não autorizar o reparo neste momento.")
+		rejected_doc = frappe.get_doc("Service Order", reject_order)
+		if not rejection.get("completed") or rejected_doc.workflow_state != "Reprovado" or rejected_doc.approval_channel != "Link":
+			raise AssertionError("Reprovação por link não reexecutou o motor com rastreio Link.")
+
+		expired_order = prepare_order()
+		expired_link = issue_tracking_link(expired_order)
+		expired_token = expired_link["link"].rstrip("/").rsplit("/", 1)[-1]
+		frappe.db.set_value("Service Order", expired_order, "approval_deadline", add_to_date(now_datetime(), hours=-1), update_modified=False)
+		frappe.set_user("Guest")
+		expired_blocked = False
+		try:
+			decide_public_tracking_budget(expired_token, "approve")
+		except frappe.ValidationError:
+			expired_blocked = True
+		if not expired_blocked or frappe.db.get_value("Service Order", expired_order, "workflow_state") != "Aguardando aprovação":
+			raise AssertionError("Orçamento com prazo expirado foi decidido pelo link.")
+		return {
+			"status": "ok",
+			"budget_visible": True,
+			"approval_channel": approved_doc.approval_channel,
+			"approved_state": approved_doc.workflow_state,
+			"rejected_state": rejected_doc.workflow_state,
+			"rejection_reason_required": rejection_reason_required,
+			"decision_repeat_blocked": decision_repeat_blocked,
+			"expired_blocked": expired_blocked,
 			"sensitive_guard": {"leaked_fields": leaks},
 		}
 	finally:
@@ -527,8 +642,11 @@ def run_daily_action_checks() -> dict:
 def run_notification_checks() -> dict:
 	"""Covers delivery, ownership, read state and the non-blocking enqueue boundary."""
 	previous_user = frappe.session.user
+	previous_in_test = frappe.flags.in_test
 	original_enqueue = frappe.enqueue
 	try:
+		# This test explicitly covers the production enqueue boundary with a stub.
+		frappe.flags.in_test = False
 		frappe.set_user("Administrator")
 		attendant = _find_or_create_user("Tecponto Atendente")
 		manager = _find_or_create_user("Tecponto Gestor")
@@ -572,6 +690,7 @@ def run_notification_checks() -> dict:
 		return {"status": "ok", "request": request["name"], "decision_notified": True, "unread_before": before_read, "unread_after": after_read, "service_order_link": service_order_notification["link"], "async_failure_isolated": True}
 	finally:
 		frappe.enqueue = original_enqueue
+		frappe.flags.in_test = previous_in_test
 		frappe.set_user(previous_user)
 
 

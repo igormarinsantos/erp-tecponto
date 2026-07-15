@@ -11,6 +11,32 @@
 .tp-tracking-summary span { color: #adb4ba; display: block; font-size: 12px; margin-bottom: 6px; }
 .tp-tracking-summary b { display: block; line-height: 1.4; overflow-wrap: anywhere; }
 .tp-tracking-wide { grid-column: 1 / -1; }
+.tp-tracking-budget { border-top: 1px solid rgba(245,246,247,.12); margin-top: 28px; padding-top: 24px; }
+.tp-tracking-budget-heading { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
+.tp-tracking-budget-heading h2 { margin-bottom: 5px; }
+.tp-tracking-budget-heading p { color: #adb4ba; font-size: 13px; margin: 0; }
+.tp-tracking-budget-heading > b { color: #fe5000; font-size: 20px; white-space: nowrap; }
+.tp-tracking-budget h3 { color: #adb4ba; font-size: 12px; margin: 22px 0 8px; text-transform: uppercase; }
+.tp-tracking-budget ul { background: #24292e; border-radius: 10px; list-style: none; margin: 0; padding: 0; }
+.tp-tracking-budget li { align-items: center; border-bottom: 1px solid rgba(245,246,247,.1); display: flex; gap: 16px; justify-content: space-between; padding: 12px 14px; }
+.tp-tracking-budget li:last-child { border-bottom: 0; }
+.tp-tracking-budget li span { min-width: 0; }
+.tp-tracking-budget li small { color: #adb4ba; display: block; margin-top: 3px; }
+.tp-tracking-budget li > b { white-space: nowrap; }
+.tp-tracking-empty { color: #adb4ba; font-size: 14px; justify-content: flex-start !important; }
+.tp-tracking-decision { background: rgba(254,80,0,.08); border: 1px solid rgba(254,80,0,.35); border-radius: 12px; margin-top: 22px; padding: 16px; }
+.tp-tracking-decision > p { margin: 0; }
+.tp-tracking-decision > div { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+.tp-tracking-decision label { display: block; font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+.tp-tracking-decision textarea { background: #15181b; border: 1px solid rgba(245,246,247,.2); border-radius: 8px; box-sizing: border-box; color: #f5f6f7; font: inherit; min-height: 90px; padding: 10px; resize: vertical; width: 100%; }
+.tp-tracking-primary, .tp-tracking-secondary { border-radius: 8px; cursor: pointer; font: inherit; font-weight: 700; min-height: 40px; padding: 0 14px; }
+.tp-tracking-primary { background: #fe5000; border: 1px solid #fe5000; color: #202428; }
+.tp-tracking-secondary { background: #24292e; border: 1px solid rgba(245,246,247,.2); color: #f5f6f7; }
+.tp-tracking-primary:disabled, .tp-tracking-secondary:disabled { cursor: wait; opacity: .6; }
+.tp-tracking-decision-error { color: #f87171; font-size: 13px; margin: 10px 0 0 !important; }
+.tp-tracking-decision-result { background: rgba(37,211,102,.1); border: 1px solid rgba(37,211,102,.35); border-radius: 12px; display: flex; justify-content: space-between; margin-top: 26px; padding: 14px 16px; }
+.tp-tracking-decision-result b { color: #25d366; text-transform: capitalize; }
+.tp-tracking-decision-result span { color: #adb4ba; font-size: 13px; }
 .tp-tracking-timeline { border-top: 1px solid rgba(245,246,247,.12); margin-top: 28px; padding-top: 24px; }
 .tp-tracking-timeline ol { list-style: none; margin: 0; padding: 0; }
 .tp-tracking-step { display: grid; gap: 14px; grid-template-columns: 20px 1fr; min-height: 62px; position: relative; }
@@ -25,4 +51,4 @@
 .tp-tracking-whatsapp { background: #25d366; border-radius: 10px; color: #202428; display: block; font-size: 15px; font-weight: 700; margin-top: 26px; padding: 14px 18px; text-align: center; text-decoration: none; }
 .tp-tracking-reference { color: #adb4ba; font-size: 12px; margin: 18px 0 0; text-align: center; }
 .tp-tracking-error { border-color: rgba(239,68,68,.6); }
-@media (max-width: 560px) { .tp-tracking { padding: 12px; } .tp-tracking-card { padding: 22px; } .tp-tracking-summary { grid-template-columns: 1fr; } .tp-tracking-wide { grid-column: auto; } }
+@media (max-width: 560px) { .tp-tracking { padding: 12px; } .tp-tracking-card { padding: 22px; } .tp-tracking-summary { grid-template-columns: 1fr; } .tp-tracking-wide { grid-column: auto; } .tp-tracking-budget-heading, .tp-tracking-decision-result { align-items: flex-start; flex-direction: column; } .tp-tracking-decision > div { justify-content: stretch; } .tp-tracking-decision button { flex: 1; } }

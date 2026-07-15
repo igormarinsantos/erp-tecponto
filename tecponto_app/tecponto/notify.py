@@ -16,6 +16,11 @@ def enqueue(user: str, template_key: str, context: dict[str, Any]) -> bool:
 	if not user or user == "Guest":
 		return False
 	try:
+		# Tests execute delivery inline so fixture transactions cannot race the worker.
+		# Production always stays asynchronous through frappe.enqueue below.
+		if frappe.flags.in_test:
+			send(user, template_key, context)
+			return True
 		frappe.enqueue(
 			"tecponto_app.tecponto.notify.send",
 			queue="short",

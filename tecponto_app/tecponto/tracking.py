@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, get_url, now_datetime
+from frappe.utils import add_days, flt, get_url, now_datetime
 
 
 TRACKING_DOCTYPE = "Service Order Tracking"
@@ -67,6 +67,7 @@ def get_public_tracking(token: str) -> dict[str, Any]:
 
 	order = frappe.get_doc("Service Order", doc.service_order)
 	device = _get_device(order.customer_device)
+	awaiting_approval = order.get("workflow_state") == "Aguardando aprovação"
 	return {
 		"valid": True,
 		"tracking": {
@@ -78,11 +79,59 @@ def get_public_tracking(token: str) -> dict[str, Any]:
 			"device": _device_label(device),
 			"imei_suffix": _imei_suffix(device.get("imei_serial")),
 			"reported_defect": order.get("reported_defect") or "Não informado",
-			"approval_deadline": str(order.get("approval_deadline") or "") if order.get("workflow_state") == "Aguardando aprovação" else "",
+			"approval_deadline": str(order.get("approval_deadline") or "") if awaiting_approval else "",
 			"warranty_expiry": str(order.get("warranty_expiry") or "") if order.get("workflow_state") == "Entregue" else "",
 		},
+		"budget": _public_budget(order) if awaiting_approval else None,
+		"approval": _public_approval(order),
 		"timeline": _build_timeline(order),
 		"whatsapp_url": "https://wa.me/?text=" + quote(f"Olá, preciso de ajuda com a OS {order.name}."),
+	}
+
+
+@frappe.whitelist(allow_guest=True)
+def decide_public_tracking_budget(token: str, decision: str, notes: str = "") -> dict[str, Any]:
+	"""Re-execute the existing budget decision flow for the holder of a valid tracking link."""
+	tracking = _get_valid_tracking(token)
+	if not tracking:
+		frappe.throw(_(INVALID_LINK_MESSAGE), frappe.PermissionError)
+
+	decision = (decision or "").strip()
+	notes = (notes or "").strip()
+	if decision not in {"approve", "reject"}:
+		frappe.throw(_("Informe se o orçamento foi aprovado ou reprovado."), frappe.ValidationError)
+	if decision == "reject" and not notes:
+		frappe.throw(_("Informe o motivo da reprovação."), frappe.ValidationError)
+
+	order = frappe.get_doc("Service Order", tracking.service_order)
+	if order.get("workflow_state") != "Aguardando aprovação":
+		frappe.throw(_("Este orçamento não está mais disponível para decisão."), frappe.ValidationError)
+	if order.get("approval_deadline") and order.approval_deadline <= now_datetime():
+		frappe.throw(_("O prazo de aprovação deste orçamento expirou."), frappe.ValidationError)
+
+	actor = tracking.issued_by
+	allowed_roles = {"System Manager", "Tecponto Atendente", "Tecponto Gestor"}
+	if not actor or not set(frappe.get_roles(actor)).intersection(allowed_roles):
+		frappe.throw(_("Este link não pode mais registrar uma decisão. Peça um novo link à Tecponto."), frappe.PermissionError)
+
+	# The token authorizes the customer decision; the existing motor still runs under
+	# the accountable operator, with its normal role checks and workflow validation.
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user(actor)
+		from tecponto_app.tecponto.frontend.api import decide_service_order_budget
+
+		decide_service_order_budget(
+			order.name,
+			{"decision": decision, "channel": "Link", "notes": notes},
+		)
+	finally:
+		frappe.set_user(previous_user)
+
+	return {
+		"completed": True,
+		"decision": decision,
+		"tracking": get_public_tracking(token),
 	}
 
 
@@ -120,6 +169,32 @@ def _device_label(device: dict[str, Any]) -> str:
 def _imei_suffix(imei: str | None) -> str:
 	value = (imei or "").strip()
 	return f"•••• {value[-4:]}" if value else "Não informado"
+
+
+def _public_budget(order: Any) -> dict[str, Any]:
+	def line(row: Any, fallback: str = "") -> dict[str, Any]:
+		quantity = flt(row.get("qty") or 0)
+		unit_price = flt(row.get("rate") or 0)
+		return {
+			"description": row.get("description") or frappe.db.get_value("Item", row.get("item_code"), "item_name") or fallback or "Item não informado",
+			"quantity": quantity,
+			"unit_price": unit_price,
+			"line_total": quantity * unit_price,
+		}
+
+	return {
+		"services": [line(row, "Serviço") for row in order.get("services") or []],
+		"parts": [line(row, "Peça") for row in order.get("parts") or []],
+		"total": flt(order.get("grand_total") or 0),
+		"version": int(order.get("budget_version") or 1),
+	}
+
+
+def _public_approval(order: Any) -> dict[str, str] | None:
+	status = order.get("approval_status")
+	if not status or status == "Pendente":
+		return None
+	return {"status": status, "date": str(order.get("approval_date") or "")}
 
 
 def _build_timeline(order: Any) -> list[dict[str, Any]]:
