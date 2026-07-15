@@ -105,7 +105,11 @@ def validate_service_order_pricing(doc, method=None) -> None:
 		cost = _get_valuation_rate(part.get("item_code"), part.get("warehouse"))
 		part.valuation_rate = cost
 		parts_total += qty * rate
-		validate_price_floor(rate, part.get("item_code"), part.get("warehouse"))
+		# Warranty parts carry real valuation and stock movement, but are not a
+		# customer sale. A zero customer rate must therefore not be treated as a
+		# below-cost discount request.
+		if not doc.get("is_warranty"):
+			validate_price_floor(rate, part.get("item_code"), part.get("warehouse"))
 
 	discount = flt(doc.get("discount"))
 	doc.labor_total = labor_total

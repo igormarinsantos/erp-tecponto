@@ -402,12 +402,25 @@ export interface CheckinPayload {
     reported_defect: string;
     physical_state: string;
     accessories_received?: string;
+    is_warranty?: boolean;
+    original_service_order?: string;
   };
   entry_photo: {
     data_url: string;
     filename: string;
   };
   entry_signature?: string;
+}
+
+export interface WarrantyCandidate {
+  name: string;
+  reported_defect: string | null;
+  pickup_date: string;
+  warranty_expiry: string;
+}
+
+export interface WarrantyCandidateResponse {
+  items: WarrantyCandidate[];
 }
 
 export interface CheckinResponse {

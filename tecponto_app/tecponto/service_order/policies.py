@@ -31,7 +31,20 @@ def _validate_warranty(doc) -> None:
 	if doc.get("original_service_order") == doc.name:
 		frappe.throw("OS de garantia nao pode apontar para ela mesma.")
 
-	warranty_expiry = frappe.db.get_value("Service Order", doc.original_service_order, "warranty_expiry")
+	original = frappe.db.get_value(
+		"Service Order",
+		doc.original_service_order,
+		["customer", "customer_device", "workflow_state", "warranty_expiry"],
+		as_dict=True,
+	)
+	if not original:
+		frappe.throw("OS original nao existe.")
+	if original.customer != doc.get("customer") or original.customer_device != doc.get("customer_device"):
+		frappe.throw("OS de garantia deve apontar para um reparo entregue do mesmo cliente e aparelho.")
+	if original.workflow_state != "Entregue":
+		frappe.throw("OS original precisa estar entregue para abrir retrabalho em garantia.")
+
+	warranty_expiry = original.warranty_expiry
 	if doc.get("courtesy_warranty"):
 		return
 

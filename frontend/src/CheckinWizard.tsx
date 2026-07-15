@@ -53,6 +53,7 @@ import {
   type CheckinResponse,
   type CustomerDeviceSummary,
   type CustomerSummary,
+  type WarrantyCandidate,
 } from "./api";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { Button, Modal } from "./ui";
@@ -268,6 +269,9 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
     accessories_received: "",
   });
   const [serviceSelections, setServiceSelections] = useState<ServiceSelections>(defaultServiceSelections);
+  const [warrantyCandidates, setWarrantyCandidates] = useState<WarrantyCandidate[]>([]);
+  const [warrantyLoading, setWarrantyLoading] = useState(false);
+  const [originalServiceOrder, setOriginalServiceOrder] = useState("");
   const [photo, setPhoto] = useState<{ dataUrl: string; filename: string } | null>(null);
 
   const generatedSummary = useMemo(() => buildServiceSummary(serviceSelections), [serviceSelections]);
@@ -298,6 +302,40 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
       accessories_received: serviceSelections.accessories.join("; "),
     });
   }, [generatedSummary, serviceSelections.accessories, serviceSelections.physicalStates]);
+
+  useEffect(() => {
+    const customer = selectedCustomer?.name ?? "";
+    const device = selectedDevice?.name ?? "";
+    if (!customer && !device) {
+      setWarrantyCandidates([]);
+      setOriginalServiceOrder("");
+      return;
+    }
+    let cancelled = false;
+    setWarrantyLoading(true);
+    checkin
+      .listWarrantyCandidates(customer, device)
+      .then((response) => {
+        if (!cancelled) {
+          setWarrantyCandidates(response.items);
+          setOriginalServiceOrder((current) => (response.items.some((item) => item.name === current) ? current : ""));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWarrantyCandidates([]);
+          setOriginalServiceOrder("");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setWarrantyLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCustomer?.name, selectedDevice?.name]);
 
   const customerReady = customerMicrostep !== "choice" && Boolean(
     selectedCustomer ||
@@ -375,6 +413,8 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
         reported_defect: serviceOrder.reported_defect.trim(),
         physical_state: serviceOrder.physical_state.trim(),
         accessories_received: serviceOrder.accessories_received.trim(),
+        is_warranty: Boolean(originalServiceOrder),
+        original_service_order: originalServiceOrder || undefined,
       },
       entry_photo: {
         data_url: photo.dataUrl,
@@ -454,7 +494,11 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
                 {step === 2 ? (
                   <ServiceDataStep
                     generatedSummary={generatedSummary}
+                    originalServiceOrder={originalServiceOrder}
                     selections={serviceSelections}
+                    warrantyCandidates={warrantyCandidates}
+                    warrantyLoading={warrantyLoading}
+                    setOriginalServiceOrder={setOriginalServiceOrder}
                     setSelections={setServiceSelections}
                   />
                 ) : null}
@@ -1370,12 +1414,20 @@ function DeviceStep({
 
 function ServiceDataStep({
   generatedSummary,
+  originalServiceOrder,
   selections,
+  setOriginalServiceOrder,
   setSelections,
+  warrantyCandidates,
+  warrantyLoading,
 }: {
   generatedSummary: string;
+  originalServiceOrder: string;
   selections: ServiceSelections;
+  setOriginalServiceOrder: (value: string) => void;
   setSelections: (value: ServiceSelections | ((current: ServiceSelections) => ServiceSelections)) => void;
+  warrantyCandidates: WarrantyCandidate[];
+  warrantyLoading: boolean;
 }) {
   const toggle = (key: keyof Omit<ServiceSelections, "observations">, value: string) => {
     setSelections((current) => {
@@ -1387,6 +1439,47 @@ function ServiceDataStep({
 
   return (
     <div className="space-y-4">
+      <WizardCard>
+        <SectionTitle icon={<ShieldCheck size={21} />} title="Retrabalho em garantia" />
+        {warrantyLoading ? (
+          <p className="mt-3 text-sm text-tec-muted">Verificando reparos entregues deste cliente/aparelho...</p>
+        ) : warrantyCandidates.length ? (
+          <div className="mt-3 space-y-3">
+            <p className="text-sm leading-6 text-tec-subtle">
+              Este aparelho possui reparo entregue dentro da garantia. Pode ser um retrabalho? Selecione a OS original para registrar a vinculação.
+            </p>
+            <div className="grid gap-2 lg:grid-cols-2">
+              {warrantyCandidates.map((candidate) => {
+                const active = originalServiceOrder === candidate.name;
+                return (
+                  <button
+                    className={`rounded-control border p-3 text-left transition ${
+                      active ? "border-tec-orange bg-tec-orange/10" : "border-tec-border/20 bg-tec-field hover:border-tec-orange/55"
+                    }`}
+                    key={candidate.name}
+                    onClick={() => setOriginalServiceOrder(active ? "" : candidate.name)}
+                    type="button"
+                  >
+                    <span className="block text-sm font-bold text-white">Garantia da {candidate.name}</span>
+                    <span className="mt-1 block line-clamp-2 text-xs text-tec-muted">{candidate.reported_defect || "Reparo anterior entregue"}</span>
+                    <span className="mt-2 block text-xs font-semibold text-tec-success">Garantia at{"\u00e9"} {formatShortDate(candidate.warranty_expiry)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {originalServiceOrder ? (
+              <p className="rounded-control border border-tec-success/25 bg-tec-success/10 px-3 py-2 text-sm font-semibold text-tec-success">
+                OS em garantia vinculada a {originalServiceOrder}. M{"\u00e3"}o de obra ficar{"\u00e1"} zerada; pe{"\u00e7"}as continuam com reserva e baixa normal de estoque.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm leading-6 text-tec-muted">
+            Nenhuma OS entregue com garantia vigente foi encontrada para este cliente/aparelho. Garantia-cortesia exige libera{"\u00e7"}{"\u00e3"}o do Gestor.
+          </p>
+        )}
+      </WizardCard>
+
       <InfoBanner
         title="Seleções mais precisas geram orçamentos mais assertivos e execuções técnicas mais alinhadas."
         text="Quanto mais detalhe você registrar agora, menos dúvidas no orçamento e mais agilidade no reparo."
@@ -2181,6 +2274,15 @@ function joinPt(values: string[]) {
 function firstSentence(value: string) {
   const [first] = value.split(".");
   return first || "Não informado";
+}
+
+function formatShortDate(value: string) {
+  if (!value) {
+    return "data n\u00e3o informada";
+  }
+  const normalized = value.includes("T") ? value : `${value}T12:00:00`;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("pt-BR");
 }
 
 function defectIcon(defect: string) {

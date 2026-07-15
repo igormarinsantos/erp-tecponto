@@ -23,6 +23,7 @@ from tecponto_app.tecponto.frontend.api import (
 	issue_os_acceptance,
 	add_catalog_service_to_service_order,
 	create_service_order_checkin,
+	list_warranty_candidates,
 	create_customer,
 	list_catalog_references,
 	list_catalog_services,
@@ -533,6 +534,137 @@ def run_service_catalog_checks() -> dict:
 		# deterministic test labels are never valid catalog seed data.
 		for reference_name in frappe.get_all("Tecponto Device Type", filters={"type_name": ["like", "Teste editado %"]}, pluck="name"):
 			frappe.delete_doc("Tecponto Device Type", reference_name, ignore_permissions=True, force=True)
+		frappe.set_user(previous_user)
+
+
+def run_warranty_mode_checks() -> dict:
+	"""Prove warranty check-in links the original, records free labor, and still consumes parts."""
+	previous_user = frappe.session.user
+	created_catalog_service = None
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		original_name = _create_action_request_service_order(attendant)
+		original = frappe.get_doc("Service Order", original_name)
+		# The visual demo customer predates the counter-registration rules. Complete
+		# it here because a real warranty check-in must pass those same motor rules.
+		frappe.db.set_value(
+			"Customer",
+			original.customer,
+			{"mobile_no": "11999998888", "custom_whatsapp": "11999998888", "custom_cpf": "12345678909"},
+			update_modified=False,
+		)
+		frappe.db.set_value(
+			"Service Order",
+			original.name,
+			{
+				"workflow_state": "Entregue",
+				"pickup_date": now_datetime(),
+				"warranty_expiry": add_days(nowdate(), 90),
+			},
+			update_modified=False,
+		)
+
+		frappe.set_user(manager)
+		catalog_references = list_catalog_references()
+		created_catalog_service = save_catalog_service(
+			{
+				"service_name": f"Garantia teste {frappe.generate_hash(length=7).upper()}",
+				"device_type": catalog_references["device_types"][0]["name"],
+				"category": catalog_references["categories"][0]["name"],
+				"default_labor_price": 199.9,
+				"default_duration": 2,
+				"duration_unit": "Horas",
+				"active": True,
+			}
+		)["item"]["name"]
+
+		photo = BytesIO()
+		Image.new("RGB", (24, 24), color=(20, 40, 60)).save(photo, format="JPEG")
+		photo_data = "data:image/jpeg;base64," + b64encode(photo.getvalue()).decode()
+		frappe.set_user(attendant)
+		candidates = list_warranty_candidates(original.customer, original.customer_device)["items"]
+		if not any(item["name"] == original.name for item in candidates):
+			raise AssertionError("Aviso proativo nÃ£o encontrou a OS entregue dentro da garantia.")
+
+		checkin = create_service_order_checkin(
+			{
+				"customer": {"existing_name": original.customer},
+				"device": {"existing_name": original.customer_device},
+				"service_order": {
+					"reported_defect": "Retorno em garantia para validar retrabalho.",
+					"physical_state": "Sem danos adicionais aparentes.",
+					"is_warranty": 1,
+					"original_service_order": original.name,
+				},
+				"entry_photo": {"data_url": photo_data, "filename": "warranty-entry.jpg"},
+			}
+		)
+		warranty_name = checkin["service_order"]["name"]
+		warranty_doc = frappe.get_doc("Service Order", warranty_name)
+		if not warranty_doc.is_warranty or warranty_doc.original_service_order != original.name:
+			raise AssertionError("Check-in em garantia nÃ£o reteve o vÃ­nculo com a OS original.")
+
+		with_catalog = add_catalog_service_to_service_order(
+			warranty_name,
+			created_catalog_service,
+			{"qty": 1, "rate": 199.9, "duration": 2, "duration_unit": "Horas"},
+		)
+		service_line = with_catalog["services"][-1]
+		if service_line.get("unit_price") != 0 or service_line.get("catalog_service") != created_catalog_service:
+			raise AssertionError("ServiÃ§o em garantia cobrou mÃ£o de obra ou perdeu o vÃ­nculo do catÃ¡logo.")
+
+		part_template = (original.get("parts") or [None])[0]
+		if not part_template or not part_template.warehouse:
+			raise AssertionError("OS de teste nÃ£o possui peÃ§a/estoque para validar baixa em garantia.")
+		valuation_rate = flt(frappe.db.get_value("Item", part_template.item_code, "valuation_rate") or 10)
+		_ensure_pos_demo_stock(part_template.item_code, part_template.warehouse, valuation_rate)
+		qty_before = _bin_qty(part_template.item_code, part_template.warehouse)
+		warranty_doc.reload()
+		warranty_doc.append(
+			"parts",
+			{
+				"item_code": part_template.item_code,
+				"description": "PeÃ§a usada no retrabalho de garantia",
+				"qty": 1,
+				"warehouse": part_template.warehouse,
+				"rate": 0,
+				"outcome": "Usada no reparo",
+			},
+		)
+		warranty_doc.save(ignore_permissions=True)
+		warranty_doc.reload()
+		used_part = warranty_doc.parts[-1]
+		qty_after = _bin_qty(part_template.item_code, part_template.warehouse)
+		stock_entry = frappe.get_doc("Stock Entry", used_part.stock_entry) if used_part.stock_entry else None
+		issue_rate = flt(stock_entry.items[0].basic_rate) if stock_entry else 0
+		if not used_part.stock_entry or not stock_entry or stock_entry.docstatus != 1 or qty_after >= qty_before or issue_rate <= 0:
+			raise AssertionError("PeÃ§a de garantia nÃ£o baixou estoque com custo real registrado.")
+
+		leaks = contains_sensitive_field(
+			{"checkin": checkin, "candidates": candidates, "service_order": with_catalog},
+			forbidden_values={valuation_rate, issue_rate},
+		)
+		if leaks:
+			raise AssertionError("Modo garantia exp\u00f4s custo em resposta do frontend: {0}".format(", ".join(leaks)))
+
+		return {
+			"status": "ok",
+			"proactive_warranty_candidate": original.name,
+			"warranty_order": warranty_name,
+			"original_service_order": warranty_doc.original_service_order,
+			"labor_price": service_line.get("unit_price"),
+			"catalog_service": service_line.get("catalog_service"),
+			"part_stock_entry": used_part.stock_entry,
+			"part_qty_before": qty_before,
+			"part_qty_after": qty_after,
+			"part_cost_recorded": True,
+			"sensitive_guard": {"leaked_fields": leaks},
+		}
+	finally:
+		if created_catalog_service and frappe.db.exists("Tecponto Service", created_catalog_service):
+			frappe.delete_doc("Tecponto Service", created_catalog_service, ignore_permissions=True, force=True)
 		frappe.set_user(previous_user)
 
 

@@ -666,6 +666,9 @@ def add_service_order_budget_line(name: str, payload: str | dict[str, Any] | Non
 	doc = frappe.get_doc("Service Order", (name or "").strip())
 	doc.check_permission("write")
 	if line_type == "service":
+		# Warranty labor is recorded for traceability, but never billed to the customer.
+		if doc.get("is_warranty"):
+			rate = 0
 		doc.append(
 			"services",
 			{
@@ -725,6 +728,10 @@ def add_catalog_service_to_service_order(name: str, catalog_service: str, payloa
 
 	doc = frappe.get_doc("Service Order", (name or "").strip())
 	doc.check_permission("write")
+	# The catalog remains useful for quality/rework reporting in warranty jobs. Its
+	# suggestion is deliberately kept, but labor is always zero on the OS.
+	if doc.get("is_warranty"):
+		rate = 0
 	doc.append(
 		"services",
 		{
@@ -739,6 +746,42 @@ def add_catalog_service_to_service_order(name: str, catalog_service: str, payloa
 	)
 	doc.save(ignore_permissions=True)
 	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def list_warranty_candidates(customer: str = "", customer_device: str = "") -> dict[str, Any]:
+	"""Return only active, readable warranty originals for the selected check-in context."""
+	_require_checkin_role()
+	filters: dict[str, Any] = {
+		"workflow_state": STATE_ENTREGUE,
+		"is_warranty": 0,
+		"warranty_expiry": [">=", today()],
+	}
+	if (customer_device or "").strip():
+		filters["customer_device"] = customer_device.strip()
+	elif (customer or "").strip():
+		filters["customer"] = customer.strip()
+	else:
+		return {"items": []}
+
+	rows = frappe.get_list(
+		"Service Order",
+		filters=filters,
+		fields=["name", "customer", "customer_device", "reported_defect", "pickup_date", "warranty_expiry"],
+		order_by="pickup_date desc, modified desc",
+		limit_page_length=12,
+	)
+	return {
+		"items": [
+			{
+				"name": row.name,
+				"reported_defect": row.reported_defect,
+				"pickup_date": row.pickup_date,
+				"warranty_expiry": row.warranty_expiry,
+			}
+			for row in rows
+		]
+	}
 
 
 @frappe.whitelist()
@@ -803,6 +846,8 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.reported_defect = data["service_order"]["reported_defect"].strip()
 	order.physical_state = data["service_order"]["physical_state"].strip()
 	order.accessories_received = (data["service_order"].get("accessories_received") or "").strip()
+	order.is_warranty = cint(data["service_order"].get("is_warranty"))
+	order.original_service_order = (data["service_order"].get("original_service_order") or "").strip() or None
 	order.insert(ignore_permissions=True)
 
 	photo_url = _save_checkin_photo(order.name, data["entry_photo"])

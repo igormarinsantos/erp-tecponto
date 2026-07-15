@@ -2702,6 +2702,9 @@ function ServiceOrderAttendanceCard({ detail }: { detail: ServiceOrderDetailResp
     ],
     [<UserRound size={15} />, "Técnico", detail.technician ?? "Não definido"],
     [<BadgeInfo size={15} />, "Garantia até", detail.warranty.warranty_expiry || "Não aplicada"],
+    ...(detail.warranty.is_warranty && detail.warranty.original_service_order
+      ? [[<BadgeInfo size={15} />, "Retrabalho em garantia", `OS original ${detail.warranty.original_service_order}`] as [ReactNode, string, string]]
+      : []),
     [<RefreshCw size={15} />, "Atualização", formatDate(detail.modified)],
   ];
 
@@ -2988,6 +2991,7 @@ function BudgetLineModal({
 
   const activeLineType = lineType;
   const isService = activeLineType === "service";
+  const isWarrantyLabor = isService && detail.warranty.is_warranty;
   const title = isService ? `Adicionar serviço em ${detail.name}` : `Adicionar peça em ${detail.name}`;
   const parsedQty = Number(qty.replace(",", "."));
   const parsedRate = Number(rate.replace(",", "."));
@@ -2998,14 +3002,14 @@ function BudgetLineModal({
     setSelectedItem(item);
     setSelectedCatalogService(null);
     setDescription(item.item_name ?? item.item_code);
-    setRate(String(item.standard_rate || 0));
+    setRate(isWarrantyLabor ? "0" : String(item.standard_rate || 0));
   }
 
   function selectCatalogService(service: ServiceCatalogService) {
     setSelectedCatalogService(service);
     setSelectedItem(null);
     setDescription(service.service_name);
-    setRate(String(service.default_labor_price || 0));
+    setRate(isWarrantyLabor ? "0" : String(service.default_labor_price || 0));
     setDuration(String(service.default_duration || 0));
     setDurationUnit(service.duration_unit);
   }
@@ -3059,6 +3063,11 @@ function BudgetLineModal({
     <Modal className="max-w-5xl" onClose={onClose} open={Boolean(lineType)} title={title}>
       <form className="grid max-h-[78vh] gap-4 overflow-y-auto pr-1 lg:grid-cols-[minmax(0,1fr)_320px]" onSubmit={submit}>
         <section className="space-y-4">
+          {isWarrantyLabor ? (
+            <div className="rounded-card border border-tec-success/25 bg-tec-success/10 p-3 text-sm leading-6 text-tec-success">
+              Esta Ã© uma OS de garantia vinculada Ã  {detail.warranty.original_service_order}. O serviÃ§o fica registrado para qualidade, mas a mÃ£o de obra Ã© sempre R$ 0,00. PeÃ§as seguem a baixa normal de estoque.
+            </div>
+          ) : null}
           {isService ? (
             <div className="flex rounded-control border border-tec-border/20 bg-tec-field/55 p-1">
               <button className={cx("flex-1 rounded-control px-3 py-2 text-sm font-bold transition", serviceEntryMode === "catalog" ? "bg-tec-orange text-tec-ink" : "text-tec-subtle hover:text-white")} onClick={() => setServiceEntryMode("catalog")} type="button">Catálogo</button>
@@ -3148,7 +3157,8 @@ function BudgetLineModal({
             <label className="block">
               <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Valor unitário</span>
               <input
-                className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70"
+                className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isWarrantyLabor}
                 min="0"
                 onChange={(event) => setRate(event.target.value)}
                 step="0.01"

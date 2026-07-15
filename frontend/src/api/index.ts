@@ -21,6 +21,8 @@ export type {
   BootResponse,
   CheckinPayload,
   CheckinResponse,
+	WarrantyCandidate,
+	WarrantyCandidateResponse,
 	CashierOperatorIdentity,
 	CreateCustomerPayload,
 	CreateCustomerResponse,
