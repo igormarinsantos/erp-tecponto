@@ -77,6 +77,7 @@ import { PosScreen } from "./PosScreen";
 import { RetailProductModal } from "./RetailProductModal";
 import { panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
+import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
 import { WorkflowMoveMenu } from "./WorkflowMoveMenu";
 import { BudgetDecisionModal, PickupModal } from "./ServiceOrderFlows";
 import {
@@ -259,6 +260,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   devices: {
     title: "Aparelhos",
     subtitle: "Aparelhos cadastrados para atendimento.",
+  },
+  services: {
+    title: "Serviços",
+    subtitle: "Catálogo de mão de obra, preços e prazos sugeridos.",
   },
   "trade-ins": {
     title: "Trocas",
@@ -855,6 +860,7 @@ export function App() {
               initialPosBarcode={pendingPosBarcode}
               initialRetailBarcode={pendingRetailBarcode}
               canReceiveStock={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "System Manager")}
+              canEditServiceCatalog={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
               onInitialPosBarcodeHandled={() => setPendingPosBarcode(null)}
               onInitialRetailBarcodeHandled={() => setPendingRetailBarcode(null)}
               onRegisterUnknownRetailBarcode={(code) => {
@@ -1462,6 +1468,7 @@ function NavigationContent({
   initialPosBarcode,
   initialRetailBarcode,
   canReceiveStock,
+  canEditServiceCatalog,
   onInitialPosBarcodeHandled,
   onInitialRetailBarcodeHandled,
   onRegisterUnknownRetailBarcode,
@@ -1479,6 +1486,7 @@ function NavigationContent({
 }: {
   activeView: NavigationTarget;
   canReceiveStock: boolean;
+  canEditServiceCatalog: boolean;
   initialPosBarcode: PendingPosBarcode | null;
   initialRetailBarcode: PendingRetailBarcode | null;
   initialOrderFlow: ServiceOrderFlow | null;
@@ -1606,6 +1614,10 @@ function NavigationContent({
 
   if (activeView === "devices") {
     return <DeviceLookup onToast={onToast} />;
+  }
+
+  if (activeView === "services") {
+    return <ServiceCatalogScreen canEdit={canEditServiceCatalog} onToast={onToast} />;
   }
 
   if (activeView === "trade-ins") {

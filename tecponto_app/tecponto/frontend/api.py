@@ -8,7 +8,7 @@ from urllib.parse import quote
 import frappe
 from frappe import _
 from frappe.model.workflow import apply_workflow
-from frappe.utils import flt, now_datetime, strip_html, today
+from frappe.utils import cint, flt, now_datetime, strip_html, today
 from frappe.utils.file_manager import save_file
 
 from tecponto_app.tecponto.customer import (
@@ -26,6 +26,7 @@ from tecponto_app.tecponto.service_order.print_formats import (
 	PF_TERMO_RETIRADA,
 )
 from tecponto_app.tecponto.workflow import _get_service_order_transitions, get_service_order_workflow_state_names
+from tecponto_app.tecponto import service_catalog
 
 
 ROLE_PANELS = (
@@ -68,6 +69,7 @@ CHECKIN_ALLOWED_ROLES = {
 }
 ATTENDANT_FLOW_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POS_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
+SERVICE_CATALOG_EDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp", "Link"}
 STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
 STATE_APROVADO = "Aprovado"
@@ -194,6 +196,13 @@ def _require_pos_role() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(POS_ALLOWED_ROLES):
 		return
 	frappe.throw(_("Usuário sem permissão para operar o PDV do balcão."), frappe.PermissionError)
+
+
+def _require_service_catalog_editor() -> None:
+	_require_frontend_role()
+	if set(frappe.get_roles(frappe.session.user)).intersection(SERVICE_CATALOG_EDITOR_ROLES):
+		return
+	frappe.throw(_("Somente Gestor ou Diretor pode editar o catálogo de serviços."), frappe.PermissionError)
 
 
 def _initials(full_name: str, fallback: str) -> str:
@@ -903,6 +912,41 @@ def get_dashboard_metrics() -> dict[str, Any]:
 		"sales_today_total": float(sales_today_total or 0),
 		"service_orders": service_orders,
 	}
+
+
+@frappe.whitelist()
+def list_catalog_services(
+	query: str = "",
+	device_type: str = "",
+	category: str = "",
+	include_inactive: bool = False,
+) -> dict[str, Any]:
+	"""Read-only labor catalog. No stock cost is joined or exposed here."""
+	_require_frontend_role()
+	return service_catalog.list_services(
+		query=(query or "").strip(),
+		device_type=(device_type or "").strip(),
+		category=(category or "").strip(),
+		include_inactive=bool(cint(include_inactive)),
+	)
+
+
+@frappe.whitelist()
+def list_catalog_references(include_inactive: bool = True) -> dict[str, Any]:
+	_require_frontend_role()
+	return service_catalog.list_references(include_inactive=bool(cint(include_inactive)))
+
+
+@frappe.whitelist()
+def save_catalog_service(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_service_catalog_editor()
+	return {"item": service_catalog.save_service(_parse_payload(payload))}
+
+
+@frappe.whitelist()
+def save_catalog_reference(kind: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_service_catalog_editor()
+	return {"item": service_catalog.save_reference((kind or "").strip(), _parse_payload(payload))}
 
 
 @frappe.whitelist()

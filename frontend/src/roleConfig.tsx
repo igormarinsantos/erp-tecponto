@@ -105,6 +105,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         items: [
           { id: "customers", icon: Users, label: "Clientes", subtitle: "Base e histórico" },
           { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Cadastro e histórico" },
+          { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo de mão de obra" },
         ],
       },
     ],
@@ -139,6 +140,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         items: [
           { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Histórico dos aparelhos" },
           { id: "customers", icon: BarChart3, label: "Histórico técnico", subtitle: "Serviços e intervenções" },
+          { id: "services", icon: Wrench, label: "Serviços", subtitle: "Consultar catálogo" },
         ],
       },
     ],
@@ -165,6 +167,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
           { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Status e histórico" },
           { id: "trade-ins", icon: Handshake, label: "Trocas", subtitle: "Avaliações e propostas" },
           { id: "customers", icon: Users, label: "Clientes", subtitle: "Base e relacionamento" },
+          { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e preços base" },
           { id: "parts-stock", icon: Boxes, label: "Peças e estoque", subtitle: "Inventário e alertas" },
           { id: "sales", icon: CreditCard, label: "Financeiro", subtitle: "Receitas e vendas" },
         ],
@@ -194,6 +197,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
           { id: "devices", icon: Smartphone, label: "Aparelhos", subtitle: "Base e histórico" },
           { id: "trade-ins", icon: Handshake, label: "Trocas", subtitle: "Avaliações e ofertas" },
           { id: "customers", icon: Users, label: "Clientes", subtitle: "Relacionamento" },
+          { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e preços base" },
           { id: "parts-stock", icon: Boxes, label: "Peças e estoque", subtitle: "Produtos e insumos" },
           { id: "sales", icon: CreditCard, label: "Financeiro", subtitle: "Receitas e fluxo" },
         ],

@@ -5,6 +5,7 @@ export { pos } from "./pos";
 export { approvalRequests } from "./requests";
 export { notifications } from "./notifications";
 export { dailyActions } from "./dailyActions";
+export { serviceCatalog } from "./serviceCatalog";
 export type { ApprovalRequest } from "./requests";
 export { serviceOrders, type ServiceOrderQueryParams } from "./serviceOrders";
 export type {
@@ -45,6 +46,11 @@ export type {
   ServiceOrderSummary,
   ServiceOrderTimelineEvent,
   ServiceOrderWorkflowAction,
+	ServiceCatalogReference,
+	ServiceCatalogReferenceResponse,
+	ServiceCatalogService,
+	ServiceCatalogServiceResponse,
+	ServiceCatalogServicesResponse,
   PickupPayload,
   PosItemSearchResponse,
   PosItemSummary,

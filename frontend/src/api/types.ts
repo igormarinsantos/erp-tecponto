@@ -5,6 +5,7 @@ export type NavigationTarget =
   | "service-order-detail"
   | "customers"
   | "devices"
+	| "services"
   | "trade-ins"
   | "parts-stock"
   | "repair-parts"
@@ -505,6 +506,43 @@ export interface CreateCustomerDevicePayload {
 
 export interface CreateCustomerDeviceResponse {
   item: CustomerDeviceSummary;
+}
+
+export interface ServiceCatalogReference {
+  name: string;
+  value: string;
+  active: boolean;
+  modified: string;
+}
+
+export interface ServiceCatalogReferenceResponse {
+  device_types: ServiceCatalogReference[];
+  categories: ServiceCatalogReference[];
+}
+
+export interface ServiceCatalogService {
+  name: string;
+  service_name: string;
+  device_type: string;
+  device_type_label?: string;
+  category: string;
+  category_label?: string;
+  default_labor_price: number;
+  default_duration: number;
+  duration_unit: "Horas" | "Dias úteis";
+  requires_part: boolean;
+  complexity: "Baixa" | "Média" | "Alta" | null;
+  active: boolean;
+  modified: string;
+}
+
+export interface ServiceCatalogServicesResponse {
+  items: ServiceCatalogService[];
+  count: number;
+}
+
+export interface ServiceCatalogServiceResponse {
+  item: ServiceCatalogService;
 }
 
 export interface TradeEvaluationSummary {

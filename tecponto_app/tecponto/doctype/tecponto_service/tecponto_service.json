@@ -1,0 +1,33 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:TPS-{#####}",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["service_name", "device_type", "category", "default_labor_price", "default_duration", "duration_unit", "requires_part", "complexity", "active"],
+ "fields": [
+  {"fieldname":"service_name","fieldtype":"Data","label":"Serviço","reqd":1,"in_list_view":1,"search_index":1},
+  {"fieldname":"device_type","fieldtype":"Link","label":"Tipo de aparelho","options":"Tecponto Device Type","reqd":1,"in_list_view":1},
+  {"fieldname":"category","fieldtype":"Link","label":"Categoria","options":"Tecponto Service Category","reqd":1,"in_list_view":1},
+  {"fieldname":"default_labor_price","fieldtype":"Currency","label":"Preço base de mão de obra","in_list_view":1},
+  {"fieldname":"default_duration","fieldtype":"Float","label":"Prazo base","precision":"1"},
+  {"fieldname":"duration_unit","fieldtype":"Select","label":"Unidade do prazo","options":"Horas\nDias úteis","default":"Horas"},
+  {"fieldname":"requires_part","fieldtype":"Check","label":"Normalmente requer peça"},
+  {"fieldname":"complexity","fieldtype":"Select","label":"Complexidade","options":"\nBaixa\nMédia\nAlta"},
+  {"fieldname":"active","fieldtype":"Check","label":"Ativo","default":"1","in_list_view":1}
+ ],
+ "module": "Tecponto",
+ "name": "Tecponto Service",
+ "permissions": [
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1,"print":1,"email":1,"share":1},
+  {"role":"Tecponto Diretor","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1,"print":1,"email":1,"share":1},
+  {"role":"Tecponto Gestor","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1,"print":1,"email":1,"share":1},
+  {"role":"Tecponto Atendente","read":1,"report":1,"export":1,"print":1,"email":1,"share":1},
+  {"role":"Tecponto Tecnico","read":1,"report":1,"export":1,"print":1,"email":1,"share":1}
+ ],
+ "search_fields": "service_name,device_type,category",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "service_name",
+ "track_changes": 1
+}

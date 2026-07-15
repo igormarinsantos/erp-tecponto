@@ -23,6 +23,8 @@ from tecponto_app.tecponto.frontend.api import (
 	issue_os_acceptance,
 	create_service_order_checkin,
 	create_customer,
+	list_catalog_references,
+	list_catalog_services,
 	list_customer_devices,
 	list_service_orders,
 	list_stock_items,
@@ -34,6 +36,8 @@ from tecponto_app.tecponto.frontend.api import (
 	search_customers,
 	search_pos_items,
 	set_tradein_approved_value,
+	save_catalog_reference,
+	save_catalog_service,
 	submit_stock_transfer,
 )
 from tecponto_app.tecponto.acceptance import complete_public_acceptance, get_public_acceptance, save_public_acceptance_selfie
@@ -130,6 +134,7 @@ def run_foundation_checks() -> dict:
 		daily_action_checks = run_daily_action_checks()
 		quick_stage_checks = run_quick_stage_move_checks()
 		customer_registration_checks = run_customer_registration_checks()
+		service_catalog_checks = run_service_catalog_checks()
 		public_acceptance_checks = run_public_acceptance_checks()
 		tracking_checks = run_public_tracking_checks()
 		tracking_budget_checks = run_public_tracking_budget_checks()
@@ -152,6 +157,7 @@ def run_foundation_checks() -> dict:
 			"daily_action_checks": daily_action_checks,
 			"quick_stage_checks": quick_stage_checks,
 			"customer_registration_checks": customer_registration_checks,
+			"service_catalog_checks": service_catalog_checks,
 			"public_acceptance_checks": public_acceptance_checks,
 			"tracking_checks": tracking_checks,
 			"tracking_budget_checks": tracking_budget_checks,
@@ -427,6 +433,90 @@ def run_tracking_lifecycle_checks() -> dict:
 			"sensitive_guard": {"leaked_fields": leaks},
 		}
 	finally:
+		frappe.set_user(previous_user)
+
+
+def run_service_catalog_checks() -> dict:
+	"""Prove catalog CRUD, inactive history, role write gate, and safe projection."""
+	previous_user = frappe.session.user
+	created_service = None
+	created_device_type = None
+	created_category = None
+	try:
+		ensure_frontend_foundation()
+		manager = _find_or_create_user("Tecponto Gestor")
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(manager)
+		references = list_catalog_references(include_inactive=True)
+		if not {"Celular", "Tablet", "Notebook", "Smartwatch", "Outros"}.issubset({row["value"] for row in references["device_types"]}):
+			raise AssertionError("Semente de tipos de aparelho não foi criada.")
+		if not {"Tela", "Bateria", "Carga", "Áudio", "Câmera", "Botões", "Placa", "Software", "Danos", "Diagnóstico"}.issubset({row["value"] for row in references["categories"]}):
+			raise AssertionError("Semente de categorias não foi criada.")
+
+		suffix = frappe.generate_hash(length=8).upper()
+		device_type = save_catalog_reference("device_type", {"value": f"Teste {suffix}", "active": True})["item"]
+		category = save_catalog_reference("category", {"value": f"Teste {suffix}", "active": True})["item"]
+		created_device_type = device_type["name"]
+		created_category = category["name"]
+		device_type = save_catalog_reference(
+			"device_type", {"name": device_type["name"], "value": f"Teste editado {suffix}", "active": True}
+		)["item"]
+		created_device_type = device_type["name"]
+		if device_type["value"] != f"Teste editado {suffix}":
+			raise AssertionError("Edição de tipo de aparelho não persistiu.")
+		created = save_catalog_service(
+			{
+				"service_name": f"Serviço teste {suffix}",
+				"device_type": device_type["name"],
+				"category": category["name"],
+				"default_labor_price": 149.9,
+				"default_duration": 2,
+				"duration_unit": "Dias úteis",
+				"requires_part": True,
+				"complexity": "Média",
+				"active": True,
+			}
+		)["item"]
+		created_service = created["name"]
+		updated = save_catalog_service({**created, "default_labor_price": 179.9, "active": False})["item"]
+		active_rows = list_catalog_services(query=suffix, include_inactive="0")["items"]
+		all_rows = list_catalog_services(query=suffix, include_inactive=True)["items"]
+		if active_rows or not any(row["name"] == created["name"] and not row["active"] for row in all_rows):
+			raise AssertionError("Inativação do serviço não preservou o histórico corretamente.")
+
+		frappe.set_user(attendant)
+		readable = list_catalog_services(query="Troca de tela")
+		write_blocked = False
+		try:
+			save_catalog_service({**created, "default_labor_price": 1})
+		except frappe.PermissionError:
+			write_blocked = True
+		if not write_blocked:
+			raise AssertionError("Atendente alterou preço base do catálogo.")
+		leaks = contains_sensitive_field(readable)
+		if leaks:
+			raise AssertionError(f"Catálogo expôs campo sensível: {', '.join(leaks)}")
+		return {
+			"status": "ok",
+			"seeded_types": len(references["device_types"]),
+			"seeded_categories": len(references["categories"]),
+			"created": created["name"],
+			"updated_price": updated["default_labor_price"],
+			"inactive_preserves_history": True,
+			"attendant_write_blocked": write_blocked,
+			"sensitive_guard": {"leaked_fields": leaks},
+		}
+	finally:
+		if created_service and frappe.db.exists("Tecponto Service", created_service):
+			frappe.delete_doc("Tecponto Service", created_service, ignore_permissions=True, force=True)
+		if created_device_type and frappe.db.exists("Tecponto Device Type", created_device_type):
+			frappe.delete_doc("Tecponto Device Type", created_device_type, ignore_permissions=True, force=True)
+		if created_category and frappe.db.exists("Tecponto Service Category", created_category):
+			frappe.delete_doc("Tecponto Service Category", created_category, ignore_permissions=True, force=True)
+		# Remove any residue from interrupted catalog-edit test runs as well. These
+		# deterministic test labels are never valid catalog seed data.
+		for reference_name in frappe.get_all("Tecponto Device Type", filters={"type_name": ["like", "Teste editado %"]}, pluck="name"):
+			frappe.delete_doc("Tecponto Device Type", reference_name, ignore_permissions=True, force=True)
 		frappe.set_user(previous_user)
 
 

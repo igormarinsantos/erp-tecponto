@@ -353,6 +353,7 @@ after_migrate = [
 	"tecponto_app.tecponto.service_order.kanban.ensure_service_order_kanban",
 	"tecponto_app.tecponto.service_order.print_formats.ensure_service_order_print_formats",
 	"tecponto_app.tecponto.tracking.ensure_tracking_lifecycle",
+	"tecponto_app.tecponto.service_catalog.ensure_service_catalog",
 ]
 
 website_route_rules = [
