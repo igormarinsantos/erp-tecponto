@@ -1,8 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { BookOpenCheck, Edit3, Plus, Settings2, ToggleLeft, ToggleRight, Wrench } from "lucide-react";
 
-import { serviceCatalog, type ServiceCatalogReference, type ServiceCatalogReferenceResponse, type ServiceCatalogService } from "./api";
-import { Button, Card, Modal } from "./ui";
+import { balcao, serviceCatalog, type ServiceCatalogReference, type ServiceCatalogReferenceResponse, type ServiceCatalogService } from "./api";
+import { Button, Card, ListGridToggle, Modal, StatBar, type ListPresentation } from "./ui";
 
 type ToastTone = "success" | "error";
 type ServiceDraft = Partial<ServiceCatalogService>;
@@ -30,16 +30,24 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
   const [editorOpen, setEditorOpen] = useState(false);
   const [referencesOpen, setReferencesOpen] = useState(false);
   const [editing, setEditing] = useState<ServiceDraft>(emptyService);
+  const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
+  const [presentation, setPresentation] = useState<ListPresentation>(() => window.localStorage.getItem("tecponto.catalog.presentation") === "grid" ? "grid" : "list");
+
+  useEffect(() => {
+    window.localStorage.setItem("tecponto.catalog.presentation", presentation);
+  }, [presentation]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [services, nextReferences] = await Promise.all([
+      const [services, nextReferences, statBar] = await Promise.all([
         serviceCatalog.list(query, deviceType, category, includeInactive),
         serviceCatalog.references(true),
+        balcao.getListStatBar("catalog"),
       ]);
       setItems(services.items);
       setReferences(nextReferences);
+      setStatItems(statBar.items);
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Não foi possível carregar o catálogo.", "error");
     } finally {
@@ -73,6 +81,7 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
 
   return (
     <>
+      <StatBar items={statItems.map((item) => ({ ...item, icon: <Wrench size={19} />, tone: item.key === "active" ? "green" : "blue" }))} />
       <Card className="p-4">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
@@ -89,10 +98,10 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
         </div>
       </Card>
       <Card className="mt-4 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-tec-border/15 px-4 py-3"><div className="flex items-center gap-2"><Wrench className="text-tec-orange" size={18} /><h2 className="font-bold text-white">Serviços</h2></div><span className="text-sm text-tec-muted">{items.length} item{items.length === 1 ? "" : "s"}</span></div>
+        <div className="flex items-center justify-between border-b border-tec-border/15 px-4 py-3"><div className="flex items-center gap-2"><Wrench className="text-tec-orange" size={18} /><h2 className="font-bold text-white">Serviços</h2></div><div className="flex items-center gap-3"><span className="text-sm text-tec-muted">{items.length} item{items.length === 1 ? "" : "s"}</span><ListGridToggle onChange={setPresentation} value={presentation} /></div></div>
         {loading ? <p className="p-5 text-sm text-tec-muted">Carregando catálogo...</p> : null}
         {!loading && items.length === 0 ? <p className="p-5 text-sm text-tec-muted">Nenhum serviço encontrado com estes filtros.</p> : null}
-        {!loading && items.length > 0 ? <div className="divide-y divide-tec-border/15">{items.map((item) => <ServiceRow canEdit={canEdit} item={item} key={item.name} onEdit={() => { setEditing(item); setEditorOpen(true); }} />)}</div> : null}
+        {!loading && items.length > 0 ? <div className={presentation === "grid" ? "grid gap-3 p-4 md:grid-cols-2" : "divide-y divide-tec-border/15"}>{items.map((item) => <ServiceRow canEdit={canEdit} grid={presentation === "grid"} item={item} key={item.name} onEdit={() => { setEditing(item); setEditorOpen(true); }} />)}</div> : null}
       </Card>
       <ServiceEditor activeCategories={activeCategories} activeDeviceTypes={activeDeviceTypes} canEdit={canEdit} draft={editing} onChange={setEditing} onClose={() => setEditorOpen(false)} onSave={() => void saveService()} open={editorOpen} />
       <ReferenceManager onChanged={() => void load()} onClose={() => setReferencesOpen(false)} onToast={onToast} open={referencesOpen} references={references} />
@@ -100,10 +109,10 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
   );
 }
 
-function ServiceRow({ canEdit, item, onEdit }: { canEdit: boolean; item: ServiceCatalogService; onEdit: () => void }) {
+function ServiceRow({ canEdit, grid, item, onEdit }: { canEdit: boolean; grid: boolean; item: ServiceCatalogService; onEdit: () => void }) {
   const price = item.default_labor_price > 0 ? item.default_labor_price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "Não definido";
   const duration = item.default_duration > 0 ? `${item.default_duration} ${item.duration_unit.toLowerCase()}` : "Não definido";
-  return <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-white">{item.service_name}</strong>{!item.active ? <span className="rounded-full bg-tec-field px-2 py-0.5 text-[11px] font-bold text-tec-muted">Inativo</span> : null}</div><p className="mt-1 text-xs text-tec-muted">{item.device_type_label ?? item.device_type} · {item.category_label ?? item.category}{item.complexity ? ` · ${item.complexity}` : ""}{item.requires_part ? " · Normalmente requer peça" : ""}</p></div><div className="flex items-center gap-4"><div className="text-right"><p className="text-xs text-tec-muted">Mão de obra sugerida</p><p className="text-sm font-bold text-white">{price}</p></div><div className="text-right"><p className="text-xs text-tec-muted">Prazo sugerido</p><p className="text-sm font-bold text-white">{duration}</p></div>{canEdit ? <Button icon={<Edit3 size={16} />} onClick={onEdit}>Editar</Button> : null}</div></div>;
+  return <div className={grid ? "flex flex-col gap-4 rounded-card border border-tec-border/15 bg-tec-field/45 p-4" : "flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between"}><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-white">{item.service_name}</strong>{!item.active ? <span className="rounded-full bg-tec-field px-2 py-0.5 text-[11px] font-bold text-tec-muted">Inativo</span> : null}</div><p className="mt-1 text-xs text-tec-muted">{item.device_type_label ?? item.device_type} · {item.category_label ?? item.category}{item.complexity ? ` · ${item.complexity}` : ""}{item.requires_part ? " · Normalmente requer peça" : ""}</p></div><div className={grid ? "flex flex-wrap items-center gap-4" : "flex items-center gap-4"}><div className={grid ? "" : "text-right"}><p className="text-xs text-tec-muted">Mão de obra sugerida</p><p className="text-sm font-bold text-white">{price}</p></div><div className={grid ? "" : "text-right"}><p className="text-xs text-tec-muted">Prazo sugerido</p><p className="text-sm font-bold text-white">{duration}</p></div>{canEdit ? <Button icon={<Edit3 size={16} />} onClick={onEdit}>Editar</Button> : null}</div></div>;
 }
 
 function ServiceEditor({ activeCategories, activeDeviceTypes, canEdit, draft, onChange, onClose, onSave, open }: { activeCategories: ServiceCatalogReference[]; activeDeviceTypes: ServiceCatalogReference[]; canEdit: boolean; draft: ServiceDraft; onChange: (value: ServiceDraft) => void; onClose: () => void; onSave: () => void; open: boolean }) {

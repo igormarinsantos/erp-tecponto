@@ -11,6 +11,7 @@ import type {
   ServiceOrderDetailResponse,
   ServiceOrderKanbanResponse,
   ServiceOrderListResponse,
+  ServiceOrderStatBarResponse,
   ServiceOrderMoveResponse,
   TrackingLinkResponse,
 } from "./types";
@@ -27,6 +28,9 @@ export interface ServiceOrderQueryParams extends Record<string, string | number 
 }
 
 export const serviceOrders = {
+  statBar() {
+    return rpc<ServiceOrderStatBarResponse>(`${API}.get_service_order_statbar`);
+  },
   list(params: number | ServiceOrderQueryParams = 20) {
     const query = typeof params === "number" ? { limit: params } : params;
     return rpc<ServiceOrderListResponse>(`${API}.list_service_orders`, {

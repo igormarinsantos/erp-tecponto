@@ -62,6 +62,7 @@ import {
   type ServiceOrderWorkflowAction,
   type ServiceCatalogService,
   type ServiceOrderSummary,
+  type ServiceOrderStatBarResponse,
   type TrackingLinkResponse,
   type StockItemSummary,
   type TecpontoNotification,
@@ -92,6 +93,7 @@ import {
   MetricCard,
   Modal,
   Sidebar,
+  StatBar,
   Toast,
   Topbar,
   WhatsAppLogo,
@@ -131,7 +133,7 @@ interface TecpontoContextMenuState {
   x: number;
   y: number;
 }
-type QueueFilter = "all" | "Aguardando aprovação" | "Entrada criada" | "Entregue" | "Reprovado";
+type QueueFilter = "all" | "Aguardando aprovação" | "Entrada criada" | "Em diagnóstico" | "Aguardando peça" | "Em reparo" | "Pronto para retirada" | "Entregue" | "Reprovado";
 type DashboardPeriodMode = "7d" | "14d" | "custom";
 
 interface DashboardPeriodFilter {
@@ -173,7 +175,6 @@ const DASHBOARD_PERIOD_OPTIONS: Array<{ label: string; value: DashboardPeriodMod
   { label: "Últimos 14 dias", value: "14d" },
   { label: "Personalizado", value: "custom" },
 ];
-const POS_PENDING_MESSAGE = "Venda no balcão entra na Fase 3.5 com POS restrito, sem Sales User amplo.";
 const CASHIER_ROUTE = "/tecponto/caixa";
 
 function getThemeStorageKey(userName: string) {
@@ -1513,6 +1514,7 @@ function NavigationContent({
     items: orders,
     status: "ready",
   });
+  const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
   const serviceOrderQueryParams = useMemo(() => toServiceOrderQueryParams(serviceOrderFilters, 100), [serviceOrderFilters]);
   const serviceOrderScreenOrders =
     serviceOrderListState.status === "ready" ? serviceOrderListState.items : filterOrdersForServiceOrderScreen(orders, serviceOrderFilters);
@@ -1547,6 +1549,12 @@ function NavigationContent({
     };
   }, [activeView, serviceOrderQueryParams]);
 
+  useEffect(() => {
+    if (activeView === "service-orders") {
+      void serviceOrders.statBar().then((response) => setServiceOrderStats(response.items)).catch(() => setServiceOrderStats([]));
+    }
+  }, [activeView]);
+
   if (activeView === "service-order-detail") {
     return selectedOrderName ? (
       <ServiceOrderDetail
@@ -1573,6 +1581,10 @@ function NavigationContent({
     return (
       <div className="tp-layout-grid">
         <section className="min-w-0 space-y-4">
+          <StatBar
+            items={serviceOrderStats.map((item) => ({ ...item, icon: <Wrench size={19} />, tone: item.key === "Aguardando aprovação" ? "amber" : item.key === "Pronto para retirada" ? "green" : "blue" }))}
+            onSelect={(status) => setServiceOrderFilters((current) => ({ ...current, status: status as QueueFilter }))}
+          />
           {serviceOrderListState.status === "error" ? (
             <Card className="p-4 text-sm font-semibold text-tec-red">{serviceOrderListState.message}</Card>
           ) : null}
@@ -3907,6 +3919,8 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [registrationOpen, setRegistrationOpen] = useState(false);
+
+  const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
 	const [suggestionsOpen, setSuggestionsOpen] = useState(false);
 	const [selectedSuggestion, setSelectedSuggestion] = useState(0);
 
@@ -3923,6 +3937,7 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
 
   useEffect(() => {
     void search("");
+    void balcao.getListStatBar("customers").then((result) => setStatItems(result.items)).catch(() => setStatItems([]));
   }, [search]);
 
 	useEffect(() => {
@@ -4016,6 +4031,7 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
 			) : null
 		}
         setQuery={setQuery}
+        statBar={<StatBar items={statItems.map((item) => ({ ...item, icon: <UserRound size={19} />, tone: item.key === "active" ? "green" : "blue" }))} />}
         status={status}
         title="Clientes"
       />
@@ -4294,6 +4310,7 @@ function TradeLookup({ onToast }: { onToast: (message: string, tone?: ToastState
   const [rows, setRows] = useState<TradeEvaluationSummary[]>([]);
   const [selectedTrade, setSelectedTrade] = useState<TradeEvaluationSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
 
   const search = useCallback(async (nextQuery: string) => {
     setStatus("loading");
@@ -4308,6 +4325,7 @@ function TradeLookup({ onToast }: { onToast: (message: string, tone?: ToastState
 
   useEffect(() => {
     void search("");
+    void balcao.getListStatBar("trades").then((result) => setStatItems(result.items)).catch(() => setStatItems([]));
   }, [search]);
 
   const columns = useMemo<Array<TableColumn<TradeEvaluationSummary>>>(
@@ -4335,6 +4353,7 @@ function TradeLookup({ onToast }: { onToast: (message: string, tone?: ToastState
         query={query}
         rows={rows}
         setQuery={setQuery}
+        statBar={<StatBar items={statItems.map((item) => ({ ...item, icon: <ArrowRightLeft size={19} />, tone: item.key === "approval" ? "amber" : "blue" }))} />}
         status={status}
         title="Trocas"
       />
@@ -4485,6 +4504,8 @@ function StockLookup({
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [registrationBarcode, setRegistrationBarcode] = useState<string | null>(null);
+
+  const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
 	const [transferItem, setTransferItem] = useState<StockItemSummary | null>(null);
 	const [transferQty, setTransferQty] = useState("1");
 	const [transferBusy, setTransferBusy] = useState(false);
@@ -4507,6 +4528,7 @@ function StockLookup({
 
   useEffect(() => {
     void search("");
+    void balcao.getListStatBar(`stock:${scope}`).then((result) => setStatItems(result.items)).catch(() => setStatItems([]));
   }, [search]);
 
   useEffect(() => {
@@ -4644,6 +4666,7 @@ function StockLookup({
         query={query}
         rows={rows}
         setQuery={setQuery}
+        statBar={<StatBar items={statItems.map((item) => ({ ...item, icon: <Package size={19} />, tone: item.key === "empty" ? "amber" : "blue" }))} />}
         status={status}
         tableMinWidthClassName="min-w-[940px]"
         title={scopeCopy.title}
@@ -4697,7 +4720,13 @@ function StockLookup({
 }
 
 function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) => void }) {
+  const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number; amount?: number }>>([]);
+  useEffect(() => {
+    void balcao.getListStatBar("sales").then((result) => setStatItems(result.items)).catch(() => setStatItems([]));
+  }, []);
   return (
+    <div className="space-y-4">
+      <StatBar items={statItems.map((item) => ({ ...item, detail: item.amount !== undefined ? item.amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : undefined, icon: <ShoppingCart size={19} />, tone: "green" }))} />
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.5fr)]">
       <Card className="overflow-hidden p-0">
         <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-start sm:justify-between">
@@ -4706,23 +4735,22 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
               <ShoppingCart size={25} />
             </span>
             <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-wide text-tec-orange">Pendente 3.5</p>
               <h2 className="mt-1 text-2xl font-bold text-white">Vendas e acessórios</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-tec-subtle">
-                {POS_PENDING_MESSAGE} Enquanto isso, esta tela serve para consultar cliente e estoque sem abrir permissões indevidas.
+                Consulte o movimento do balcão e abra o PDV para iniciar uma nova venda.
               </p>
             </div>
           </div>
-          <Button className="shrink-0" disabled title={POS_PENDING_MESSAGE} variant="secondary">
-            POS pendente 3.5
+          <Button className="shrink-0" onClick={() => onNavigate("pos")} variant="primary">
+            Abrir PDV
           </Button>
         </div>
         <div className="grid border-t border-tec-border/15 sm:grid-cols-3">
           <SalesRouteCard
-            detail="Será liberado com endpoint/perm perfil restrito"
+            detail="Nova venda com estoque Comercial"
             icon={<CreditCard size={22} />}
             label="PDV Tecponto"
-            disabled
+            onClick={() => onNavigate("pos")}
           />
           <SalesRouteCard
             detail="Disponibilidade e depósito"
@@ -4754,7 +4782,7 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
           <SalesChecklistItem icon={<CreditCard size={16} />} label="Finalizar pagamento no PDV" />
         </div>
       </Card>
-    </div>
+    </div></div>
   );
 }
 
@@ -4779,7 +4807,7 @@ function SalesRouteCard({
       )}
       disabled={disabled}
       onClick={onClick}
-      title={disabled ? POS_PENDING_MESSAGE : label}
+      title={disabled ? "Indisponível" : label}
       type="button"
     >
       <span
@@ -4794,9 +4822,7 @@ function SalesRouteCard({
         <span className="block text-base font-bold text-white">{label}</span>
         <span className="mt-1 block text-sm text-tec-subtle">{detail}</span>
       </span>
-      {disabled ? (
-        <span className="ml-auto shrink-0 rounded-full bg-tec-field px-2 py-1 text-[10px] font-bold uppercase text-tec-muted">Pendente 3.5</span>
-      ) : (
+      {disabled ? null : (
         <ArrowRight className="ml-auto shrink-0 text-tec-muted transition group-hover:translate-x-1 group-hover:text-tec-orange" size={18} />
       )}
     </button>
@@ -4823,7 +4849,8 @@ function LookupCard<T>({
   placeholder,
   query,
   rows,
-	searchSuggestions,
+  searchSuggestions,
+  statBar,
   setQuery,
   status,
   tableMinWidthClassName,
@@ -4839,7 +4866,8 @@ function LookupCard<T>({
   placeholder: string;
   query: string;
   rows: T[];
-	searchSuggestions?: ReactNode;
+  searchSuggestions?: ReactNode;
+  statBar?: ReactNode;
   setQuery: (query: string) => void;
   status: "loading" | "ready" | "error";
   tableMinWidthClassName?: string;
@@ -4847,6 +4875,7 @@ function LookupCard<T>({
 }) {
   return (
     <Card className="p-4">
+      {statBar ? <div className="mb-4">{statBar}</div> : null}
       <form className="mb-4 flex flex-col gap-3 md:flex-row" onSubmit={onSearch}>
         <div className="relative flex-1">
           <SearchIcon className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tec-muted" size={18} />

@@ -90,6 +90,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         label: "Venda",
         items: [
           { id: "pos", icon: ShoppingCart, label: "PDV / Lançar venda", subtitle: "Venda rápida no balcão" },
+          { id: "sales", icon: CreditCard, label: "Vendas", subtitle: "Histórico do balcão" },
           { id: "commercial-products", icon: Boxes, label: "Produtos", subtitle: "Estoque comercial" },
         ],
       },

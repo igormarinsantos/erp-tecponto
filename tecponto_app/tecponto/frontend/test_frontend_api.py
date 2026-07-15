@@ -18,6 +18,8 @@ from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
 	get_dashboard_metrics,
 	get_boot,
+	get_list_statbar,
+	get_service_order_statbar,
 	get_service_order_detail,
 	get_service_order_kanban,
 	issue_os_acceptance,
@@ -119,6 +121,7 @@ def run_foundation_checks() -> dict:
 		detail_check = _check_service_order_detail_api(users["Tecponto Atendente"])
 		navigation_check = _check_attendant_navigation_apis(users["Tecponto Atendente"])
 		metrics_check = _check_dashboard_metrics(users["Tecponto Atendente"])
+		statbar_guard = _check_statbar_guard(users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
@@ -149,6 +152,7 @@ def run_foundation_checks() -> dict:
 			"service_order_detail_api": detail_check,
 			"navigation_apis": navigation_check,
 			"dashboard_metrics": metrics_check,
+			"statbar_guard": statbar_guard,
 			"sensitive_guard": guard_check,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
@@ -2357,6 +2361,35 @@ def _check_sensitive_guard(user: str) -> dict:
 			"list_trade_evaluations",
 			"list_stock_items",
 		],
+		"leaked_fields": leaks,
+	}
+
+
+def _check_statbar_guard(user: str) -> dict:
+	"""The operational counters may expose sales totals, never cost or profitability."""
+	frappe.set_user(user)
+	payload = {
+		"service_orders": get_service_order_statbar(),
+		"customers": get_list_statbar("customers"),
+		"trades": get_list_statbar("trades"),
+		"repair_parts": get_list_statbar("stock:repair-parts"),
+		"commercial_products": get_list_statbar("stock:commercial-products"),
+		"sales": get_list_statbar("sales"),
+		"catalog": get_list_statbar("catalog"),
+	}
+	leaks = contains_sensitive_field(payload)
+	if leaks:
+		raise AssertionError(f"StatBar expôs campos sensíveis: {', '.join(leaks)}")
+	allowed_keys = {"key", "label", "value", "amount"}
+	for scope, response in payload.items():
+		for item in response["items"]:
+			unexpected = set(item) - allowed_keys
+			if unexpected:
+				raise AssertionError(f"StatBar {scope} retornou campos fora da projeção segura: {sorted(unexpected)}")
+			if scope != "sales" and "amount" in item:
+				raise AssertionError(f"StatBar {scope} retornou valor financeiro indevido.")
+	return {
+		"checked_scopes": sorted(payload),
 		"leaked_fields": leaks,
 	}
 

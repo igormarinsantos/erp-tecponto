@@ -8,7 +8,7 @@ from urllib.parse import quote
 import frappe
 from frappe import _
 from frappe.model.workflow import apply_workflow
-from frappe.utils import cint, flt, now_datetime, strip_html, today
+from frappe.utils import cint, flt, getdate, now_datetime, strip_html, today
 from frappe.utils.file_manager import save_file
 
 from tecponto_app.tecponto.customer import (
@@ -308,6 +308,55 @@ def list_service_orders(
 		"count": count,
 		"fields": list(SAFE_SERVICE_ORDER_FIELDS),
 	}
+
+
+@frappe.whitelist()
+def get_service_order_statbar() -> dict[str, Any]:
+	"""Operational workflow counts only; deliberately excludes all financial fields."""
+	_require_frontend_role()
+	states = ["Entrada criada", "Em diagnóstico", "Aguardando aprovação", "Aguardando peça", "Em reparo", "Pronto para retirada"]
+	return {"items": [{"key": state, "label": state, "value": frappe.db.count("Service Order", {"workflow_state": state})} for state in states]}
+
+
+@frappe.whitelist()
+def get_list_statbar(scope: str) -> dict[str, Any]:
+	"""Safe list summaries. This intentionally never selects stock cost, margins, or profit."""
+	_require_frontend_role()
+	scope = (scope or "").strip()
+	if scope == "customers":
+		month_start = getdate(today()).replace(day=1)
+		active = frappe.db.sql("""select count(distinct customer) from `tabService Order`
+			where workflow_state not in ('Entregue', 'Cancelado', 'Reprovado', 'Orçamento expirado')""")[0][0]
+		items = [("active", "Com OS em andamento", active), ("all", "Total", frappe.db.count("Customer")), ("new", "Novos no mês", frappe.db.count("Customer", {"creation": [">=", month_start]}))]
+	elif scope.startswith("stock:"):
+		stock_scope = scope.split(":", 1)[1]
+		repair = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+		commercial = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
+		warehouse = repair if stock_scope == "repair-parts" else commercial
+		group = "Peças de Reparo" if stock_scope == "repair-parts" else "Aparelhos Usados" if stock_scope == "used-devices" else None
+		conditions = ["item.disabled = 0", "item.is_stock_item = 1", "bin.warehouse = %(warehouse)s"]
+		values = {"warehouse": warehouse}
+		if group:
+			groups = _descendant_item_groups(group)
+			conditions.append("item.item_group in %(groups)s")
+			values["groups"] = groups
+		where = " and ".join(conditions)
+		rows = frappe.db.sql(f"select count(distinct item.name), coalesce(sum(bin.actual_qty <= 0), 0), coalesce(sum(bin.actual_qty between 0.001 and 2), 0) from `tabItem` item inner join `tabBin` bin on bin.item_code=item.name where {where}", values)[0]
+		items = [("all", "Itens", rows[0]), ("empty", "Sem estoque", rows[1]), ("low", "Baixo estoque", rows[2])]
+	elif scope == "trades":
+		items = [("open", "Avaliações abertas", frappe.db.count("Device Trade Evaluation", {"workflow_state": ["not in", ["Comprado", "Descartado"]]})), ("approval", "Aguardando aprovação", frappe.db.count("Device Trade Evaluation", {"workflow_state": "Aguardando aprovação"})), ("closed", "Fechadas no mês", frappe.db.count("Device Trade Evaluation", {"workflow_state": "Comprado", "modified": [">=", getdate(today()).replace(day=1)]}))]
+	elif scope == "sales":
+		count, total = frappe.db.sql("select count(*), coalesce(sum(grand_total),0) from `tabSales Invoice` where docstatus=1 and is_return=0 and posting_date=%(date)s", {"date": today()})[0]
+		return {"items": [{"key": "today", "label": "Vendas hoje", "value": count, "amount": float(total or 0)}]}
+	elif scope == "catalog":
+		items = [
+			("active", "Servicos ativos", frappe.db.count("Tecponto Service", {"active": 1})),
+			("all", "Total cadastrado", frappe.db.count("Tecponto Service")),
+			("categories", "Categorias ativas", frappe.db.count("Tecponto Service Category", {"active": 1})),
+		]
+	else:
+		frappe.throw(_("Resumo não disponível."), frappe.ValidationError)
+	return {"items": [{"key": key, "label": label, "value": int(value or 0)} for key, label, value in items]}
 
 
 @frappe.whitelist()

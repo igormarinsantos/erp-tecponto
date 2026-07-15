@@ -8,6 +8,7 @@ import type {
   CustomerDeviceListResponse,
   CustomerSearchResponse,
   DashboardMetrics,
+  ListStatBarResponse,
   StockItemListResponse,
 	StockTransferResponse,
 	TradeEvaluationListResponse,
@@ -17,6 +18,9 @@ import type {
 const API = "tecponto_app.tecponto.frontend.api";
 
 export const balcao = {
+  getListStatBar(scope: string) {
+    return rpc<ListStatBarResponse>(`${API}.get_list_statbar`, { query: { scope } });
+  },
   getDashboardMetrics() {
     return rpc<DashboardMetrics>(`${API}.get_dashboard_metrics`);
   },

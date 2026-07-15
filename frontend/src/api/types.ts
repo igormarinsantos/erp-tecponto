@@ -412,6 +412,10 @@ export interface CheckinPayload {
   entry_signature?: string;
 }
 
+export interface ServiceOrderStatBarResponse {
+  items: Array<{ key: string; label: string; value: number }>;
+}
+
 export interface WarrantyCandidate {
   name: string;
   reported_defect: string | null;
@@ -462,6 +466,8 @@ export interface DashboardMetrics {
     overdue: number;
   };
 }
+
+export interface ListStatBarResponse { items: Array<{ key: string; label: string; value: number; amount?: number }>; }
 
 export interface CustomerSummary {
   name: string;
