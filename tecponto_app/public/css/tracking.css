@@ -1,0 +1,28 @@
+:root { color-scheme: dark; font-family: "Space Grotesk", Arial, sans-serif; }
+.tp-tracking { align-items: center; background: #15181b; box-sizing: border-box; display: flex; justify-content: center; min-height: 100vh; padding: 24px; }
+.tp-tracking-card { background: #1d2125; border: 1px solid rgba(245,246,247,.16); border-radius: 16px; box-sizing: border-box; max-width: 680px; padding: 32px; width: 100%; }
+.tp-tracking-brand { color: #fe5000; font-size: 14px; font-weight: 700; letter-spacing: .08em; margin: 0 0 24px; }
+.tp-tracking-kicker { color: #adb4ba; font-size: 14px; margin: 0 0 8px; }
+.tp-tracking-card h1 { font-size: 30px; margin: 0; }
+.tp-tracking-card h2 { font-size: 18px; margin: 0 0 18px; }
+.tp-tracking-copy { color: #adb4ba; line-height: 1.5; margin: 8px 0 24px; }
+.tp-tracking-summary { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tp-tracking-summary > div { background: #24292e; border-radius: 10px; min-width: 0; padding: 14px; }
+.tp-tracking-summary span { color: #adb4ba; display: block; font-size: 12px; margin-bottom: 6px; }
+.tp-tracking-summary b { display: block; line-height: 1.4; overflow-wrap: anywhere; }
+.tp-tracking-wide { grid-column: 1 / -1; }
+.tp-tracking-timeline { border-top: 1px solid rgba(245,246,247,.12); margin-top: 28px; padding-top: 24px; }
+.tp-tracking-timeline ol { list-style: none; margin: 0; padding: 0; }
+.tp-tracking-step { display: grid; gap: 14px; grid-template-columns: 20px 1fr; min-height: 62px; position: relative; }
+.tp-tracking-step:not(:last-child)::after { background: rgba(245,246,247,.14); content: ""; height: calc(100% - 20px); left: 9px; position: absolute; top: 20px; width: 2px; }
+.tp-tracking-marker { background: #24292e; border: 2px solid rgba(245,246,247,.2); border-radius: 50%; height: 16px; margin-top: 2px; width: 16px; z-index: 1; }
+.tp-tracking-step b { display: block; }
+.tp-tracking-step small { color: #adb4ba; display: block; font-size: 12px; margin-top: 4px; }
+.tp-tracking-step--completed .tp-tracking-marker { background: #25d366; border-color: #25d366; }
+.tp-tracking-step--current .tp-tracking-marker { background: #fe5000; border-color: #fe5000; box-shadow: 0 0 0 6px rgba(254,80,0,.16); }
+.tp-tracking-step--current b { color: #fe5000; }
+.tp-tracking-step--future { opacity: .48; }
+.tp-tracking-whatsapp { background: #25d366; border-radius: 10px; color: #202428; display: block; font-size: 15px; font-weight: 700; margin-top: 26px; padding: 14px 18px; text-align: center; text-decoration: none; }
+.tp-tracking-reference { color: #adb4ba; font-size: 12px; margin: 18px 0 0; text-align: center; }
+.tp-tracking-error { border-color: rgba(239,68,68,.6); }
+@media (max-width: 560px) { .tp-tracking { padding: 12px; } .tp-tracking-card { padding: 22px; } .tp-tracking-summary { grid-template-columns: 1fr; } .tp-tracking-wide { grid-column: auto; } }

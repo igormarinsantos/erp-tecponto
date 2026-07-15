@@ -33,6 +33,7 @@ from tecponto_app.tecponto.frontend.api import (
 	submit_stock_transfer,
 )
 from tecponto_app.tecponto.acceptance import complete_public_acceptance, get_public_acceptance, save_public_acceptance_selfie
+from tecponto_app.tecponto.tracking import INVALID_LINK_MESSAGE, TRACKING_STAGES, get_public_tracking, issue_tracking_link
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.requests import (
 	approve_request,
@@ -115,6 +116,7 @@ def run_foundation_checks() -> dict:
 		quick_stage_checks = run_quick_stage_move_checks()
 		customer_registration_checks = run_customer_registration_checks()
 		public_acceptance_checks = run_public_acceptance_checks()
+		tracking_checks = run_public_tracking_checks()
 
 		return {
 			"status": "ok",
@@ -134,6 +136,77 @@ def run_foundation_checks() -> dict:
 			"quick_stage_checks": quick_stage_checks,
 			"customer_registration_checks": customer_registration_checks,
 			"public_acceptance_checks": public_acceptance_checks,
+			"tracking_checks": tracking_checks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_public_tracking_checks() -> dict:
+	"""Prove the guest tracking projection is opaque, minimal, and state-driven."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(attendant)
+		service_order = _create_action_request_service_order(attendant)
+		issued = issue_tracking_link(service_order)
+		raw_token = issued["link"].rstrip("/").rsplit("/", 1)[-1]
+		if raw_token == service_order or len(raw_token) < 24 or service_order in raw_token:
+			raise AssertionError("Link público de rastreio não recebeu token opaco não-adivinhável.")
+		tracking_doc = frappe.get_doc("Service Order Tracking", issued["tracking"])
+		if raw_token in frappe.as_json(tracking_doc.as_dict()) or tracking_doc.token_hash == raw_token:
+			raise AssertionError("Token bruto de rastreio foi persistido no banco.")
+
+		device = frappe.db.get_value("Service Order", service_order, "customer_device")
+		full_imei = frappe.db.get_value("Customer Device", device, "imei_serial") or ""
+		state_results = []
+		for state in TRACKING_STAGES:
+			values = {"workflow_state": state}
+			if state == "Aguardando aprovação":
+				values["approval_deadline"] = add_days(now_datetime(), 2)
+			frappe.db.set_value("Service Order", service_order, values, update_modified=True)
+			frappe.set_user("Guest")
+			public = get_public_tracking(raw_token)
+			if not public.get("valid") or public["service_order"]["workflow_state"] != state:
+				raise AssertionError(f"Rastreio público não refletiu o estado {state}.")
+			current = [step for step in public["timeline"] if step["state"] == "current"]
+			if len(current) != 1 or current[0]["stage"] != state:
+				raise AssertionError(f"Linha do tempo não destacou corretamente {state}.")
+			state_results.append(state)
+
+		if full_imei and full_imei in frappe.as_json(public):
+			raise AssertionError("Rastreio público expôs o IMEI completo.")
+		if full_imei and not public["service_order"]["imei_suffix"].endswith(full_imei[-4:]):
+			raise AssertionError("Rastreio público não exibiu apenas os últimos dígitos do IMEI.")
+		leaks = contains_sensitive_field(public)
+		if leaks:
+			raise AssertionError(f"Rastreio público expôs campos sensíveis: {', '.join(leaks)}")
+		if {"customer", "password", "internal_notes", "sales_invoice", "services", "parts"} & set(public["service_order"]):
+			raise AssertionError("Rastreio público expôs campos fora da projeção mínima.")
+
+		tampered = raw_token[:-1] + ("A" if raw_token[-1] != "A" else "B")
+		invalid = get_public_tracking(tampered)
+		if invalid.get("valid") or invalid.get("message") != INVALID_LINK_MESSAGE or "service_order" in invalid:
+			raise AssertionError("Token adulterado vazou a existência ou os dados da OS.")
+
+		frappe.set_user(attendant)
+		expiring = issue_tracking_link(service_order)
+		expiring_token = expiring["link"].rstrip("/").rsplit("/", 1)[-1]
+		frappe.db.set_value("Service Order Tracking", expiring["tracking"], "expires_on", add_to_date(now_datetime(), hours=-1))
+		frappe.set_user("Guest")
+		expired = get_public_tracking(expiring_token)
+		if expired.get("valid") or frappe.db.get_value("Service Order Tracking", expiring["tracking"], "status") != "Expirado":
+			raise AssertionError("Token expirado continuou disponível para o público.")
+
+		return {
+			"status": "ok",
+			"guest_read_only": True,
+			"states_checked": state_results,
+			"imei_partial": public["service_order"]["imei_suffix"],
+			"tampered_token_blocked": True,
+			"expired_token_blocked": True,
+			"sensitive_guard": {"leaked_fields": leaks},
 		}
 	finally:
 		frappe.set_user(previous_user)

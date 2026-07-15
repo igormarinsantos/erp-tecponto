@@ -1,0 +1,22 @@
+{% extends "templates/web.html" %}
+
+{% block title %}Rastreio Tecponto{% endblock %}
+{% block header %}{% endblock %}
+{% block style %}
+<style>
+html, body { background: #15181b; color: #f5f6f7; }
+.navbar, .web-footer, .page-breadcrumbs { display: none !important; }
+.page-content-wrapper, .page-content-wrapper > .container, .web-page-content { max-width: none !important; margin: 0 !important; padding: 0 !important; width: 100% !important; }
+</style>
+{% endblock %}
+{% block page_content %}
+<main class="tp-tracking" data-token="{{ token | e }}">
+  <section class="tp-tracking-card" aria-live="polite">
+    <p class="tp-tracking-brand">TECPONTO</p>
+    <h1>Carregando rastreio</h1>
+    <p>Validando seu link seguro.</p>
+  </section>
+</main>
+<link rel="stylesheet" href="/assets/tecponto_app/css/tracking.css?v=3.7.1">
+<script src="/assets/tecponto_app/js/tracking.js?v=3.7.1"></script>
+{% endblock %}

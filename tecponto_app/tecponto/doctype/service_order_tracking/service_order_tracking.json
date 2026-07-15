@@ -1,0 +1,27 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:OST-{#####}",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["service_order", "status", "token_hash", "expires_on", "issued_by", "revoked_by", "revoked_on"],
+ "fields": [
+  {"fieldname":"service_order","fieldtype":"Link","label":"Ordem de servi\u00e7o","options":"Service Order","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"status","fieldtype":"Select","label":"Status","options":"Ativo\nExpirado\nRevogado","default":"Ativo","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"token_hash","fieldtype":"Data","label":"Hash do token","reqd":1,"unique":1,"read_only":1},
+  {"fieldname":"expires_on","fieldtype":"Datetime","label":"Expira em","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"issued_by","fieldtype":"Link","label":"Emitido por","options":"User","reqd":1,"read_only":1},
+  {"fieldname":"revoked_by","fieldtype":"Link","label":"Revogado por","options":"User","read_only":1},
+  {"fieldname":"revoked_on","fieldtype":"Datetime","label":"Revogado em","read_only":1}
+ ],
+ "module": "Tecponto",
+ "name": "Service Order Tracking",
+ "permissions": [
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1,"print":1},
+  {"role":"Tecponto Gestor","read":1,"write":1,"create":1,"report":1,"export":1,"print":1},
+  {"role":"Tecponto Atendente","read":1,"create":1}
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
