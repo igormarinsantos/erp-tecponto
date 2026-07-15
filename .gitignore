@@ -41,6 +41,9 @@ jspm_packages/
 tecponto_app/public/frontend/
 artifacts/
 
+# Windows download-zone metadata copied as sidecar files by WSL mounts
+*Zone.Identifier
+
 # Certificates and private keys
 *.pem
 *.pfx
