@@ -1,6 +1,7 @@
 import { rpc } from "./client";
 import type {
   BudgetItemSearchResponse,
+  CatalogServiceBudgetPayload,
   BudgetLinePayload,
   BudgetLineType,
   BudgetWarehouseListResponse,
@@ -11,9 +12,11 @@ import type {
   ServiceOrderKanbanResponse,
   ServiceOrderListResponse,
   ServiceOrderMoveResponse,
+  TrackingLinkResponse,
 } from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
+const TRACKING_API = "tecponto_app.tecponto.tracking";
 
 export interface ServiceOrderQueryParams extends Record<string, string | number | boolean | undefined> {
   from_date?: string;
@@ -55,6 +58,11 @@ export const serviceOrders = {
       body: { name, payload },
     });
   },
+  addCatalogService(name: string, catalogService: string, payload: CatalogServiceBudgetPayload) {
+    return rpc<ServiceOrderDetailResponse>(`${API}.add_catalog_service_to_service_order`, {
+      body: { name, catalog_service: catalogService, payload },
+    });
+  },
   sendQuote(name: string, payload: QuoteSendPayload) {
     return rpc<ServiceOrderDetailResponse>(`${API}.send_service_order_quote`, {
       body: { name, payload },
@@ -78,6 +86,11 @@ export const serviceOrders = {
   preparePickup(name: string, payload: PickupPayload) {
     return rpc<ServiceOrderDetailResponse>(`${API}.prepare_service_order_pickup`, {
       body: { name, payload },
+    });
+  },
+  issueTrackingLink(name: string) {
+    return rpc<TrackingLinkResponse>(`${TRACKING_API}.issue_service_order_tracking_link`, {
+      body: { service_order: name },
     });
   },
 };

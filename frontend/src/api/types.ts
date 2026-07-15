@@ -213,6 +213,9 @@ export interface ServiceOrderBudgetLine {
   qty: number;
   unit_price: number;
   amount: number;
+  catalog_service?: string | null;
+  service_duration?: number;
+  duration_unit?: "Horas" | "Dias úteis";
   technician?: string | null;
   warehouse?: string | null;
   outcome?: string | null;
@@ -323,6 +326,14 @@ export interface BudgetLinePayload {
   qty: number;
   rate: number;
   warehouse?: string;
+}
+
+export interface CatalogServiceBudgetPayload {
+  description?: string;
+  duration?: number;
+  duration_unit?: "Horas" | "Dias úteis";
+  qty?: number;
+  rate?: number;
 }
 
 export interface QuoteSendPayload {

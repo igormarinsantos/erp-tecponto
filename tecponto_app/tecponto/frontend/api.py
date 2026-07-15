@@ -697,6 +697,51 @@ def add_service_order_budget_line(name: str, payload: str | dict[str, Any] | Non
 
 
 @frappe.whitelist()
+def add_catalog_service_to_service_order(name: str, catalog_service: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Add a catalog suggestion while preserving the ability to adjust it per OS."""
+	_require_attendant_flow_role()
+	data = _parse_payload(payload)
+	catalog = frappe.db.get_value(
+		"Tecponto Service",
+		(catalog_service or "").strip(),
+		["name", "service_name", "default_labor_price", "default_duration", "duration_unit", "active"],
+		as_dict=True,
+	)
+	if not catalog or not catalog.active:
+		frappe.throw(_("Selecione um serviço ativo do catálogo."), frappe.ValidationError)
+
+	qty = flt(data.get("qty") or 1)
+	rate = flt(data["rate"]) if "rate" in data and data.get("rate") not in (None, "") else flt(catalog.default_labor_price)
+	duration = flt(data["duration"]) if "duration" in data and data.get("duration") not in (None, "") else flt(catalog.default_duration)
+	duration_unit = (data.get("duration_unit") or catalog.duration_unit or "Horas").strip()
+	if qty <= 0:
+		frappe.throw(_("Quantidade precisa ser maior que zero."), frappe.ValidationError)
+	if rate < 0 or duration < 0:
+		frappe.throw(_("Preço e prazo não podem ser negativos."), frappe.ValidationError)
+	if duration_unit not in {"Horas", "Dias úteis"}:
+		frappe.throw(_("Unidade do prazo inválida."), frappe.ValidationError)
+
+	from tecponto_app.tecponto.service_order.billing import _get_labor_item
+
+	doc = frappe.get_doc("Service Order", (name or "").strip())
+	doc.check_permission("write")
+	doc.append(
+		"services",
+		{
+			"item_code": _get_labor_item(),
+			"catalog_service": catalog.name,
+			"description": (data.get("description") or catalog.service_name).strip(),
+			"qty": qty,
+			"rate": rate,
+			"service_duration": duration,
+			"duration_unit": duration_unit,
+		},
+	)
+	doc.save(ignore_permissions=True)
+	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
 def send_service_order_quote(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
 	_require_attendant_flow_role()
 	data = _parse_payload(payload)
@@ -1598,6 +1643,9 @@ def _serialize_service_row(row: Any) -> dict[str, Any]:
 		"qty": qty,
 		"unit_price": unit_price,
 		"amount": flt(qty * unit_price),
+		"catalog_service": row.get("catalog_service"),
+		"service_duration": flt(row.get("service_duration") or 0),
+		"duration_unit": row.get("duration_unit") or "Horas",
 		"technician": row.get("technician"),
 	}
 

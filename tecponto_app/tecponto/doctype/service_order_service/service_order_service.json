@@ -8,9 +8,12 @@
  "engine": "InnoDB",
  "field_order": [
   "item_code",
+  "catalog_service",
   "description",
   "qty",
   "rate",
+  "service_duration",
+  "duration_unit",
   "technician"
  ],
  "fields": [
@@ -21,6 +24,13 @@
    "label": "Item de serviço",
    "options": "Item",
    "reqd": 1
+  },
+  {
+   "fieldname": "catalog_service",
+   "fieldtype": "Link",
+   "label": "Serviço do catálogo",
+   "options": "Tecponto Service",
+   "read_only": 1
   },
   {
    "fieldname": "description",
@@ -41,6 +51,18 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Valor"
+  },
+  {
+   "fieldname": "service_duration",
+   "fieldtype": "Float",
+   "label": "Prazo combinado"
+  },
+  {
+   "fieldname": "duration_unit",
+   "fieldtype": "Select",
+   "label": "Unidade do prazo",
+   "options": "Horas\nDias úteis",
+   "default": "Horas"
   },
   {
    "fieldname": "technician",

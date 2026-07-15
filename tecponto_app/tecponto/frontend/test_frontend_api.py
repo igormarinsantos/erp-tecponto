@@ -21,6 +21,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_service_order_detail,
 	get_service_order_kanban,
 	issue_os_acceptance,
+	add_catalog_service_to_service_order,
 	create_service_order_checkin,
 	create_customer,
 	list_catalog_references,
@@ -478,6 +479,20 @@ def run_service_catalog_checks() -> dict:
 			}
 		)["item"]
 		created_service = created["name"]
+		order_name = _create_action_request_service_order(attendant)
+		integrated = add_catalog_service_to_service_order(
+			order_name,
+			created["name"],
+			{"qty": 1, "rate": 123.45, "duration": 3, "duration_unit": "Dias úteis"},
+		)
+		catalog_line = integrated["services"][-1]
+		if (
+			catalog_line.get("catalog_service") != created["name"]
+			or catalog_line.get("unit_price") != 123.45
+			or catalog_line.get("service_duration") != 3
+			or catalog_line.get("duration_unit") != "Dias úteis"
+		):
+			raise AssertionError("Serviço do catálogo não aplicou nem preservou os ajustes da OS.")
 		updated = save_catalog_service({**created, "default_labor_price": 179.9, "active": False})["item"]
 		active_rows = list_catalog_services(query=suffix, include_inactive="0")["items"]
 		all_rows = list_catalog_services(query=suffix, include_inactive=True)["items"]
@@ -502,6 +517,7 @@ def run_service_catalog_checks() -> dict:
 			"seeded_categories": len(references["categories"]),
 			"created": created["name"],
 			"updated_price": updated["default_labor_price"],
+			"catalog_suggestion_adjusted_in_os": True,
 			"inactive_preserves_history": True,
 			"attendant_write_blocked": write_blocked,
 			"sensitive_guard": {"leaked_fields": leaks},

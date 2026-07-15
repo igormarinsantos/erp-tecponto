@@ -37,6 +37,7 @@ import {
   logout,
   notifications,
   pos,
+  serviceCatalog,
   serviceOrders,
   type BudgetItemSummary,
 	type AcceptanceIssueResponse,
@@ -59,7 +60,9 @@ import {
   type ServiceOrderQueryParams,
   type ServiceOrderTimelineEvent,
   type ServiceOrderWorkflowAction,
+  type ServiceCatalogService,
   type ServiceOrderSummary,
+  type TrackingLinkResponse,
   type StockItemSummary,
   type TecpontoNotification,
   type TecpontoTask,
@@ -2078,6 +2081,7 @@ function ServiceOrderDetail({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [quoteSendOpen, setQuoteSendOpen] = useState(false);
   const [acceptanceType, setAcceptanceType] = useState<"Entrada" | "Retirada" | null>(null);
+  const [trackingOpen, setTrackingOpen] = useState(false);
   const [moveApproval, setMoveApproval] = useState<{ targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
   const initialFlowRef = useRef(initialFlow);
 
@@ -2093,6 +2097,7 @@ function ServiceOrderDetail({
     setHistoryOpen(false);
     setQuoteSendOpen(false);
 		setAcceptanceType(null);
+    setTrackingOpen(false);
     setMoveApproval(null);
     setState({ status: "loading" });
     serviceOrders
@@ -2250,6 +2255,15 @@ function ServiceOrderDetail({
             onOpenHistory={() => setHistoryOpen(true)}
             onSimpleMove={handleSimpleWorkflowMove}
           />
+          <TrackingLinkCard
+            customerName={customerLabel}
+            onToast={onToast}
+            open={trackingOpen}
+            phone={detail.customer?.custom_whatsapp || detail.customer?.mobile_no}
+            serviceOrder={detail.name}
+            onOpen={() => setTrackingOpen(true)}
+            onClose={() => setTrackingOpen(false)}
+          />
           <ServiceOrderAttendanceCard detail={detail} />
         </aside>
       </div>
@@ -2329,6 +2343,121 @@ function ServiceOrderDetail({
           : `Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
       />
     </div>
+  );
+}
+
+function TrackingLinkCard({
+  customerName,
+  onClose,
+  onOpen,
+  onToast,
+  open,
+  phone,
+  serviceOrder,
+}: {
+  customerName: string;
+  onClose: () => void;
+  onOpen: () => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+  open: boolean;
+  phone?: string | null;
+  serviceOrder: string;
+}) {
+  const [tracking, setTracking] = useState<TrackingLinkResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setTracking(null);
+      setLoading(false);
+    }
+  }, [open]);
+
+  async function generate() {
+    setLoading(true);
+    try {
+      setTracking(await serviceOrders.issueTrackingLink(serviceOrder));
+    } catch (caught) {
+      onToast(caught instanceof Error ? caught.message : "Não foi possível gerar o link de rastreio.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function copyLink() {
+    if (!tracking) return;
+    try {
+      await navigator.clipboard.writeText(tracking.link);
+      onToast("Link de rastreio copiado.");
+    } catch {
+      onToast("Não foi possível copiar automaticamente. Selecione o link e copie.", "error");
+    }
+  }
+
+  const trackingWhatsApp = tracking
+    ? buildWhatsAppUrl(
+        phone,
+        `Olá, ${customerName}. Acompanhe sua OS ${serviceOrder} e aprove o orçamento por aqui: ${tracking.link}`,
+      )
+    : null;
+
+  return (
+    <>
+      <Card className="p-4">
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-control bg-tec-blue/15 text-tec-blue">
+            <QrCode size={20} />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-tec-text">Rastreio do cliente</h3>
+            <p className="mt-1 text-xs font-medium leading-relaxed text-tec-muted">
+              Gere o QR e o link seguro para o cliente acompanhar a OS e decidir o orçamento.
+            </p>
+            <Button className="mt-3" icon={<QrCode size={16} />} onClick={onOpen} variant="secondary">
+              Gerar link de rastreio
+            </Button>
+          </div>
+        </div>
+      </Card>
+      <Modal className="max-w-lg" onClose={onClose} open={open} title={`Rastreio da OS ${serviceOrder}`}>
+        {!tracking ? (
+          <div className="space-y-5">
+            <p className="text-sm leading-relaxed text-tec-subtle">
+              O novo link substitui qualquer link anterior desta OS por segurança. Ele permite somente acompanhar o reparo e aprovar ou reprovar o orçamento.
+            </p>
+            <Button disabled={loading} icon={<QrCode size={17} />} onClick={() => void generate()} variant="primary">
+              {loading ? "Gerando link..." : "Gerar link seguro"}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div className="grid place-items-center rounded-card border border-tec-border/15 bg-white p-4">
+              <img alt={`QR Code do rastreio da OS ${serviceOrder}`} className="h-48 w-48" src={tracking.qr_svg} />
+            </div>
+            <label className="block text-xs font-bold uppercase tracking-wide text-tec-muted">
+              Link do cliente
+              <input className="tp-input mt-2" readOnly value={tracking.link} />
+            </label>
+            <p className="text-xs font-medium text-tec-muted">
+              {tracking.expires_on
+                ? `Válido até ${formatDate(tracking.expires_on)}.`
+                : "Ativo durante o reparo e por 90 dias após a retirada."} O cliente não consegue alterar os dados da OS.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button icon={<Copy size={16} />} onClick={() => void copyLink()} variant="secondary">Copiar link</Button>
+              {trackingWhatsApp ? (
+                <a className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-whatsapp/35 bg-tec-whatsapp/10 px-4 text-sm font-bold text-tec-whatsapp transition hover:bg-tec-whatsapp/20" href={trackingWhatsApp} rel="noreferrer" target="_blank">
+                  <WhatsAppLogo size={17} />
+                  Enviar por WhatsApp
+                </a>
+              ) : (
+                <Button disabled icon={<WhatsAppLogo size={17} />} title="Cadastre o WhatsApp do cliente para enviar por aqui." variant="secondary">Sem WhatsApp</Button>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+    </>
   );
 }
 
@@ -2697,6 +2826,7 @@ function BudgetLines({
                 <p className="truncate font-semibold text-white">{line.description || line.item_code || "Item sem descrição"}</p>
                 <p className="mt-1 text-xs text-tec-muted">
                   {line.item_code ?? "Sem item"}
+                  {type === "service" && line.service_duration ? ` · Prazo: ${line.service_duration} ${(line.duration_unit ?? "Horas").toLowerCase()}` : ""}
                   {type === "service" && line.technician ? ` · ${line.technician}` : ""}
                   {type === "part" && line.outcome ? ` · ${line.outcome}` : ""}
                 </p>
@@ -2760,12 +2890,17 @@ function BudgetLineModal({
 }) {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<BudgetItemSummary[]>([]);
+  const [catalogItems, setCatalogItems] = useState<ServiceCatalogService[]>([]);
   const [selectedItem, setSelectedItem] = useState<BudgetItemSummary | null>(null);
+  const [selectedCatalogService, setSelectedCatalogService] = useState<ServiceCatalogService | null>(null);
+  const [serviceEntryMode, setServiceEntryMode] = useState<"catalog" | "manual">("catalog");
   const [warehouses, setWarehouses] = useState<BudgetWarehouseSummary[]>([]);
   const [warehouse, setWarehouse] = useState("");
   const [description, setDescription] = useState("");
   const [qty, setQty] = useState("1");
   const [rate, setRate] = useState("");
+  const [duration, setDuration] = useState("");
+  const [durationUnit, setDurationUnit] = useState<"Horas" | "Dias úteis">("Horas");
   const [loadingItems, setLoadingItems] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2776,10 +2911,15 @@ function BudgetLineModal({
     }
     setQuery("");
     setItems([]);
+    setCatalogItems([]);
     setSelectedItem(null);
+    setSelectedCatalogService(null);
+    setServiceEntryMode(lineType === "service" ? "catalog" : "manual");
     setDescription("");
     setQty("1");
     setRate("");
+    setDuration("");
+    setDurationUnit("Horas");
     setWarehouse("");
     setError(null);
     setSubmitting(false);
@@ -2791,11 +2931,14 @@ function BudgetLineModal({
     }
     let cancelled = false;
     setLoadingItems(true);
-    serviceOrders
-      .searchBudgetItems(query, lineType)
+    const request = lineType === "service" && serviceEntryMode === "catalog"
+      ? serviceCatalog.list(query).then((response) => ({ catalog: response.items, items: [] as BudgetItemSummary[] }))
+      : serviceOrders.searchBudgetItems(query, lineType).then((response) => ({ catalog: [] as ServiceCatalogService[], items: response.items }));
+    request
       .then((response) => {
         if (!cancelled) {
           setItems(response.items);
+          setCatalogItems(response.catalog);
         }
       })
       .catch((caught) => {
@@ -2811,7 +2954,7 @@ function BudgetLineModal({
     return () => {
       cancelled = true;
     };
-  }, [query, lineType]);
+  }, [query, lineType, serviceEntryMode]);
 
   useEffect(() => {
     if (lineType !== "part") {
@@ -2848,18 +2991,33 @@ function BudgetLineModal({
   const title = isService ? `Adicionar serviço em ${detail.name}` : `Adicionar peça em ${detail.name}`;
   const parsedQty = Number(qty.replace(",", "."));
   const parsedRate = Number(rate.replace(",", "."));
-  const canSubmit = Boolean(selectedItem) && parsedQty > 0 && parsedRate >= 0 && (isService || Boolean(warehouse));
+  const parsedDuration = Number(duration.replace(",", "."));
+  const canSubmit = (isService && serviceEntryMode === "catalog" ? Boolean(selectedCatalogService) : Boolean(selectedItem)) && parsedQty > 0 && parsedRate >= 0 && (serviceEntryMode !== "catalog" || !duration || parsedDuration >= 0) && (isService || Boolean(warehouse));
 
   function selectItem(item: BudgetItemSummary) {
     setSelectedItem(item);
+    setSelectedCatalogService(null);
     setDescription(item.item_name ?? item.item_code);
     setRate(String(item.standard_rate || 0));
+  }
+
+  function selectCatalogService(service: ServiceCatalogService) {
+    setSelectedCatalogService(service);
+    setSelectedItem(null);
+    setDescription(service.service_name);
+    setRate(String(service.default_labor_price || 0));
+    setDuration(String(service.default_duration || 0));
+    setDurationUnit(service.duration_unit);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    if (!selectedItem) {
+    if (isService && serviceEntryMode === "catalog" && !selectedCatalogService) {
+      setError("Selecione um serviço do catálogo ou use Serviço avulso.");
+      return;
+    }
+    if ((!isService || serviceEntryMode === "manual") && !selectedItem) {
       setError("Selecione um item para o orçamento.");
       return;
     }
@@ -2870,14 +3028,22 @@ function BudgetLineModal({
 
     setSubmitting(true);
     try {
-      const updated = await serviceOrders.addBudgetLine(detail.name, {
-        description: description.trim(),
-        item_code: selectedItem.item_code,
-        qty: parsedQty,
-        rate: parsedRate,
-        type: activeLineType,
-        warehouse: isService ? undefined : warehouse,
-      });
+      const updated = isService && serviceEntryMode === "catalog"
+        ? await serviceOrders.addCatalogService(detail.name, selectedCatalogService!.name, {
+            description: description.trim(),
+            duration: Number.isFinite(parsedDuration) ? parsedDuration : 0,
+            duration_unit: durationUnit,
+            qty: parsedQty,
+            rate: parsedRate,
+          })
+        : await serviceOrders.addBudgetLine(detail.name, {
+            description: description.trim(),
+            item_code: selectedItem!.item_code,
+            qty: parsedQty,
+            rate: parsedRate,
+            type: activeLineType,
+            warehouse: isService ? undefined : warehouse,
+          });
       onUpdated(updated);
       onToast(`${isService ? "Serviço" : "Peça"} adicionado ao orçamento.`);
       onClose();
@@ -2893,13 +3059,19 @@ function BudgetLineModal({
     <Modal className="max-w-5xl" onClose={onClose} open={Boolean(lineType)} title={title}>
       <form className="grid max-h-[78vh] gap-4 overflow-y-auto pr-1 lg:grid-cols-[minmax(0,1fr)_320px]" onSubmit={submit}>
         <section className="space-y-4">
+          {isService ? (
+            <div className="flex rounded-control border border-tec-border/20 bg-tec-field/55 p-1">
+              <button className={cx("flex-1 rounded-control px-3 py-2 text-sm font-bold transition", serviceEntryMode === "catalog" ? "bg-tec-orange text-tec-ink" : "text-tec-subtle hover:text-white")} onClick={() => setServiceEntryMode("catalog")} type="button">Catálogo</button>
+              <button className={cx("flex-1 rounded-control px-3 py-2 text-sm font-bold transition", serviceEntryMode === "manual" ? "bg-tec-orange text-tec-ink" : "text-tec-subtle hover:text-white")} onClick={() => setServiceEntryMode("manual")} type="button">Serviço avulso</button>
+            </div>
+          ) : null}
           <label className="block">
-            <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Buscar item</span>
+            <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">{isService && serviceEntryMode === "catalog" ? "Buscar no catálogo" : "Buscar item"}</span>
             <input
               autoFocus
               className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-4 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={isService ? "Buscar serviço por nome ou código..." : "Buscar peça por nome, código ou grupo..."}
+              placeholder={isService && serviceEntryMode === "catalog" ? "Buscar serviço por nome, tipo ou categoria..." : isService ? "Buscar serviço por nome ou código..." : "Buscar peça por nome, código ou grupo..."}
               value={query}
             />
           </label>
@@ -2907,6 +3079,13 @@ function BudgetLineModal({
           <div className="rounded-card border border-tec-border/15 bg-tec-field/45">
             {loadingItems ? (
               <p className="p-4 text-sm font-semibold text-tec-subtle">Buscando itens...</p>
+            ) : isService && serviceEntryMode === "catalog" && catalogItems.length ? (
+              <div className="divide-y divide-tec-border/10">
+                {catalogItems.map((service) => {
+                  const selected = selectedCatalogService?.name === service.name;
+                  return <button className={cx("flex w-full items-center justify-between gap-3 p-3 text-left transition hover:bg-tec-orange/10", selected ? "bg-tec-orange/15" : "")} key={service.name} onClick={() => selectCatalogService(service)} type="button"><span className="min-w-0"><span className="block truncate text-sm font-bold text-white">{service.service_name}</span><span className="mt-1 block truncate text-xs text-tec-muted">{service.device_type_label ?? service.device_type} · {service.category_label ?? service.category}</span></span><span className="shrink-0 text-right"><span className="block text-sm font-bold text-tec-orange">{service.default_labor_price > 0 ? formatCurrency(service.default_labor_price) : "Não definido"}</span><span className="block text-xs text-tec-muted">{service.default_duration ? `${service.default_duration} ${service.duration_unit.toLowerCase()}` : "Sem prazo"}</span></span></button>;
+                })}
+              </div>
             ) : items.length ? (
               <div className="divide-y divide-tec-border/10">
                 {items.map((item) => {
@@ -2933,7 +3112,7 @@ function BudgetLineModal({
                 })}
               </div>
             ) : (
-              <p className="p-4 text-sm font-semibold text-tec-subtle">Nenhum item encontrado para esse tipo.</p>
+              <p className="p-4 text-sm font-semibold text-tec-subtle">{isService && serviceEntryMode === "catalog" ? "Nenhum serviço no catálogo. Use Serviço avulso para não interromper o atendimento." : "Nenhum item encontrado para esse tipo."}</p>
             )}
           </div>
         </section>
@@ -2941,7 +3120,7 @@ function BudgetLineModal({
         <aside className="space-y-4 rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
           <div>
             <p className="text-xs font-bold uppercase text-tec-muted">Linha selecionada</p>
-            <p className="mt-1 text-lg font-bold text-white">{selectedItem?.item_name ?? "Nenhum item"}</p>
+            <p className="mt-1 text-lg font-bold text-white">{selectedCatalogService?.service_name ?? selectedItem?.item_name ?? "Nenhum item"}</p>
       <p className="mt-1 text-xs text-tec-muted">{budgetLineTypeDescription(activeLineType)}</p>
           </div>
 
@@ -2977,6 +3156,7 @@ function BudgetLineModal({
                 value={rate}
               />
             </label>
+            {isService && serviceEntryMode === "catalog" ? <><label className="block"><span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Prazo sugerido</span><input className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70" min="0" onChange={(event) => setDuration(event.target.value)} step="0.5" type="number" value={duration} /></label><label className="block"><span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Unidade do prazo</span><select className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70" onChange={(event) => setDurationUnit(event.target.value as "Horas" | "Dias úteis")} value={durationUnit}><option>Horas</option><option>Dias úteis</option></select></label></> : null}
           </div>
 
           {!isService ? (
