@@ -582,6 +582,37 @@ def run_public_acceptance_checks() -> dict:
 		if not token_reuse_blocked:
 			raise AssertionError("Token concluído foi reutilizado.")
 
+		# An attendant cannot skip the selfie. A Gestor may approve only a documented exception,
+		# after which signature and LGPD consent remain mandatory.
+		frappe.set_user(attendant)
+		exception_issued = issue_os_acceptance(service_order, "Entrada")
+		exception_token = exception_issued["link"].rstrip("/").rsplit("/", 1)[-1]
+		frappe.set_user("Guest")
+		selfie_skip_blocked = False
+		try:
+			complete_public_acceptance(exception_token, signature_data, 1)
+		except frappe.ValidationError:
+			selfie_skip_blocked = True
+		if not selfie_skip_blocked:
+			raise AssertionError("Aceite público concluiu sem selfie e sem exceção do Gestor.")
+
+		frappe.set_user(attendant)
+		exception_request = create_request(
+			"acceptance_selfie_exception",
+			exception_issued["acceptance"],
+			"Cliente recusou a selfie; identidade conferida presencialmente no balcão.",
+		)
+		manager = _find_or_create_user("Tecponto Gestor")
+		frappe.set_user(manager)
+		approved_exception = approve_request(exception_request["name"])
+		exception_doc = frappe.get_doc("OS Acceptance", exception_issued["acceptance"])
+		if not approved_exception or not exception_doc.selfie_exception or not exception_doc.selfie_exception_reason or exception_doc.selfie_exception_by != manager or not exception_doc.selfie_exception_on:
+			raise AssertionError("Exceção de selfie não ficou auditada no aceite após a aprovação do Gestor.")
+		frappe.set_user("Guest")
+		exception_completed = complete_public_acceptance(exception_token, signature_data, 1)
+		if not exception_completed.get("completed") or exception_doc.name != exception_completed.get("acceptance"):
+			raise AssertionError("Aceite excepcional não concluiu após assinatura e consentimento.")
+
 		# Retirada uses the exact same public flow, but mirrors its signature to the pickup field.
 		frappe.set_user(attendant)
 		pickup_issued = issue_os_acceptance(service_order, "Retirada")
@@ -591,6 +622,34 @@ def run_public_acceptance_checks() -> dict:
 		pickup_completed = complete_public_acceptance(pickup_token, signature_data, 1)
 		if not pickup_completed.get("completed") or frappe.db.get_value("Service Order", service_order, "customer_signature") != signature_data:
 			raise AssertionError("Aceite público de retirada não gravou a assinatura de retirada na OS.")
+
+		# A third-party pickup keeps the signer identity on the acceptance; the selfie captured
+		# by the public link belongs to that third party, never to the customer record by default.
+		frappe.set_user("Administrator")
+		frappe.db.set_value(
+			"Service Order",
+			service_order,
+			{
+				"picked_up_by": "Mariana Souza",
+				"picked_up_doc": "RG 44.555.666-7",
+				"picked_up_by_third_party": 1,
+				"third_party_doc": "RG 44.555.666-7",
+				"third_party_auth": "Autorização apresentada e conferida no balcão.",
+			},
+			update_modified=False,
+		)
+		frappe.set_user(attendant)
+		third_issued = issue_os_acceptance(service_order, "Retirada", "Terceiro")
+		third_token = third_issued["link"].rstrip("/").rsplit("/", 1)[-1]
+		third_doc = frappe.get_doc("OS Acceptance", third_issued["acceptance"])
+		if third_doc.signer_role != "Terceiro" or third_doc.signer_name != "Mariana Souza" or third_doc.signer_document != "RG 44.555.666-7" or not third_doc.signer_authorization:
+			raise AssertionError("Aceite de terceiro não reteve nome, documento e autorização.")
+		frappe.set_user("Guest")
+		save_public_acceptance_selfie(third_token, camera_selfie)
+		third_completed = complete_public_acceptance(third_token, signature_data, 1)
+		third_doc.reload()
+		if not third_completed.get("completed") or not third_doc.selfie_file or third_doc.status != "Concluído":
+			raise AssertionError("Selfie do terceiro não foi vinculada ao aceite de retirada.")
 
 		# Reemitir invalida um token pendente antes da captura de selfie/assinatura.
 		frappe.set_user(attendant)
@@ -625,6 +684,9 @@ def run_public_acceptance_checks() -> dict:
 			"signature_and_consent_recorded": True,
 			"consent_required": consent_required,
 			"pickup_signature_recorded": True,
+			"selfie_skip_blocked": selfie_skip_blocked,
+			"selfie_exception_audited": bool(exception_doc.selfie_exception_request),
+			"third_party_selfie_and_identity_recorded": bool(third_doc.selfie_file),
 			"token_reuse_blocked": token_reuse_blocked,
 			"reissued_token_invalidated": True,
 			"invalid_token_blocked": not invalid.get("valid"),

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Copy, FileText, Printer, QrCode, XCircle } from "lucide-react";
 
 import { balcao, serviceOrders, type AcceptanceIssueResponse, type BudgetDecisionPayload, type PickupPayload, type ServiceOrderDetailResponse } from "./api";
+import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { Button, Modal } from "./ui";
 
 type ApprovalMode = "approve" | "reject";
@@ -126,8 +127,11 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
   const [thirdParty, setThirdParty] = useState(false);
   const [pickedUpBy, setPickedUpBy] = useState("");
   const [pickedUpDoc, setPickedUpDoc] = useState("");
+  const [thirdPartyAuthorized, setThirdPartyAuthorized] = useState(false);
   const [notes, setNotes] = useState("");
   const [acceptance, setAcceptance] = useState<AcceptanceIssueResponse | null>(null);
+  const [exceptionRequestOpen, setExceptionRequestOpen] = useState(false);
+  const [exceptionRequestSent, setExceptionRequestSent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -138,14 +142,17 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
     setThirdParty(false);
     setPickedUpBy("");
     setPickedUpDoc("");
+    setThirdPartyAuthorized(false);
     setNotes("");
     setAcceptance(null);
+    setExceptionRequestOpen(false);
+    setExceptionRequestSent(null);
     setError(null);
     setSubmitting(false);
   }, [open, detail.name]);
 
   const termLink = detail.print_links.find((link) => link.label === "Termo de retirada");
-  const canPrepare = !thirdParty || (pickedUpBy.trim() && pickedUpDoc.trim());
+  const canPrepare = !thirdParty || (pickedUpBy.trim() && pickedUpDoc.trim() && thirdPartyAuthorized);
   const canSubmit = Boolean(acceptance) && canPrepare;
 
   async function copyAcceptanceLink() {
@@ -160,7 +167,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
   async function prepareAcceptance() {
     setError(null);
     if (!canPrepare) {
-      setError("Informe nome e documento de quem está retirando.");
+      setError("Informe nome, documento e confirme a autorização de quem está retirando.");
       return;
     }
     setSubmitting(true);
@@ -170,7 +177,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
         picked_up_doc: pickedUpDoc.trim(),
         pickup_notes: notes.trim(),
         third_party: thirdParty,
-        third_party_auth: thirdParty ? "Retirada por terceiro registrada no balcão Tecponto." : "",
+        third_party_auth: thirdParty && thirdPartyAuthorized ? "Autorização de retirada por terceiro confirmada no balcão Tecponto." : "",
       });
       const issued = await balcao.issueAcceptance(detail.name, "Retirada", thirdParty ? "Terceiro" : "Dono");
       setAcceptance(issued);
@@ -188,8 +195,8 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
       setError("Gere e conclua o aceite por link antes de entregar.");
       return;
     }
-    if (thirdParty && (!pickedUpBy.trim() || !pickedUpDoc.trim())) {
-      setError("Informe nome e documento de quem está retirando.");
+    if (thirdParty && (!pickedUpBy.trim() || !pickedUpDoc.trim() || !thirdPartyAuthorized)) {
+      setError("Informe nome, documento e confirme a autorização de quem está retirando.");
       return;
     }
 
@@ -199,7 +206,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
       picked_up_doc: pickedUpDoc.trim(),
       pickup_notes: notes.trim(),
       third_party: thirdParty,
-      third_party_auth: thirdParty ? "Retirada por terceiro registrada no balcão Tecponto." : "",
+      third_party_auth: thirdParty && thirdPartyAuthorized ? "Autorização de retirada por terceiro confirmada no balcão Tecponto." : "",
     };
 
     setSubmitting(true);
@@ -233,9 +240,20 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
               </span>
             </label>
             {thirdParty ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <Field label="Nome de quem retira" onChange={setPickedUpBy} required value={pickedUpBy} />
-                <Field label="Documento" onChange={setPickedUpDoc} required value={pickedUpDoc} />
+              <div className="mt-4 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Nome de quem retira" onChange={setPickedUpBy} required value={pickedUpBy} />
+                  <Field label="Documento" onChange={setPickedUpDoc} required value={pickedUpDoc} />
+                </div>
+                <label className="flex items-start gap-3 rounded-card border border-tec-border/20 bg-tec-surface p-3 text-sm text-tec-subtle">
+                  <input
+                    checked={thirdPartyAuthorized}
+                    className="mt-0.5 h-4 w-4 accent-tec-orange"
+                    onChange={(event) => setThirdPartyAuthorized(event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span><span className="font-bold text-white">Autorização conferida</span><br />O titular autorizou esta retirada por terceiro.</span>
+                </label>
               </div>
             ) : null}
             <TextArea
@@ -255,7 +273,11 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
                   <label className="block text-xs font-bold text-tec-text">Link seguro
                     <input className="tp-input mt-1 w-full" readOnly value={acceptance.link} />
                   </label>
-                  <Button icon={<Copy size={16} />} onClick={() => void copyAcceptanceLink()} variant="secondary">Copiar link</Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button icon={<Copy size={16} />} onClick={() => void copyAcceptanceLink()} variant="secondary">Copiar link</Button>
+                    <Button onClick={() => setExceptionRequestOpen(true)} variant="ghost">Solicitar exceção sem selfie</Button>
+                  </div>
+                  {exceptionRequestSent ? <p className="rounded-card border border-tec-success/30 bg-tec-success/10 p-3 text-xs text-tec-success">{exceptionRequestSent}</p> : null}
                 </div>
               </div>
             ) : <Button className="mt-4" disabled={!canPrepare || submitting} icon={<QrCode size={17} />} onClick={() => void prepareAcceptance()} variant="primary">{submitting ? "Gerando..." : "Gerar link e QR de retirada"}</Button>}
@@ -301,6 +323,21 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
           </Button>
         </aside>
       </div>
+      {acceptance ? (
+        <ApprovalRequestModal
+          approver="Gestor"
+          onClose={() => setExceptionRequestOpen(false)}
+          onCreated={() => setExceptionRequestSent("Solicitação enviada, aguardando o Gestor.")}
+          onToast={(message, tone) => {
+            if (tone === "error") setError(message);
+          }}
+          open={exceptionRequestOpen}
+          payload={{}}
+          referenceName={acceptance.acceptance}
+          requestType="acceptance_selfie_exception"
+          title="O cliente não consegue ou não autoriza a selfie. Deseja solicitar ao Gestor a dispensa excepcional da selfie? A assinatura e o consentimento LGPD continuam obrigatórios."
+        />
+      ) : null}
     </Modal>
   );
 }

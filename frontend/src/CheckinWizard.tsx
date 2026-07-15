@@ -54,6 +54,7 @@ import {
   type CustomerDeviceSummary,
   type CustomerSummary,
 } from "./api";
+import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { Button, Modal } from "./ui";
 
 const steps = ["Cliente", "Aparelho", "Dados", "Fotos", "Assinatura"];
@@ -1656,6 +1657,8 @@ function CheckinSuccess({
 }) {
   const [acceptance, setAcceptance] = useState<AcceptanceIssueResponse | null>(null);
   const [acceptanceError, setAcceptanceError] = useState<string | null>(null);
+  const [exceptionRequestOpen, setExceptionRequestOpen] = useState(false);
+  const [exceptionRequestSent, setExceptionRequestSent] = useState<string | null>(null);
   const [issuingAcceptance, setIssuingAcceptance] = useState(true);
 
   useEffect(() => {
@@ -1708,7 +1711,11 @@ function CheckinSuccess({
           <div className="mt-3 space-y-3">
             <div className="mx-auto w-fit rounded-card bg-white p-3"><img alt="QR Code do aceite de entrada" className="h-40 w-40" src={acceptance.qr_svg} /></div>
             <p className="text-xs leading-5 text-tec-muted">Uso único, expira em 24 horas. O cliente só confirma; não pode editar a OS.</p>
-            <Button className="w-full" onClick={() => void copyAcceptanceLink()} variant="secondary">Copiar link</Button>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button onClick={() => void copyAcceptanceLink()} variant="secondary">Copiar link</Button>
+              <Button onClick={() => setExceptionRequestOpen(true)} variant="ghost">Solicitar exceção sem selfie</Button>
+            </div>
+            {exceptionRequestSent ? <p className="rounded-card border border-tec-success/30 bg-tec-success/10 p-3 text-xs text-tec-success">{exceptionRequestSent}</p> : null}
           </div>
         ) : null}
         {acceptanceError ? <p className="mt-3 rounded-card border border-tec-red/30 bg-tec-red/10 p-3 text-xs text-tec-red">{acceptanceError}</p> : null}
@@ -1728,6 +1735,21 @@ function CheckinSuccess({
           ))}
         </div>
       </section>
+      {acceptance ? (
+        <ApprovalRequestModal
+          approver="Gestor"
+          onClose={() => setExceptionRequestOpen(false)}
+          onCreated={() => setExceptionRequestSent("Solicitação enviada, aguardando o Gestor.")}
+          onToast={(message, tone) => {
+            if (tone === "error") setAcceptanceError(message);
+          }}
+          open={exceptionRequestOpen}
+          payload={{}}
+          referenceName={acceptance.acceptance}
+          requestType="acceptance_selfie_exception"
+          title="O cliente não consegue ou não autoriza a selfie. Deseja solicitar ao Gestor a dispensa excepcional da selfie? A assinatura e o consentimento LGPD continuam obrigatórios."
+        />
+      ) : null}
     </div>
   );
 }

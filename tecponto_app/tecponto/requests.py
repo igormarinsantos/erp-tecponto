@@ -17,9 +17,10 @@ REQUEST_TYPES = {
 	"tradein_over_max": {"label": "Troca acima da tabela", "doctype": "Device Trade Evaluation"},
 	"stock_transfer": {"label": "Transferência entre estoques", "doctype": "Stock Entry"},
 	"billed_service_order_cancel": {"label": "Cancelar OS faturada", "doctype": "Service Order"},
+	"acceptance_selfie_exception": {"label": "Dispensar selfie do aceite", "doctype": "OS Acceptance"},
 }
 MANAGER_ROLE = "Tecponto Gestor"
-MANAGER_TYPES = {"service_order_discount", "pos_discount", "pos_price_floor", "tradein_over_max", "stock_transfer", "billed_service_order_cancel"}
+MANAGER_TYPES = {"service_order_discount", "pos_discount", "pos_price_floor", "tradein_over_max", "stock_transfer", "billed_service_order_cancel", "acceptance_selfie_exception"}
 FRONTEND_ROLES = {"Tecponto Atendente", "Tecponto Tecnico", "Tecponto Gestor", "Tecponto Diretor", "System Manager"}
 
 
@@ -66,7 +67,7 @@ def approve_request(name: str) -> dict[str, Any]:
 		frappe.throw(_("O solicitante não pode aprovar a própria solicitação."), frappe.PermissionError)
 	_require_role(request.approver_role)
 	payload = frappe.parse_json(request.action_payload)
-	result = _execute_as_approver(payload["type"], request.reference_name, payload["data"])
+	result = _execute_as_approver(payload["type"], request.reference_name, payload["data"], request.reason, request.name)
 	request.status = "Aprovada"
 	request.approved_by = frappe.session.user
 	request.decision_date = now_datetime()
@@ -127,7 +128,13 @@ def _get_pending_request(name: str):
 	return request
 
 
-def _execute_as_approver(request_type: str, reference_name: str, data: dict[str, Any]) -> dict[str, Any]:
+def _execute_as_approver(
+	request_type: str,
+	reference_name: str,
+	data: dict[str, Any],
+	reason: str = "",
+	request_name: str = "",
+) -> dict[str, Any]:
 	with _preserve_user():
 		# The approved user's real session executes the ordinary business path again.
 		if request_type == "service_order_move":
@@ -153,6 +160,20 @@ def _execute_as_approver(request_type: str, reference_name: str, data: dict[str,
 		if request_type == "billed_service_order_cancel":
 			from tecponto_app.tecponto.frontend.api import move_service_order
 			return move_service_order(reference_name, "Cancelado")
+		if request_type == "acceptance_selfie_exception":
+			doc = frappe.get_doc("OS Acceptance", reference_name)
+			if doc.status != "Pendente":
+				frappe.throw(_("Só é possível dispensar a selfie de um aceite pendente."), frappe.ValidationError)
+			if doc.selfie_file:
+				frappe.throw(_("Este aceite já possui uma selfie registrada."), frappe.ValidationError)
+			doc.check_permission("write")
+			doc.selfie_exception = 1
+			doc.selfie_exception_reason = reason
+			doc.selfie_exception_by = frappe.session.user
+			doc.selfie_exception_on = now_datetime()
+			doc.selfie_exception_request = request_name
+			doc.save()
+			return {"acceptance": doc.name, "selfie_exception": True}
 	frappe.throw(_("Executor de solicitação inválido."), frappe.ValidationError)
 
 
@@ -167,6 +188,12 @@ def _validate_payload(request_type: str, reference_name: str, data: dict[str, An
 		frappe.throw(_("Informe o valor da troca."), frappe.ValidationError)
 	if request_type == "billed_service_order_cancel" and not frappe.db.get_value("Service Order", reference_name, "sales_invoice"):
 		frappe.throw(_("A OS não está faturada."), frappe.ValidationError)
+	if request_type == "acceptance_selfie_exception":
+		doc = frappe.get_doc("OS Acceptance", reference_name)
+		if doc.status != "Pendente":
+			frappe.throw(_("Só é possível solicitar exceção para um aceite pendente."), frappe.ValidationError)
+		if doc.selfie_file:
+			frappe.throw(_("Este aceite já possui uma selfie registrada."), frappe.ValidationError)
 
 
 def _approver_role(request_type: str, reference_name: str, data: dict[str, Any]) -> str:

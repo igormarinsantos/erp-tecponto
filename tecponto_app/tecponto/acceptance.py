@@ -30,6 +30,8 @@ def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str 
 
 	order = frappe.get_doc("Service Order", service_order)
 	order.check_permission("read")
+	if signer_role == "Terceiro" and (not order.get("picked_up_by") or not order.get("picked_up_doc") or not order.get("third_party_auth")):
+		frappe.throw(_("Registre nome, documento e autorização do terceiro antes de emitir o aceite."), frappe.ValidationError)
 	frappe.db.set_value(
 		"OS Acceptance",
 		{"service_order": order.name, "acceptance_type": acceptance_type, "status": PENDING_STATUS},
@@ -49,6 +51,9 @@ def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str 
 			"token_hash": _token_hash(token),
 			"expires_on": add_to_date(now_datetime(), hours=TOKEN_TTL_HOURS),
 			"issued_by": frappe.session.user,
+			"signer_name": order.get("picked_up_by") if signer_role == "Terceiro" else "",
+			"signer_document": order.get("picked_up_doc") if signer_role == "Terceiro" else "",
+			"signer_authorization": order.get("third_party_auth") if signer_role == "Terceiro" else "",
 		}
 	)
 	doc.insert(ignore_permissions=True)
@@ -79,6 +84,7 @@ def get_public_acceptance(token: str) -> dict:
 			"signer_role": doc.signer_role,
 			"expires_on": str(doc.expires_on),
 			"selfie_captured": bool(doc.selfie_file),
+			"selfie_exception": bool(doc.selfie_exception),
 		},
 		"service_order": _public_order_summary(order, doc.acceptance_type),
 		"lgpd_notice": {
@@ -115,7 +121,7 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 	doc = _get_valid_acceptance(token)
 	if not doc:
 		frappe.throw(_("Este link de aceite não está disponível. Peça um novo link à Tecponto."), frappe.PermissionError)
-	if not doc.selfie_file:
+	if not doc.selfie_file and not doc.selfie_exception:
 		frappe.throw(_("Capture a selfie antes de concluir o aceite."), frappe.ValidationError)
 	if not frappe.utils.cint(lgpd_consent):
 		frappe.throw(_("Confirme o consentimento LGPD para concluir o aceite."), frappe.ValidationError)

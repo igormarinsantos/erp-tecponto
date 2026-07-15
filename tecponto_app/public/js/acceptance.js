@@ -46,18 +46,18 @@
 		const stage = card.querySelector("[data-camera-stage]");
 		const feedback = card.querySelector("[data-camera-feedback]");
 		const renderStart = () => {
-			stage.innerHTML = data.acceptance.selfie_captured
+			stage.innerHTML = data.acceptance.selfie_captured || data.acceptance.selfie_exception
 				? ""
 				: `<button class="tp-camera-primary" type="button" data-start-camera>Abrir câmera</button>`;
-			if (data.acceptance.selfie_captured) {
-				renderSignatureAndConsent();
+			if (data.acceptance.selfie_captured || data.acceptance.selfie_exception) {
+				renderSignatureAndConsent(Boolean(data.acceptance.selfie_exception));
 			} else {
 				stage.querySelector("[data-start-camera]").addEventListener("click", startCamera);
 			}
 		};
-		const renderSignatureAndConsent = () => {
+		const renderSignatureAndConsent = (selfieException = false) => {
 			stage.innerHTML = `
-				<div class="tp-camera-complete"><b>Selfie registrada</b><span>Assine e confirme o consentimento para concluir.</span></div>
+				<div class="tp-camera-complete"><b>${selfieException ? "Selfie dispensada pelo Gestor" : "Selfie registrada"}</b><span>${selfieException ? "Assine e confirme o consentimento para concluir esta exceção." : "Assine e confirme o consentimento para concluir."}</span></div>
 				<section class="tp-signature" aria-labelledby="signature-title">
 					<b id="signature-title">Assinatura do cliente</b>
 					<p>Assine no quadro abaixo para confirmar este aceite.</p>
