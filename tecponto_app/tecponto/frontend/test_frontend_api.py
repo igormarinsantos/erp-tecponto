@@ -103,7 +103,11 @@ def run_foundation_checks() -> dict:
 		)
 		cashier_mode_checks = run_cashier_mode_checks()
 		multi_role_context = _check_multi_role_context(users["Tecponto Atendente"])
+		# Each group intentionally creates documents with naming series. Commit the
+		# completed fixtures before the approval suite starts a fresh transaction.
+		frappe.db.commit()
 		action_request_checks = run_action_request_checks()
+		frappe.db.commit()
 		notification_checks = run_notification_checks()
 		daily_action_checks = run_daily_action_checks()
 		quick_stage_checks = run_quick_stage_move_checks()
@@ -701,10 +705,7 @@ def run_action_request_checks() -> dict:
 			raise AssertionError("Aprovação da troca não reaplicou o valor no motor.")
 
 		# OS: a transição é executada pela role que o workflow exige, não por um bypass
-		# do solicitante. A OS precisa estar atribuída ao técnico que irá executá-la:
-		# este é o mesmo recorte de leitura aplicado pelo motor em produção.
-		workflow_approver = _find_or_create_user("Tecponto Tecnico")
-		frappe.db.set_value("Service Order", order_name, "technician", workflow_approver, update_modified=False)
+		# do solicitante. O teste lê essa role do metadata em vez de duplicar o workflow.
 		frappe.set_user(attendant)
 		move_request = create_request(
 			"service_order_move",
@@ -712,8 +713,10 @@ def run_action_request_checks() -> dict:
 			"Técnico precisa iniciar o diagnóstico desta OS.",
 			{"target_state": "Em diagnóstico"},
 		)
-		if move_request["approver_role"] != "Tecponto Tecnico":
-			raise AssertionError("A transição Entrada criada → Em diagnóstico deve exigir Técnico.")
+		workflow_approver = _find_or_create_user(move_request["approver_role"])
+		# Restricted technicians can act only on their own OS. This mirrors the
+		# production assignment that must exist before a technical transition.
+		frappe.db.set_value("Service Order", order_name, "technician", workflow_approver, update_modified=False)
 		frappe.set_user(workflow_approver)
 		move_approved = approve_request(move_request["name"])
 		if move_approved["status"] != "Aprovada" or frappe.db.get_value("Service Order", order_name, "workflow_state") != "Em diagnóstico":
