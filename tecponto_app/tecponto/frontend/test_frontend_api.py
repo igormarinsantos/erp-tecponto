@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from base64 import b64encode
 from io import BytesIO
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import frappe
 from frappe.utils import today
 from frappe.utils import add_days, add_to_date, flt, now_datetime, nowdate
 from pypdf import PdfReader
+from PIL import Image
 
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
@@ -30,7 +32,7 @@ from tecponto_app.tecponto.frontend.api import (
 	set_tradein_approved_value,
 	submit_stock_transfer,
 )
-from tecponto_app.tecponto.acceptance import get_public_acceptance
+from tecponto_app.tecponto.acceptance import get_public_acceptance, save_public_acceptance_selfie
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.requests import (
 	approve_request,
@@ -527,6 +529,31 @@ def run_public_acceptance_checks() -> dict:
 			raise AssertionError("Projeção pública expôs dado interno da OS.")
 		if frappe.db.get_value("OS Acceptance", acceptance.name, "status") != "Pendente":
 			raise AssertionError("Consulta pública não pode consumir ou alterar um aceite pendente.")
+		camera_image = BytesIO()
+		Image.new("RGB", (24, 24), color=(20, 40, 60)).save(camera_image, format="JPEG")
+		camera_selfie = "data:image/jpeg;base64," + b64encode(camera_image.getvalue()).decode()
+		saved = save_public_acceptance_selfie(raw_token, camera_selfie)
+		acceptance.reload()
+		selfie_file = frappe.get_doc("File", acceptance.selfie_file)
+		if not saved.get("saved") or selfie_file.attached_to_doctype != "Service Order" or selfie_file.attached_to_name != service_order or not selfie_file.is_private:
+			raise AssertionError("Selfie pública não foi salva como anexo privado da OS.")
+		public_after_selfie = get_public_acceptance(raw_token)
+		if not public_after_selfie["acceptance"].get("selfie_captured") or "selfie_file" in public_after_selfie["acceptance"]:
+			raise AssertionError("Projeção pública da selfie expôs arquivo interno ou não refletiu a captura.")
+		duplicate_blocked = False
+		try:
+			save_public_acceptance_selfie(raw_token, camera_selfie)
+		except frappe.ValidationError:
+			duplicate_blocked = True
+		if not duplicate_blocked:
+			raise AssertionError("Endpoint público aceitou uma segunda selfie para o mesmo aceite.")
+		file_picker_payload_blocked = False
+		try:
+			save_public_acceptance_selfie(raw_token, "data:image/png;base64,aGVsbG8=")
+		except frappe.ValidationError:
+			file_picker_payload_blocked = True
+		if not file_picker_payload_blocked:
+			raise AssertionError("Endpoint público aceitou formato fora da captura JPEG da câmera.")
 
 		# Reemitir invalida o link anterior antes mesmo da captura de selfie/assinatura.
 		frappe.set_user(attendant)
@@ -554,6 +581,8 @@ def run_public_acceptance_checks() -> dict:
 			"status": "ok",
 			"acceptance": acceptance.name,
 			"guest_read_only": True,
+			"selfie_attached_to_service_order": True,
+			"camera_jpeg_only": True,
 			"reissued_token_invalidated": True,
 			"invalid_token_blocked": not invalid.get("valid"),
 			"expired_token_blocked": not expired.get("valid"),

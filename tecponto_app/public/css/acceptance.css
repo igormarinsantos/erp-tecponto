@@ -10,3 +10,19 @@
 .tp-acceptance-notice { border-left: 3px solid #fe5000; color: #adb4ba; font-size: 14px; line-height: 1.55; margin-top: 20px; padding: 12px 16px; }
 .tp-acceptance-readonly { color: #adb4ba; font-size: 13px; margin-top: 24px; }
 .tp-acceptance-error { border-color: rgba(239,68,68,.6); }
+.tp-camera { border-top: 1px solid rgba(245,246,247,.12); margin-top: 28px; padding-top: 24px; }
+.tp-camera-heading { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
+.tp-camera-heading b { color: #f5f6f7; font-size: 18px; }
+.tp-camera-heading p { font-size: 14px; margin: 6px 0 0; }
+.tp-camera-required { background: rgba(254,80,0,.14); border-radius: 999px; color: #fe5000; font-size: 11px; font-weight: 700; padding: 6px 10px; text-transform: uppercase; }
+.tp-camera-stage { align-items: center; background: #101214; border: 1px dashed rgba(245,246,247,.2); border-radius: 12px; display: flex; flex-direction: column; justify-content: center; margin-top: 16px; min-height: 280px; overflow: hidden; padding: 16px; }
+.tp-camera-video, .tp-camera-preview { background: #0a0c0e; border-radius: 10px; display: block; max-height: 420px; max-width: 100%; object-fit: cover; width: 100%; }
+.tp-camera-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 14px; width: 100%; }
+.tp-camera-primary, .tp-camera-secondary { border-radius: 10px; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 700; min-height: 42px; padding: 0 16px; }
+.tp-camera-primary { background: #fe5000; border: 1px solid #fe5000; color: #202428; }
+.tp-camera-primary:disabled { cursor: wait; opacity: .6; }
+.tp-camera-secondary { background: #24292e; border: 1px solid rgba(245,246,247,.18); color: #f5f6f7; }
+.tp-camera-complete { align-items: center; color: #25d366; display: flex; flex-direction: column; gap: 8px; text-align: center; }
+.tp-camera-complete span { color: #adb4ba; font-size: 14px; }
+.tp-camera-feedback { color: #adb4ba; font-size: 14px; margin: 12px 0 0; min-height: 21px; }
+@media (max-width: 560px) { .tp-acceptance { padding: 12px; } .tp-acceptance-card { padding: 22px; } .tp-camera-heading { flex-direction: column; gap: 8px; } .tp-camera-stage { min-height: 220px; } .tp-camera-actions > button { flex: 1; } }

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from base64 import b64decode
+
 import frappe
 from frappe import _
 from frappe.twofactor import get_qr_svg_code
+from frappe.utils.file_manager import save_file
 from frappe.utils import add_to_date, get_url, now_datetime
 
 
@@ -12,6 +15,7 @@ ACCEPTANCE_TYPES = {"Entrada", "Retirada"}
 SIGNER_ROLES = {"Dono", "Terceiro"}
 PENDING_STATUS = "Pendente"
 TOKEN_TTL_HOURS = 24
+MAX_SELFIE_BYTES = 5 * 1024 * 1024
 
 
 def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str = "Dono") -> dict:
@@ -72,6 +76,7 @@ def get_public_acceptance(token: str) -> dict:
 			"type": doc.acceptance_type,
 			"signer_role": doc.signer_role,
 			"expires_on": str(doc.expires_on),
+			"selfie_captured": bool(doc.selfie_file),
 		},
 		"service_order": _public_order_summary(order, doc.acceptance_type),
 		"lgpd_notice": {
@@ -79,6 +84,27 @@ def get_public_acceptance(token: str) -> dict:
 			"text": "[MINUTA — revisar com advogado] No próximo passo, a Tecponto solicitará seu consentimento para coletar selfie e assinatura exclusivamente para registrar este aceite e prevenir fraudes. A coleta ocorrerá somente após sua confirmação expressa.",
 		},
 	}
+
+
+@frappe.whitelist(allow_guest=True)
+def save_public_acceptance_selfie(token: str, image_data: str) -> dict:
+	"""Persist one camera-captured selfie as a private attachment on the Service Order."""
+	doc = _get_valid_acceptance(token)
+	if not doc:
+		frappe.throw(_("Este link de aceite não está disponível. Peça um novo link à Tecponto."), frappe.PermissionError)
+	if doc.selfie_file:
+		frappe.throw(_("A selfie deste aceite já foi registrada."), frappe.ValidationError)
+
+	content = _decode_camera_selfie(image_data)
+	file_doc = save_file(
+		f"selfie-{doc.name}.jpg",
+		content,
+		dt="Service Order",
+		dn=doc.service_order,
+		is_private=1,
+	)
+	doc.db_set("selfie_file", file_doc.name, update_modified=False)
+	return {"saved": True, "acceptance": doc.name}
 
 
 def _get_valid_acceptance(token: str):
@@ -118,3 +144,17 @@ def _public_order_summary(order, acceptance_type: str) -> dict:
 
 def _token_hash(token: str) -> str:
 	return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _decode_camera_selfie(image_data: str) -> bytes:
+	"""Allow only the JPEG data URL produced by the in-page camera canvas."""
+	prefix = "data:image/jpeg;base64,"
+	if not isinstance(image_data, str) or not image_data.startswith(prefix):
+		frappe.throw(_("Envie uma selfie capturada pela câmera."), frappe.ValidationError)
+	try:
+		content = b64decode(image_data[len(prefix):], validate=True)
+	except ValueError:
+		frappe.throw(_("A imagem capturada é inválida."), frappe.ValidationError)
+	if len(content) < 256 or len(content) > MAX_SELFIE_BYTES or not content.startswith(b"\xff\xd8\xff"):
+		frappe.throw(_("A imagem capturada é inválida."), frappe.ValidationError)
+	return content
