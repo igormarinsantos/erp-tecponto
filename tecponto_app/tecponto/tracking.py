@@ -9,11 +9,15 @@ from urllib.parse import quote
 
 import frappe
 from frappe import _
+from frappe.twofactor import get_qr_svg_code
 from frappe.utils import add_days, flt, get_url, now_datetime
 
 
 TRACKING_DOCTYPE = "Service Order Tracking"
 ACTIVE_STATUS = "Ativo"
+TRACKING_RETENTION_DAYS = 90
+TRACKING_OPERATOR_ROLES = {"Tecponto Atendente", "Tecponto Gestor", "System Manager"}
+TRACKING_MANAGER_ROLES = {"Tecponto Gestor", "System Manager"}
 INVALID_LINK_MESSAGE = "Este link de rastreio não está disponível. Peça um novo link à Tecponto."
 TRACKING_STAGES = (
 	"Entrada criada",
@@ -46,16 +50,64 @@ def issue_tracking_link(service_order: str) -> dict[str, str]:
 			"service_order": order.name,
 			"status": ACTIVE_STATUS,
 			"token_hash": _token_hash(token),
-			"expires_on": add_days(now_datetime(), 90),
+			"expires_on": _tracking_expiry(order),
 			"issued_by": frappe.session.user,
 		}
 	)
 	doc.insert(ignore_permissions=True)
+	link = f"{get_url()}/tecponto/rastreio/{token}"
+	qr_svg = get_qr_svg_code(link).decode()
 	return {
 		"tracking": doc.name,
-		"link": f"{get_url()}/tecponto/rastreio/{token}",
-		"expires_on": str(doc.expires_on),
+		"link": link,
+		"qr_svg": f"data:image/svg+xml;base64,{qr_svg}",
+		"expires_on": str(doc.expires_on or ""),
 	}
+
+
+@frappe.whitelist()
+def issue_service_order_tracking_link(service_order: str) -> dict[str, str]:
+	"""Authorized internal API for future notification and WhatsApp channels."""
+	_require_tracking_role(TRACKING_OPERATOR_ROLES)
+	return issue_tracking_link(service_order)
+
+
+@frappe.whitelist()
+def revoke_service_order_tracking_link(tracking: str) -> dict[str, str]:
+	"""Invalidate a leaked public link. Only management may take this action."""
+	_require_tracking_role(TRACKING_MANAGER_ROLES)
+	doc = frappe.get_doc(TRACKING_DOCTYPE, (tracking or "").strip())
+	if doc.status != ACTIVE_STATUS:
+		frappe.throw(_("Este link de rastreio não está ativo."), frappe.ValidationError)
+	doc.db_set("status", "Revogado", update_modified=False)
+	doc.db_set("revoked_by", frappe.session.user, update_modified=False)
+	doc.db_set("revoked_on", now_datetime(), update_modified=False)
+	return {"tracking": doc.name, "status": doc.status}
+
+
+def on_service_order_updated(doc, method=None) -> None:
+	"""Keep active tracking links alive through repair and retain them after pickup."""
+	if doc.get("workflow_state") != "Entregue":
+		return
+	frappe.db.set_value(
+		TRACKING_DOCTYPE,
+		{"service_order": doc.name, "status": ACTIVE_STATUS},
+		"expires_on",
+		_tracking_expiry(doc),
+		update_modified=False,
+	)
+
+
+def ensure_tracking_lifecycle() -> None:
+	"""Normalize links created before the post-pickup retention rule existed."""
+	for row in frappe.get_all(
+		TRACKING_DOCTYPE,
+		filters={"status": ACTIVE_STATUS},
+		fields=["name", "service_order"],
+		limit_page_length=0,
+	):
+		order = frappe.get_doc("Service Order", row.service_order)
+		frappe.db.set_value(TRACKING_DOCTYPE, row.name, "expires_on", _tracking_expiry(order), update_modified=False)
 
 
 @frappe.whitelist(allow_guest=True)
@@ -145,7 +197,7 @@ def _get_valid_tracking(token: str):
 	doc = frappe.get_doc(TRACKING_DOCTYPE, name)
 	if doc.status != ACTIVE_STATUS:
 		return None
-	if doc.expires_on <= now_datetime():
+	if doc.expires_on and doc.expires_on <= now_datetime():
 		doc.db_set("status", "Expirado", update_modified=False)
 		return None
 	return doc
@@ -222,3 +274,14 @@ def _build_timeline(order: Any) -> list[dict[str, Any]]:
 
 def _token_hash(token: str) -> str:
 	return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _tracking_expiry(order: Any):
+	if order.get("workflow_state") != "Entregue":
+		return None
+	return add_days(order.get("pickup_date") or now_datetime(), TRACKING_RETENTION_DAYS)
+
+
+def _require_tracking_role(roles: set[str]) -> None:
+	if not set(frappe.get_roles()).intersection(roles):
+		frappe.throw(_("Você não tem permissão para gerenciar links de rastreio."), frappe.PermissionError)

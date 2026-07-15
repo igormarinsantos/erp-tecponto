@@ -401,6 +401,14 @@ export interface CheckinPayload {
 export interface CheckinResponse {
   service_order: Pick<ServiceOrderDetailResponse, "name" | "workflow_state" | "customer" | "device" | "print_links">;
   entry_photo_url: string;
+  tracking: TrackingLinkResponse;
+}
+
+export interface TrackingLinkResponse {
+  tracking: string;
+  link: string;
+  qr_svg: string;
+  expires_on: string;
 }
 
 export interface BudgetDecisionPayload {

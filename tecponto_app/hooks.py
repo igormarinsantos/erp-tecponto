@@ -280,6 +280,7 @@ doc_events = {
 			"tecponto_app.tecponto.service_order.advance.processar_sinal",
 			"tecponto_app.tecponto.service_order.billing.gerar_nota",
 			"tecponto_app.tecponto.service_order.commission.gerar_comissao",
+			"tecponto_app.tecponto.tracking.on_service_order_updated",
 			"tecponto_app.tecponto.notify.on_service_order_updated",
 		],
 	},
@@ -351,6 +352,7 @@ after_migrate = [
 	"tecponto_app.tecponto.cashier.ensure_cashier_sales_invoice_field",
 	"tecponto_app.tecponto.service_order.kanban.ensure_service_order_kanban",
 	"tecponto_app.tecponto.service_order.print_formats.ensure_service_order_print_formats",
+	"tecponto_app.tecponto.tracking.ensure_tracking_lifecycle",
 ]
 
 website_route_rules = [

@@ -1683,6 +1683,20 @@ function CheckinSuccess({
     }
   };
 
+  const copyTrackingLink = async () => {
+    try {
+      await navigator.clipboard.writeText(created.tracking.link);
+      setAcceptanceError(null);
+    } catch {
+      setAcceptanceError("Não foi possível copiar automaticamente. Use o QR Code ou copie o link exibido no detalhe da OS.");
+    }
+  };
+
+  const sendTrackingWhatsApp = () => {
+    const text = `Olá! Acompanhe o status do seu reparo Tecponto por este link seguro: ${created.tracking.link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+  };
+
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
       <section className="rounded-card border border-tec-success/30 bg-tec-success/10 p-5">
@@ -1719,6 +1733,17 @@ function CheckinSuccess({
           </div>
         ) : null}
         {acceptanceError ? <p className="mt-3 rounded-card border border-tec-red/30 bg-tec-red/10 p-3 text-xs text-tec-red">{acceptanceError}</p> : null}
+        <div className="mt-5 border-t border-tec-border/15 pt-5">
+          <h3 className="flex items-center gap-2 text-sm font-bold text-white"><QrCode className="text-tec-orange" size={17} /> Rastreio do reparo</h3>
+          <div className="mt-3 flex items-center gap-3">
+            <div className="w-fit rounded-card bg-white p-2"><img alt="QR Code do rastreio do reparo" className="h-20 w-20" src={created.tracking.qr_svg} /></div>
+            <p className="text-xs leading-5 text-tec-muted">Este link acompanha o reparo inteiro e permanece disponível por 90 dias após a retirada.</p>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Button onClick={() => void copyTrackingLink()} variant="secondary">Copiar link de rastreio</Button>
+            <Button onClick={sendTrackingWhatsApp} variant="secondary">Enviar por WhatsApp</Button>
+          </div>
+        </div>
         <h3 className="mt-5 text-sm font-bold text-white">Impressão</h3>
         <div className="mt-3 space-y-2">
           {created.service_order.print_links.map((link) => (

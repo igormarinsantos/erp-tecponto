@@ -758,6 +758,9 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 		{"entry_photos": photo_url},
 		update_modified=True,
 	)
+	from tecponto_app.tecponto.tracking import issue_tracking_link
+
+	tracking = issue_tracking_link(order.name)
 
 	return {
 		"service_order": {
@@ -768,6 +771,7 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 			"print_links": _get_service_order_print_links(order.name),
 		},
 		"entry_photo_url": photo_url,
+		"tracking": tracking,
 	}
 
 

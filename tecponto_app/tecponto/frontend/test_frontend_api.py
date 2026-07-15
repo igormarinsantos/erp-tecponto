@@ -10,6 +10,9 @@ from frappe.utils import today
 from frappe.utils import add_days, add_to_date, flt, now_datetime, nowdate
 from pypdf import PdfReader
 from PIL import Image, ImageDraw
+from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry import (
+	get_available_qty_to_reserve,
+)
 
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
@@ -18,6 +21,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_service_order_detail,
 	get_service_order_kanban,
 	issue_os_acceptance,
+	create_service_order_checkin,
 	create_customer,
 	list_customer_devices,
 	list_service_orders,
@@ -39,6 +43,9 @@ from tecponto_app.tecponto.tracking import (
 	decide_public_tracking_budget,
 	get_public_tracking,
 	issue_tracking_link,
+	issue_service_order_tracking_link,
+	on_service_order_updated,
+	revoke_service_order_tracking_link,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.requests import (
@@ -126,6 +133,7 @@ def run_foundation_checks() -> dict:
 		public_acceptance_checks = run_public_acceptance_checks()
 		tracking_checks = run_public_tracking_checks()
 		tracking_budget_checks = run_public_tracking_budget_checks()
+		tracking_lifecycle_checks = run_tracking_lifecycle_checks()
 
 		return {
 			"status": "ok",
@@ -147,6 +155,7 @@ def run_foundation_checks() -> dict:
 			"public_acceptance_checks": public_acceptance_checks,
 			"tracking_checks": tracking_checks,
 			"tracking_budget_checks": tracking_budget_checks,
+			"tracking_lifecycle_checks": tracking_lifecycle_checks,
 		}
 	finally:
 		frappe.flags.in_test = previous_in_test
@@ -321,6 +330,100 @@ def run_public_tracking_budget_checks() -> dict:
 			"rejection_reason_required": rejection_reason_required,
 			"decision_repeat_blocked": decision_repeat_blocked,
 			"expired_blocked": expired_blocked,
+			"sensitive_guard": {"leaked_fields": leaks},
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_tracking_lifecycle_checks() -> dict:
+	"""Prove check-in issuance, delivery retention, expiry, revocation, and internal API access."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		suffix = frappe.generate_hash(length=8).upper()
+		photo = BytesIO()
+		Image.new("RGB", (24, 24), color=(20, 40, 60)).save(photo, format="JPEG")
+		photo_data = "data:image/jpeg;base64," + b64encode(photo.getvalue()).decode()
+
+		frappe.set_user(attendant)
+		checkin = create_service_order_checkin(
+			{
+				"customer": {
+					"customer_name": f"Cliente Rastreio {suffix}",
+					"mobile_no": "11999998888",
+					"custom_whatsapp": "11999998888",
+					"custom_nao_possui_cpf": 1,
+					"custom_rg": f"RG-{suffix}",
+				},
+				"device": {
+					"brand": "Apple",
+					"model": "iPhone Rastreio",
+					"imei_serial": f"35{int(suffix, 16) % 10**13:013d}",
+				},
+				"service_order": {
+					"reported_defect": "Teste do ciclo de vida do link de rastreio.",
+					"physical_state": "Sem danos aparentes.",
+				},
+				"entry_photo": {"data_url": photo_data, "filename": f"tracking-{suffix}.jpg"},
+			}
+		)
+		order_name = checkin["service_order"]["name"]
+		issued = checkin.get("tracking") or {}
+		raw_token = (issued.get("link") or "").rstrip("/").rsplit("/", 1)[-1]
+		if len(raw_token) < 24 or not issued.get("qr_svg", "").startswith("data:image/svg+xml;base64,"):
+			raise AssertionError("Check-in não retornou link de rastreio opaco com QR Code.")
+		tracking_doc = frappe.get_doc("Service Order Tracking", issued["tracking"])
+		if tracking_doc.expires_on or raw_token in frappe.as_json(tracking_doc.as_dict()):
+			raise AssertionError("Link de rastreio não ficou ativo durante o reparo sem persistir o token bruto.")
+
+		pickup_inside_retention = add_days(now_datetime(), -89)
+		warranty_expiry = add_days(nowdate(), 1)
+		frappe.db.set_value(
+			"Service Order",
+			order_name,
+			{"workflow_state": "Entregue", "pickup_date": pickup_inside_retention, "warranty_expiry": warranty_expiry},
+			update_modified=False,
+		)
+		on_service_order_updated(frappe.get_doc("Service Order", order_name))
+		tracking_doc.reload()
+		if not tracking_doc.expires_on or tracking_doc.expires_on <= now_datetime():
+			raise AssertionError("Entrega não definiu a retenção de 90 dias do link de rastreio.")
+		frappe.set_user("Guest")
+		within_retention = get_public_tracking(raw_token)
+		if not within_retention.get("valid") or not within_retention["service_order"].get("warranty_expiry"):
+			raise AssertionError("Rastreio entregue dentro de 90 dias não exibiu a garantia.")
+
+		frappe.db.set_value("Service Order", order_name, "pickup_date", add_days(now_datetime(), -91), update_modified=False)
+		on_service_order_updated(frappe.get_doc("Service Order", order_name))
+		expired = get_public_tracking(raw_token)
+		if expired.get("valid") or frappe.db.get_value("Service Order Tracking", issued["tracking"], "status") != "Expirado":
+			raise AssertionError("Link não expirou após 90 dias da retirada.")
+
+		frappe.set_user(attendant)
+		integration_link = issue_service_order_tracking_link(order_name)
+		if not integration_link.get("link") or not integration_link.get("qr_svg"):
+			raise AssertionError("API interna não disponibilizou um link de rastreio para integrações futuras.")
+		frappe.set_user(manager)
+		revoked = revoke_service_order_tracking_link(integration_link["tracking"])
+		if revoked.get("status") != "Revogado":
+			raise AssertionError("Gestor não conseguiu revogar o link de rastreio.")
+		frappe.set_user("Guest")
+		if get_public_tracking(integration_link["link"].rstrip("/").rsplit("/", 1)[-1]).get("valid"):
+			raise AssertionError("Link revogado continuou acessível publicamente.")
+
+		leaks = contains_sensitive_field(within_retention)
+		if leaks:
+			raise AssertionError(f"Ciclo de vida do rastreio expôs campos sensíveis: {', '.join(leaks)}")
+		return {
+			"status": "ok",
+			"generated_at_checkin": True,
+			"delivered_within_retention": True,
+			"expired_after_90_days": True,
+			"revoked_by_manager": True,
+			"integration_api": True,
 			"sensitive_guard": {"leaked_fields": leaks},
 		}
 	finally:
@@ -2238,8 +2341,10 @@ def _ensure_pos_demo_item(
 
 
 def _ensure_pos_demo_stock(item_code: str, warehouse: str, valuation_rate: float) -> None:
-	current_qty = flt(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0)
-	if current_qty >= 8:
+	# Service Order uses Stock Reservation Entry. Keep fixture stock aligned with
+	# the same availability calculation the production reservation path uses.
+	available_qty = flt(get_available_qty_to_reserve(item_code, warehouse))
+	if available_qty >= 8:
 		return
 
 	company = frappe.defaults.get_global_default("company") or frappe.db.get_value("Company", {}, "name")
@@ -2256,7 +2361,7 @@ def _ensure_pos_demo_stock(item_code: str, warehouse: str, valuation_rate: float
 			"items": [
 				{
 					"item_code": item_code,
-					"qty": 8 - current_qty,
+					"qty": 8 - available_qty,
 					"t_warehouse": warehouse,
 					"basic_rate": valuation_rate,
 					"set_basic_rate_manually": 1,
