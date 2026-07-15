@@ -1,12 +1,10 @@
 import {
   type HTMLInputAutoCompleteAttribute,
   type HTMLInputTypeAttribute,
-  type PointerEvent,
   type ReactNode,
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
@@ -33,6 +31,7 @@ import {
   PenLine,
   Phone,
   Printer,
+  QrCode,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -49,6 +48,7 @@ import {
 import {
   balcao,
   checkin,
+  type AcceptanceIssueResponse,
   type CheckinPayload,
   type CheckinResponse,
   type CustomerDeviceSummary,
@@ -105,13 +105,6 @@ type ServiceSelections = {
   observations: string;
 };
 
-type Confirmations = {
-  declaredData: boolean;
-  technicalEvaluation: boolean;
-  quoteApproval: boolean;
-  accessories: boolean;
-};
-
 const defaultCustomer: NewCustomerForm = {
   customer_name: "",
   mobile_no: "",
@@ -142,13 +135,6 @@ const defaultServiceSelections: ServiceSelections = {
   physicalStates: [],
   accessories: [],
   observations: "",
-};
-
-const defaultConfirmations: Confirmations = {
-  declaredData: false,
-  technicalEvaluation: false,
-  quoteApproval: false,
-  accessories: false,
 };
 
 const customerTypes = [
@@ -282,8 +268,6 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
   });
   const [serviceSelections, setServiceSelections] = useState<ServiceSelections>(defaultServiceSelections);
   const [photo, setPhoto] = useState<{ dataUrl: string; filename: string } | null>(null);
-  const [signature, setSignature] = useState<string | null>(null);
-  const [confirmations, setConfirmations] = useState<Confirmations>(defaultConfirmations);
 
   const generatedSummary = useMemo(() => buildServiceSummary(serviceSelections), [serviceSelections]);
   const hasDamage = useMemo(
@@ -327,9 +311,7 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
   );
   const dataReady = Boolean(serviceSelections.defects.length && serviceSelections.physicalStates.length && serviceOrder.reported_defect.trim());
   const photoReady = Boolean(photo?.dataUrl);
-  const confirmationsReady = Object.values(confirmations).every(Boolean);
-  const signatureReady = Boolean(signature) && confirmationsReady;
-  const canContinue = [customerReady, deviceReady, dataReady, photoReady, signatureReady][step] ?? false;
+  const canContinue = [customerReady, deviceReady, dataReady, photoReady, true][step] ?? false;
   const canGoBack = step > 0 || (step === 0 && customerMicrostep !== "choice") || (step === 1 && deviceMicrostep !== "choice");
 
   const goBack = useCallback(() => {
@@ -361,12 +343,8 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
 
   async function submit() {
     setError(null);
-    if (!photo || !signature) {
-      setError("Foto e assinatura de entrada são obrigatórias para o check-in.");
-      return;
-    }
-    if (!confirmationsReady) {
-      setError("Confirme as declarações obrigatórias antes de concluir o check-in.");
+    if (!photo) {
+      setError("A foto de entrada é obrigatória para criar o check-in.");
       return;
     }
 
@@ -401,7 +379,6 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
         data_url: photo.dataUrl,
         filename: photo.filename,
       },
-      entry_signature: signature,
     };
 
     setSubmitting(true);
@@ -483,16 +460,12 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
                 {step === 3 ? <PhotoStep hasDamage={hasDamage} photo={photo} setPhoto={setPhoto} /> : null}
                 {step === 4 ? (
                   <SignatureStep
-                    confirmations={confirmations}
                     customer={selectedCustomer}
                     customerForm={newCustomer}
                     device={selectedDevice}
                     deviceForm={newDevice}
                     photo={photo}
                     serviceOrder={serviceOrder}
-                    setConfirmations={setConfirmations}
-                    setSignature={setSignature}
-                    signature={signature}
                   />
                 ) : null}
               </div>
@@ -507,7 +480,7 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
             <div className="mt-4 flex flex-col gap-4 border-t border-tec-border/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
               <p className="flex items-center gap-3 text-sm text-tec-muted">
                 <Info className="shrink-0 text-tec-blue" size={20} />
-                Foto e assinatura ficam salvas na OS e serão exigidas pelo motor antes de qualquer avanço técnico.
+                A foto fica salva agora. O aceite por selfie e assinatura será coletado no link seguro antes de qualquer avanço técnico.
               </p>
               <div className="flex justify-end gap-3">
                 <Button disabled={!canGoBack || submitting} icon={<ArrowLeft size={17} />} onClick={goBack}>
@@ -1610,108 +1583,20 @@ function PhotoStep({
 }
 
 function SignatureStep({
-  confirmations,
   customer,
   customerForm,
   device,
   deviceForm,
   photo,
   serviceOrder,
-  setConfirmations,
-  setSignature,
-  signature,
 }: {
-  confirmations: Confirmations;
   customer: CustomerSummary | null;
   customerForm: NewCustomerForm;
   device: CustomerDeviceSummary | null;
   deviceForm: NewDeviceForm;
   photo: { dataUrl: string; filename: string } | null;
   serviceOrder: { reported_defect: string; physical_state: string; accessories_received: string };
-  setConfirmations: (value: Confirmations | ((current: Confirmations) => Confirmations)) => void;
-  setSignature: (value: string | null) => void;
-  signature: string | null;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const drawing = useRef(false);
-
-  const resetCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return;
-    }
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = "#111827";
-    context.lineWidth = 3;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    setSignature(null);
-  }, [setSignature]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
-    const ratio = window.devicePixelRatio || 1;
-    canvas.width = 720 * ratio;
-    canvas.height = 220 * ratio;
-    canvas.style.width = "100%";
-    canvas.style.height = "220px";
-    const context = canvas.getContext("2d");
-    if (context) {
-      context.scale(ratio, ratio);
-    }
-    resetCanvas();
-  }, [resetCanvas]);
-
-  function point(event: PointerEvent<HTMLCanvasElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
-  }
-
-  function begin(event: PointerEvent<HTMLCanvasElement>) {
-    const context = canvasRef.current?.getContext("2d");
-    if (!context) {
-      return;
-    }
-    const current = point(event);
-    drawing.current = true;
-    context.beginPath();
-    context.moveTo(current.x, current.y);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function move(event: PointerEvent<HTMLCanvasElement>) {
-    if (!drawing.current) {
-      return;
-    }
-    const context = canvasRef.current?.getContext("2d");
-    if (!context) {
-      return;
-    }
-    const current = point(event);
-    context.lineTo(current.x, current.y);
-    context.stroke();
-  }
-
-  function end(event: PointerEvent<HTMLCanvasElement>) {
-    if (!drawing.current) {
-      return;
-    }
-    drawing.current = false;
-    event.currentTarget.releasePointerCapture(event.pointerId);
-    setSignature(canvasRef.current?.toDataURL("image/png") ?? null);
-  }
-
   const customerName = customer?.customer_name ?? customerForm.customer_name;
   const customerPhone = customer?.mobile_no ?? customerForm.mobile_no;
   const customerDocument = customer?.custom_cpf || customer?.custom_rg || customerForm.custom_cpf || customerForm.custom_rg || "Documento não informado";
@@ -1746,55 +1631,15 @@ function SignatureStep({
           </div>
         </WizardCard>
 
-        <div className="space-y-4">
-          <WizardCard>
-            <SectionTitle icon={<ShieldCheck size={21} />} title="Confirmações" />
-            <div className="mt-4 space-y-3">
-              <ConfirmationCheck
-                checked={confirmations.declaredData}
-                label="Cliente confirma as informações declaradas."
-                onChange={(checked) => setConfirmations((current) => ({ ...current, declaredData: checked }))}
-              />
-              <ConfirmationCheck
-                checked={confirmations.technicalEvaluation}
-                label="Cliente autoriza a avaliação técnica do aparelho."
-                onChange={(checked) => setConfirmations((current) => ({ ...current, technicalEvaluation: checked }))}
-              />
-              <ConfirmationCheck
-                checked={confirmations.quoteApproval}
-                label="Cliente está ciente de que o orçamento será enviado para aprovação."
-                onChange={(checked) => setConfirmations((current) => ({ ...current, quoteApproval: checked }))}
-              />
-              <ConfirmationCheck
-                checked={confirmations.accessories}
-                label="Cliente confirma os acessórios entregues."
-                onChange={(checked) => setConfirmations((current) => ({ ...current, accessories: checked }))}
-              />
-            </div>
-          </WizardCard>
-
-          <WizardCard>
-            <SectionTitle icon={<PenLine size={21} />} title="Assinatura do cliente" />
-            <div className="mt-4 rounded-card border border-dashed border-tec-border/15 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:24px_24px] p-3">
-              <canvas
-                className="touch-none rounded-card border border-tec-border/15 bg-white"
-                onPointerCancel={end}
-                onPointerDown={begin}
-                onPointerMove={move}
-                onPointerUp={end}
-                ref={canvasRef}
-              />
-            </div>
-            <div className="mt-3 flex flex-wrap justify-between gap-3">
-              <Button icon={<RotateCcw size={17} />} onClick={resetCanvas}>
-                Limpar assinatura
-              </Button>
-              <span className={`inline-flex items-center rounded-control px-3 py-2 text-sm font-semibold ${signature ? "bg-tec-success/10 text-tec-success" : "bg-tec-amber/10 text-tec-amber"}`}>
-                {signature ? "Assinatura capturada." : "Assinatura pendente."}
-              </span>
-            </div>
-          </WizardCard>
-        </div>
+        <WizardCard>
+          <SectionTitle icon={<PenLine size={21} />} title="Aceite por link seguro" />
+          <p className="mt-4 text-sm leading-6 text-tec-subtle">
+            Crie a OS agora. Em seguida, o balcão gera um QR/link de uso único para o cliente conferir os dados, capturar a selfie ao vivo, assinar e consentir com a LGPD.
+          </p>
+          <div className="mt-5 rounded-card border border-tec-orange/25 bg-tec-orange/10 p-4 text-sm text-tec-subtle">
+            A OS ficará em Entrada criada até o cliente concluir o aceite. O motor continuará bloqueando qualquer avanço técnico sem foto e assinatura.
+          </div>
+        </WizardCard>
       </div>
     </div>
   );
@@ -1809,13 +1654,39 @@ function CheckinSuccess({
   onClose: () => void;
   onOpenOrder: (name: string) => void;
 }) {
+  const [acceptance, setAcceptance] = useState<AcceptanceIssueResponse | null>(null);
+  const [acceptanceError, setAcceptanceError] = useState<string | null>(null);
+  const [issuingAcceptance, setIssuingAcceptance] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setIssuingAcceptance(true);
+    setAcceptanceError(null);
+    void balcao.issueAcceptance(created.service_order.name, "Entrada")
+      .then((result) => active && setAcceptance(result))
+      .catch((caught) => active && setAcceptanceError(caught instanceof Error ? caught.message : "Não foi possível gerar o link de aceite."))
+      .finally(() => active && setIssuingAcceptance(false));
+    return () => {
+      active = false;
+    };
+  }, [created.service_order.name]);
+
+  const copyAcceptanceLink = async () => {
+    if (!acceptance) return;
+    try {
+      await navigator.clipboard.writeText(acceptance.link);
+    } catch {
+      setAcceptanceError("Não foi possível copiar automaticamente. Use o QR Code ou copie o link exibido no detalhe da OS.");
+    }
+  };
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
       <section className="rounded-card border border-tec-success/30 bg-tec-success/10 p-5">
         <CheckCircle2 className="text-tec-success" size={28} />
         <h3 className="mt-4 text-2xl font-bold text-white">{created.service_order.name}</h3>
         <p className="mt-2 text-sm text-tec-subtle">
-          OS criada em Entrada criada com foto e assinatura de entrada salvas.
+          OS criada em Entrada criada com a foto salva. Entregue o QR/link para o cliente concluir o aceite com selfie e assinatura.
         </p>
         <div className="mt-5 flex flex-wrap gap-2">
           <Button
@@ -1831,7 +1702,17 @@ function CheckinSuccess({
         </div>
       </section>
       <section className="rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
-        <h3 className="text-sm font-bold text-white">Impressão</h3>
+        <h3 className="flex items-center gap-2 text-sm font-bold text-white"><QrCode className="text-tec-orange" size={17} /> Aceite de entrada</h3>
+        {issuingAcceptance ? <p className="mt-3 text-sm text-tec-muted">Gerando link seguro...</p> : null}
+        {acceptance ? (
+          <div className="mt-3 space-y-3">
+            <div className="mx-auto w-fit rounded-card bg-white p-3"><img alt="QR Code do aceite de entrada" className="h-40 w-40" src={acceptance.qr_svg} /></div>
+            <p className="text-xs leading-5 text-tec-muted">Uso único, expira em 24 horas. O cliente só confirma; não pode editar a OS.</p>
+            <Button className="w-full" onClick={() => void copyAcceptanceLink()} variant="secondary">Copiar link</Button>
+          </div>
+        ) : null}
+        {acceptanceError ? <p className="mt-3 rounded-card border border-tec-red/30 bg-tec-red/10 p-3 text-xs text-tec-red">{acceptanceError}</p> : null}
+        <h3 className="mt-5 text-sm font-bold text-white">Impressão</h3>
         <div className="mt-3 space-y-2">
           {created.service_order.print_links.map((link) => (
             <a
@@ -2032,28 +1913,6 @@ function CheckboxOption({ active, label, onClick }: { active: boolean; label: st
       </span>
       <span className={active ? "font-semibold text-white" : undefined}>{label}</span>
     </button>
-  );
-}
-
-function ConfirmationCheck({
-  checked,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="flex cursor-pointer items-center gap-3 text-sm text-tec-subtle">
-      <input
-        checked={checked}
-        className="h-5 w-5 rounded border-tec-border/25 bg-tec-field accent-tec-orange"
-        onChange={(event) => onChange(event.currentTarget.checked)}
-        type="checkbox"
-      />
-      <span className={checked ? "font-semibold text-white" : undefined}>{label}</span>
-    </label>
   );
 }
 

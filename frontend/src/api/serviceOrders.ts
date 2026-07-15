@@ -75,4 +75,9 @@ export const serviceOrders = {
       body: { name, payload },
     });
   },
+  preparePickup(name: string, payload: PickupPayload) {
+    return rpc<ServiceOrderDetailResponse>(`${API}.prepare_service_order_pickup`, {
+      body: { name, payload },
+    });
+  },
 };

@@ -25,4 +25,10 @@
 .tp-camera-complete { align-items: center; color: #25d366; display: flex; flex-direction: column; gap: 8px; text-align: center; }
 .tp-camera-complete span { color: #adb4ba; font-size: 14px; }
 .tp-camera-feedback { color: #adb4ba; font-size: 14px; margin: 12px 0 0; min-height: 21px; }
+.tp-signature { border-top: 1px solid rgba(245,246,247,.12); margin-top: 20px; padding-top: 20px; width: 100%; }
+.tp-signature > b { color: #f5f6f7; font-size: 17px; }
+.tp-signature > p { font-size: 14px; margin: 6px 0 12px; }
+.tp-signature-canvas { background: #fff; border: 1px solid rgba(245,246,247,.2); border-radius: 10px; box-sizing: border-box; cursor: crosshair; display: block; height: 180px; touch-action: none; width: 100%; }
+.tp-lgpd-consent { align-items: flex-start; color: #adb4ba; display: flex; font-size: 14px; gap: 10px; line-height: 1.5; margin-top: 20px; width: 100%; }
+.tp-lgpd-consent input { accent-color: #fe5000; height: 18px; margin: 2px 0 0; width: 18px; }
 @media (max-width: 560px) { .tp-acceptance { padding: 12px; } .tp-acceptance-card { padding: 22px; } .tp-camera-heading { flex-direction: column; gap: 8px; } .tp-camera-stage { min-height: 220px; } .tp-camera-actions > button { flex: 1; } }

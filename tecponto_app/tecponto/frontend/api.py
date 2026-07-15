@@ -749,7 +749,6 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.reported_defect = data["service_order"]["reported_defect"].strip()
 	order.physical_state = data["service_order"]["physical_state"].strip()
 	order.accessories_received = (data["service_order"].get("accessories_received") or "").strip()
-	order.entry_signature = data["entry_signature"]
 	order.insert(ignore_permissions=True)
 
 	photo_url = _save_checkin_photo(order.name, data["entry_photo"])
@@ -819,13 +818,9 @@ def decide_service_order_budget(name: str, payload: str | dict[str, Any] | None 
 
 
 @frappe.whitelist()
-def complete_service_order_pickup(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+def prepare_service_order_pickup(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
 	_require_attendant_flow_role()
 	data = _parse_payload(payload)
-	signature = data.get("customer_signature")
-	if not _is_image_data_url(signature):
-		frappe.throw(_("Assinatura de retirada é obrigatória."), frappe.ValidationError)
-
 	doc = frappe.get_doc("Service Order", name)
 	if doc.get("workflow_state") != STATE_PRONTO_RETIRADA:
 		frappe.throw(_("A OS precisa estar Pronto para retirada."), frappe.ValidationError)
@@ -849,11 +844,30 @@ def complete_service_order_pickup(name: str, payload: str | dict[str, Any] | Non
 			"third_party_doc": picked_up_doc if third_party else None,
 			"third_party_auth": (data.get("third_party_auth") or "").strip() if third_party else None,
 			"pickup_notes": pickup_notes,
-			"customer_signature": signature,
-			"pickup_date": now_datetime(),
 		},
 		update_modified=False,
 	)
+	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def complete_service_order_pickup(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_attendant_flow_role()
+	data = _parse_payload(payload)
+	doc = frappe.get_doc("Service Order", name)
+	if doc.get("workflow_state") != STATE_PRONTO_RETIRADA:
+		frappe.throw(_("A OS precisa estar Pronto para retirada."), frappe.ValidationError)
+
+	acceptance_name = (data.get("acceptance_name") or "").strip()
+	if not acceptance_name:
+		frappe.throw(_("Gere e conclua o aceite por link antes de entregar."), frappe.ValidationError)
+	acceptance = frappe.get_doc("OS Acceptance", acceptance_name)
+	if acceptance.service_order != doc.name or acceptance.acceptance_type != "Retirada" or acceptance.status != "Concluído":
+		frappe.throw(_("O aceite de retirada ainda não foi concluído pelo cliente."), frappe.ValidationError)
+	if not doc.get("customer_signature"):
+		frappe.throw(_("A assinatura de retirada ainda não foi registrada."), frappe.ValidationError)
+
+	frappe.db.set_value(doc.doctype, doc.name, "pickup_date", now_datetime(), update_modified=False)
 	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), STATE_ENTREGUE)
 
 	return get_service_order_detail(doc.name)
@@ -1421,8 +1435,6 @@ def _validate_checkin_payload(data: dict[str, Any]) -> None:
 		frappe.throw(_("Informe o estado físico declarado."), frappe.ValidationError)
 	if not _is_image_data_url(entry_photo.get("data_url")):
 		frappe.throw(_("Anexe ao menos uma foto de entrada."), frappe.ValidationError)
-	if not _is_image_data_url(data.get("entry_signature")):
-		frappe.throw(_("Assinatura de entrada é obrigatória."), frappe.ValidationError)
 
 
 def _validate_device_payload(data: dict[str, Any]) -> None:

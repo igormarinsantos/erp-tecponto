@@ -16,6 +16,8 @@ SIGNER_ROLES = {"Dono", "Terceiro"}
 PENDING_STATUS = "Pendente"
 TOKEN_TTL_HOURS = 24
 MAX_SELFIE_BYTES = 5 * 1024 * 1024
+MAX_SIGNATURE_BYTES = 2 * 1024 * 1024
+LGPD_CONSENT_VERSION = "TECPONTO-ACEITE-1.0"
 
 
 def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str = "Dono") -> dict:
@@ -80,8 +82,8 @@ def get_public_acceptance(token: str) -> dict:
 		},
 		"service_order": _public_order_summary(order, doc.acceptance_type),
 		"lgpd_notice": {
-			"version": "MINUTA-3.6-1",
-			"text": "[MINUTA — revisar com advogado] No próximo passo, a Tecponto solicitará seu consentimento para coletar selfie e assinatura exclusivamente para registrar este aceite e prevenir fraudes. A coleta ocorrerá somente após sua confirmação expressa.",
+			"version": LGPD_CONSENT_VERSION,
+			"text": "[MINUTA — revisar com advogado] Autorizo a coleta de selfie e assinatura para comprovar este aceite, prevenir fraudes e resguardar o atendimento. Os registros serão mantidos pelo prazo aplicável ao atendimento, obrigações legais e defesa de direitos.",
 		},
 	}
 
@@ -105,6 +107,67 @@ def save_public_acceptance_selfie(token: str, image_data: str) -> dict:
 	)
 	doc.db_set("selfie_file", file_doc.name, update_modified=False)
 	return {"saved": True, "acceptance": doc.name}
+
+
+@frappe.whitelist(allow_guest=True)
+def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: int | bool = False) -> dict:
+	"""Complete one acceptance after the live selfie, signature, and explicit consent."""
+	doc = _get_valid_acceptance(token)
+	if not doc:
+		frappe.throw(_("Este link de aceite não está disponível. Peça um novo link à Tecponto."), frappe.PermissionError)
+	if not doc.selfie_file:
+		frappe.throw(_("Capture a selfie antes de concluir o aceite."), frappe.ValidationError)
+	if not frappe.utils.cint(lgpd_consent):
+		frappe.throw(_("Confirme o consentimento LGPD para concluir o aceite."), frappe.ValidationError)
+
+	# Lock the pending row so a duplicated final click cannot consume the same token twice.
+	frappe.db.sql("select name from `tabOS Acceptance` where name=%s for update", doc.name)
+	doc.reload()
+	if doc.status != PENDING_STATUS or doc.expires_on <= now_datetime():
+		if doc.status == PENDING_STATUS:
+			doc.db_set("status", "Expirado", update_modified=False)
+		frappe.throw(_("Este aceite já foi concluído ou não está mais disponível."), frappe.ValidationError)
+
+	signature = _decode_signature(signature_data)
+	signature_file = save_file(
+		f"signature-{doc.name}.png",
+		signature["content"],
+		dt="Service Order",
+		dn=doc.service_order,
+		is_private=1,
+	)
+	accepted_on = now_datetime()
+	try:
+		request = frappe.local.request
+		client_ip = getattr(request, "remote_addr", "") or ""
+		user_agent = frappe.get_request_header("User-Agent") or ""
+	except (AttributeError, RuntimeError):
+		# Direct bench tests do not bind an HTTP request; production calls always do.
+		client_ip = ""
+		user_agent = ""
+
+	order_field = "entry_signature" if doc.acceptance_type == "Entrada" else "customer_signature"
+	frappe.db.set_value(
+		"Service Order",
+		doc.service_order,
+		{order_field: signature["data_url"]},
+		update_modified=True,
+	)
+	frappe.db.set_value(
+		"OS Acceptance",
+		doc.name,
+		{
+			"signature_file": signature_file.name,
+			"consent_version": LGPD_CONSENT_VERSION,
+			"consented_on": accepted_on,
+			"accepted_ip": client_ip,
+			"accepted_user_agent": user_agent[:500],
+			"used_on": accepted_on,
+			"status": "Concluído",
+		},
+		update_modified=False,
+	)
+	return {"completed": True, "acceptance": doc.name, "service_order": doc.service_order, "acceptance_type": doc.acceptance_type}
 
 
 def _get_valid_acceptance(token: str):
@@ -158,3 +221,17 @@ def _decode_camera_selfie(image_data: str) -> bytes:
 	if len(content) < 256 or len(content) > MAX_SELFIE_BYTES or not content.startswith(b"\xff\xd8\xff"):
 		frappe.throw(_("A imagem capturada é inválida."), frappe.ValidationError)
 	return content
+
+
+def _decode_signature(signature_data: str) -> dict:
+	"""Validate the PNG data URL produced by the in-page signature canvas."""
+	prefix = "data:image/png;base64,"
+	if not isinstance(signature_data, str) or not signature_data.startswith(prefix):
+		frappe.throw(_("Assine no quadro para concluir o aceite."), frappe.ValidationError)
+	try:
+		content = b64decode(signature_data[len(prefix):], validate=True)
+	except ValueError:
+		frappe.throw(_("A assinatura capturada é inválida."), frappe.ValidationError)
+	if len(content) < 256 or len(content) > MAX_SIGNATURE_BYTES or not content.startswith(b"\x89PNG\r\n\x1a\n"):
+		frappe.throw(_("A assinatura capturada é inválida."), frappe.ValidationError)
+	return {"content": content, "data_url": signature_data}

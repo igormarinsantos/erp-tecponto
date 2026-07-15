@@ -395,7 +395,7 @@ export interface CheckinPayload {
     data_url: string;
     filename: string;
   };
-  entry_signature: string;
+  entry_signature?: string;
 }
 
 export interface CheckinResponse {
@@ -410,12 +410,12 @@ export interface BudgetDecisionPayload {
 }
 
 export interface PickupPayload {
-  customer_signature: string;
   third_party: boolean;
   picked_up_by?: string;
   picked_up_doc?: string;
   third_party_auth?: string;
   pickup_notes?: string;
+  acceptance_name?: string;
 }
 
 export interface DashboardMetrics {

@@ -9,7 +9,7 @@ import frappe
 from frappe.utils import today
 from frappe.utils import add_days, add_to_date, flt, now_datetime, nowdate
 from pypdf import PdfReader
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
@@ -32,7 +32,7 @@ from tecponto_app.tecponto.frontend.api import (
 	set_tradein_approved_value,
 	submit_stock_transfer,
 )
-from tecponto_app.tecponto.acceptance import get_public_acceptance, save_public_acceptance_selfie
+from tecponto_app.tecponto.acceptance import complete_public_acceptance, get_public_acceptance, save_public_acceptance_selfie
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.requests import (
 	approve_request,
@@ -554,12 +554,51 @@ def run_public_acceptance_checks() -> dict:
 			file_picker_payload_blocked = True
 		if not file_picker_payload_blocked:
 			raise AssertionError("Endpoint público aceitou formato fora da captura JPEG da câmera.")
+		signature_image = BytesIO()
+		signature_canvas = Image.new("RGB", (640, 180), color=(250, 250, 250))
+		ImageDraw.Draw(signature_canvas).line([(40, 120), (180, 50), (300, 135), (430, 45), (580, 110)], fill=(32, 36, 40), width=5)
+		signature_canvas.save(signature_image, format="PNG")
+		signature_data = "data:image/png;base64," + b64encode(signature_image.getvalue()).decode()
+		consent_required = False
+		try:
+			complete_public_acceptance(raw_token, signature_data, 0)
+		except frappe.ValidationError:
+			consent_required = True
+		if not consent_required:
+			raise AssertionError("Aceite público foi concluído sem consentimento LGPD explícito.")
+		completed = complete_public_acceptance(raw_token, signature_data, 1)
+		acceptance.reload()
+		signature_file = frappe.get_doc("File", acceptance.signature_file)
+		entry_signature = frappe.db.get_value("Service Order", service_order, "entry_signature")
+		if not completed.get("completed") or acceptance.status != "Concluído" or not acceptance.consent_version or not acceptance.consented_on or not acceptance.used_on:
+			raise AssertionError("Aceite de entrada não foi consumido com consentimento e timestamp.")
+		if not signature_file.is_private or signature_file.attached_to_name != service_order or entry_signature != signature_data:
+			raise AssertionError("Assinatura de entrada não foi vinculada de forma privada à OS.")
+		token_reuse_blocked = False
+		try:
+			complete_public_acceptance(raw_token, signature_data, 1)
+		except frappe.PermissionError:
+			token_reuse_blocked = True
+		if not token_reuse_blocked:
+			raise AssertionError("Token concluído foi reutilizado.")
 
-		# Reemitir invalida o link anterior antes mesmo da captura de selfie/assinatura.
+		# Retirada uses the exact same public flow, but mirrors its signature to the pickup field.
 		frappe.set_user(attendant)
+		pickup_issued = issue_os_acceptance(service_order, "Retirada")
+		pickup_token = pickup_issued["link"].rstrip("/").rsplit("/", 1)[-1]
+		frappe.set_user("Guest")
+		save_public_acceptance_selfie(pickup_token, camera_selfie)
+		pickup_completed = complete_public_acceptance(pickup_token, signature_data, 1)
+		if not pickup_completed.get("completed") or frappe.db.get_value("Service Order", service_order, "customer_signature") != signature_data:
+			raise AssertionError("Aceite público de retirada não gravou a assinatura de retirada na OS.")
+
+		# Reemitir invalida um token pendente antes da captura de selfie/assinatura.
+		frappe.set_user(attendant)
+		pending = issue_os_acceptance(service_order, "Entrada")
+		pending_token = pending["link"].rstrip("/").rsplit("/", 1)[-1]
 		reissued = issue_os_acceptance(service_order, "Entrada")
 		frappe.set_user("Guest")
-		if get_public_acceptance(raw_token).get("valid"):
+		if get_public_acceptance(pending_token).get("valid"):
 			raise AssertionError("Um link substituído continuou utilizável.")
 		if not get_public_acceptance(reissued["link"].rstrip("/").rsplit("/", 1)[-1]).get("valid"):
 			raise AssertionError("O novo link de aceite não ficou disponível.")
@@ -583,6 +622,10 @@ def run_public_acceptance_checks() -> dict:
 			"guest_read_only": True,
 			"selfie_attached_to_service_order": True,
 			"camera_jpeg_only": True,
+			"signature_and_consent_recorded": True,
+			"consent_required": consent_required,
+			"pickup_signature_recorded": True,
+			"token_reuse_blocked": token_reuse_blocked,
 			"reissued_token_invalidated": True,
 			"invalid_token_blocked": not invalid.get("valid"),
 			"expired_token_blocked": not expired.get("valid"),
@@ -652,6 +695,7 @@ def run_action_request_checks() -> dict:
 			"idempotency_key": f"tp-request-pos-{frappe.generate_hash(length=20)}",
 		}
 		frappe.set_user(attendant)
+		frappe.db.commit()
 		pos_request = create_request(
 			"pos_discount",
 			pos_payload["customer"],
@@ -690,6 +734,7 @@ def run_action_request_checks() -> dict:
 				floor_blocked = True
 			if not floor_blocked:
 				raise AssertionError("Atendente concluiu venda abaixo do custo sem solicitar aprovação.")
+			frappe.db.commit()
 			floor_request = create_request(
 				"pos_price_floor",
 				floor_payload["customer"],
@@ -727,6 +772,7 @@ def run_action_request_checks() -> dict:
 			trade_blocked = True
 		if not trade_blocked:
 			raise AssertionError("Atendente registrou valor acima da tabela sem solicitar aprovação.")
+		frappe.db.commit()
 		trade_request = create_request("tradein_over_max", trade.name, "Oferta excepcional para fechar a troca.", {"approved_value": 150})
 		frappe.set_user(manager)
 		approve_request(trade_request["name"])
@@ -736,6 +782,7 @@ def run_action_request_checks() -> dict:
 		# OS: a transição é executada pela role que o workflow exige, não por um bypass
 		# do solicitante. O teste lê essa role do metadata em vez de duplicar o workflow.
 		frappe.set_user(attendant)
+		frappe.db.commit()
 		move_request = create_request(
 			"service_order_move",
 			order_name,
@@ -767,6 +814,7 @@ def run_action_request_checks() -> dict:
 			transfer_blocked = "exige o Gestor" in str(error)
 		if not transfer_blocked:
 			raise AssertionError("Atendente submeteu transferência entre estoques sem aprovação.")
+		frappe.db.commit()
 		transfer_request = create_request(
 			"stock_transfer",
 			transfer["item"]["name"],
@@ -790,6 +838,7 @@ def run_action_request_checks() -> dict:
 			billed_cancel_blocked = "OS faturada" in str(error)
 		if not billed_cancel_blocked:
 			raise AssertionError("Atendente cancelou OS faturada sem aprovação.")
+		frappe.db.commit()
 		billed_cancel_request = create_request(
 			"billed_service_order_cancel",
 			billed_order,

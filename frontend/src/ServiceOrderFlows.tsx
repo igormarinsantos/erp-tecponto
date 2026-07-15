@@ -1,7 +1,7 @@
-import { type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, FileText, PenLine, Printer, RotateCcw, XCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Copy, FileText, Printer, QrCode, XCircle } from "lucide-react";
 
-import { serviceOrders, type BudgetDecisionPayload, type PickupPayload, type ServiceOrderDetailResponse } from "./api";
+import { balcao, serviceOrders, type AcceptanceIssueResponse, type BudgetDecisionPayload, type PickupPayload, type ServiceOrderDetailResponse } from "./api";
 import { Button, Modal } from "./ui";
 
 type ApprovalMode = "approve" | "reject";
@@ -127,7 +127,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
   const [pickedUpBy, setPickedUpBy] = useState("");
   const [pickedUpDoc, setPickedUpDoc] = useState("");
   const [notes, setNotes] = useState("");
-  const [signature, setSignature] = useState<string | null>(null);
+  const [acceptance, setAcceptance] = useState<AcceptanceIssueResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -139,18 +139,53 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
     setPickedUpBy("");
     setPickedUpDoc("");
     setNotes("");
-    setSignature(null);
+    setAcceptance(null);
     setError(null);
     setSubmitting(false);
   }, [open, detail.name]);
 
   const termLink = detail.print_links.find((link) => link.label === "Termo de retirada");
-  const canSubmit = Boolean(signature) && (!thirdParty || (pickedUpBy.trim() && pickedUpDoc.trim()));
+  const canPrepare = !thirdParty || (pickedUpBy.trim() && pickedUpDoc.trim());
+  const canSubmit = Boolean(acceptance) && canPrepare;
+
+  async function copyAcceptanceLink() {
+    if (!acceptance) return;
+    try {
+      await navigator.clipboard.writeText(acceptance.link);
+    } catch {
+      setError("Não foi possível copiar automaticamente. Use o QR Code ou envie o link pelo detalhe da OS.");
+    }
+  }
+
+  async function prepareAcceptance() {
+    setError(null);
+    if (!canPrepare) {
+      setError("Informe nome e documento de quem está retirando.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const prepared = await serviceOrders.preparePickup(detail.name, {
+        picked_up_by: pickedUpBy.trim(),
+        picked_up_doc: pickedUpDoc.trim(),
+        pickup_notes: notes.trim(),
+        third_party: thirdParty,
+        third_party_auth: thirdParty ? "Retirada por terceiro registrada no balcão Tecponto." : "",
+      });
+      const issued = await balcao.issueAcceptance(detail.name, "Retirada", thirdParty ? "Terceiro" : "Dono");
+      setAcceptance(issued);
+      onUpdated(prepared);
+    } catch (caught) {
+      setError(caught instanceof Error ? friendlyPickupError(caught.message) : "Falha ao preparar o aceite de retirada.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function submit() {
     setError(null);
-    if (!signature) {
-      setError("Colete a assinatura de retirada antes de entregar.");
+    if (!acceptance) {
+      setError("Gere e conclua o aceite por link antes de entregar.");
       return;
     }
     if (thirdParty && (!pickedUpBy.trim() || !pickedUpDoc.trim())) {
@@ -159,7 +194,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
     }
 
     const payload: PickupPayload = {
-      customer_signature: signature,
+      acceptance_name: acceptance.acceptance,
       picked_up_by: pickedUpBy.trim(),
       picked_up_doc: pickedUpDoc.trim(),
       pickup_notes: notes.trim(),
@@ -210,12 +245,21 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
               value={notes}
             />
           </div>
-          <SignaturePad
-            guidance="O cliente ou responsável assina confirmando a retirada do aparelho."
-            onChange={setSignature}
-            signature={signature}
-            title="Assinatura de retirada"
-          />
+          <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
+            <div className="flex items-center gap-3"><QrCode className="text-tec-orange" size={20} /><div><h3 className="font-bold text-white">Aceite por link</h3><p className="text-sm text-tec-muted">O cliente confirma com selfie, assinatura e consentimento LGPD no próprio aparelho.</p></div></div>
+            {acceptance ? (
+              <div className="mt-4 grid gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
+                <div className="w-fit rounded-card bg-white p-3"><img alt="QR Code do aceite de retirada" className="h-36 w-36" src={acceptance.qr_svg} /></div>
+                <div className="space-y-3">
+                  <p className="text-sm leading-6 text-tec-subtle">Link emitido. Após o cliente concluir, clique em Entregar. O motor continuará exigindo nota paga.</p>
+                  <label className="block text-xs font-bold text-tec-text">Link seguro
+                    <input className="tp-input mt-1 w-full" readOnly value={acceptance.link} />
+                  </label>
+                  <Button icon={<Copy size={16} />} onClick={() => void copyAcceptanceLink()} variant="secondary">Copiar link</Button>
+                </div>
+              </div>
+            ) : <Button className="mt-4" disabled={!canPrepare || submitting} icon={<QrCode size={17} />} onClick={() => void prepareAcceptance()} variant="primary">{submitting ? "Gerando..." : "Gerar link e QR de retirada"}</Button>}
+          </div>
           {error ? <ErrorBox message={error} /> : null}
         </section>
         <aside className="space-y-4">
@@ -317,126 +361,6 @@ function CompactLines({ label, lines }: { label: string; lines: ServiceOrderDeta
       ) : (
         <p className="rounded-card border border-tec-border/15 p-3 text-sm text-tec-muted">Nenhuma linha registrada.</p>
       )}
-    </div>
-  );
-}
-
-function SignaturePad({
-  guidance,
-  onChange,
-  signature,
-  title,
-}: {
-  guidance: string;
-  onChange: (value: string | null) => void;
-  signature: string | null;
-  title: string;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const drawing = useRef(false);
-
-  const resetCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return;
-    }
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = "#111827";
-    context.lineWidth = 3;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    onChange(null);
-  }, [onChange]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
-    const ratio = window.devicePixelRatio || 1;
-    canvas.width = 720 * ratio;
-    canvas.height = 220 * ratio;
-    canvas.style.width = "100%";
-    canvas.style.height = "220px";
-    const context = canvas.getContext("2d");
-    if (context) {
-      context.scale(ratio, ratio);
-    }
-    resetCanvas();
-  }, [resetCanvas]);
-
-  function point(event: PointerEvent<HTMLCanvasElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
-  }
-
-  function begin(event: PointerEvent<HTMLCanvasElement>) {
-    const context = canvasRef.current?.getContext("2d");
-    if (!context) {
-      return;
-    }
-    const current = point(event);
-    drawing.current = true;
-    context.beginPath();
-    context.moveTo(current.x, current.y);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function move(event: PointerEvent<HTMLCanvasElement>) {
-    if (!drawing.current) {
-      return;
-    }
-    const context = canvasRef.current?.getContext("2d");
-    if (!context) {
-      return;
-    }
-    const current = point(event);
-    context.lineTo(current.x, current.y);
-    context.stroke();
-  }
-
-  function end(event: PointerEvent<HTMLCanvasElement>) {
-    if (!drawing.current) {
-      return;
-    }
-    drawing.current = false;
-    event.currentTarget.releasePointerCapture(event.pointerId);
-    onChange(canvasRef.current?.toDataURL("image/png") ?? null);
-  }
-
-  return (
-    <div className="grid gap-4 rounded-card border border-tec-border/20 bg-tec-panel-strong p-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-      <section>
-        <div className="flex items-center gap-3">
-          <span className="grid h-9 w-9 place-items-center rounded-card bg-tec-orange/15 text-tec-orange">
-            <PenLine size={18} />
-          </span>
-          <h3 className="text-base font-bold text-white">{title}</h3>
-        </div>
-        <p className="mt-3 text-sm text-tec-subtle">{guidance}</p>
-        <canvas
-          className="mt-4 touch-none rounded-card border border-tec-border/25 bg-white"
-          onPointerCancel={end}
-          onPointerDown={begin}
-          onPointerMove={move}
-          onPointerUp={end}
-          ref={canvasRef}
-        />
-      </section>
-      <aside>
-        <h4 className="text-sm font-bold text-white">Status</h4>
-        <p className={`mt-3 text-sm ${signature ? "text-tec-success" : "text-tec-amber"}`}>
-          {signature ? "Assinatura capturada." : "Assine no quadro para liberar a entrega."}
-        </p>
-        <Button className="mt-5 w-full" icon={<RotateCcw size={17} />} onClick={resetCanvas}>
-          Limpar
-        </Button>
-      </aside>
     </div>
   );
 }

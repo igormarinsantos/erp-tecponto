@@ -4,7 +4,7 @@
  "autoname": "format:OSA-{#####}",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": ["service_order", "acceptance_type", "signer_role", "status", "token_hash", "selfie_file", "expires_on", "issued_by", "used_on"],
+ "field_order": ["service_order", "acceptance_type", "signer_role", "status", "token_hash", "selfie_file", "signature_file", "consent_version", "consented_on", "accepted_ip", "accepted_user_agent", "expires_on", "issued_by", "used_on"],
  "fields": [
   {"fieldname":"service_order","fieldtype":"Link","label":"Ordem de serviço","options":"Service Order","reqd":1,"in_list_view":1,"read_only":1},
   {"fieldname":"acceptance_type","fieldtype":"Select","label":"Tipo de aceite","options":"Entrada\nRetirada","reqd":1,"in_list_view":1,"read_only":1},
@@ -12,6 +12,11 @@
   {"fieldname":"status","fieldtype":"Select","label":"Status","options":"Pendente\nConcluído\nExpirado\nInvalidado","default":"Pendente","reqd":1,"in_list_view":1,"read_only":1},
   {"fieldname":"token_hash","fieldtype":"Data","label":"Hash do token","reqd":1,"unique":1,"read_only":1},
   {"fieldname":"selfie_file","fieldtype":"Link","label":"Selfie","options":"File","read_only":1},
+  {"fieldname":"signature_file","fieldtype":"Link","label":"Assinatura","options":"File","read_only":1},
+  {"fieldname":"consent_version","fieldtype":"Data","label":"Versão do consentimento LGPD","read_only":1},
+  {"fieldname":"consented_on","fieldtype":"Datetime","label":"Consentido em","read_only":1},
+  {"fieldname":"accepted_ip","fieldtype":"Data","label":"IP do aceite","read_only":1},
+  {"fieldname":"accepted_user_agent","fieldtype":"Small Text","label":"Navegador do aceite","read_only":1},
   {"fieldname":"expires_on","fieldtype":"Datetime","label":"Expira em","reqd":1,"in_list_view":1,"read_only":1},
   {"fieldname":"issued_by","fieldtype":"Link","label":"Emitido por","options":"User","reqd":1,"read_only":1},
   {"fieldname":"used_on","fieldtype":"Datetime","label":"Usado em","read_only":1}
