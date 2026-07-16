@@ -22,8 +22,8 @@
 		if (!data || !data.valid) throw new Error(data?.message || "Este link não está disponível.");
 		const order = data.service_order;
 		card.innerHTML = `
-			<p class="tp-acceptance-brand">TECPONTO</p>
-			<h1>Confirme seu atendimento</h1>
+			<p class="tp-acceptance-brand">${data.acceptance.type === "Orçamento" ? "APROVAÇÃO DE ORÇAMENTO" : "ACEITE DIGITAL"}</p>
+			<h1>${data.acceptance.type === "Orçamento" ? "Confirme seu orçamento" : "Confirme seu atendimento"}</h1>
 			<p>Confira os dados abaixo. Eles são somente leitura.</p>
 			<div class="tp-acceptance-grid">
 				<div class="tp-acceptance-field"><b>Ordem de serviço</b>${escape(order.number)}</div>
@@ -194,7 +194,11 @@
 				const payload = await response.json();
 				if (!response.ok || payload.exc || !payload.message?.completed) throw new Error("Não foi possível concluir o aceite.");
 				stopCamera();
-				card.innerHTML = `<p class="tp-acceptance-brand">TECPONTO</p><h1>Aceite concluído</h1><p>Sua confirmação foi registrada com sucesso. Você pode devolver este aparelho ao atendente.</p><div class="tp-acceptance-notice"><b>Registro concluído</b><br>Selfie, assinatura e consentimento foram vinculados a este atendimento.</div>`;
+				const completionTitle = data.acceptance.type === "Orçamento" ? "Orçamento aprovado" : "Aceite concluído";
+				const completionCopy = data.acceptance.type === "Orçamento"
+					? "Sua aprovação foi registrada com selfie, assinatura e consentimento. A Tecponto seguirá com o reparo."
+					: "Sua confirmação foi registrada com sucesso. Você pode devolver este aparelho ao atendente.";
+				card.innerHTML = `<p class="tp-acceptance-brand">${data.acceptance.type === "Orçamento" ? "APROVAÇÃO DE ORÇAMENTO" : "ACEITE DIGITAL"}</p><h1>${completionTitle}</h1><p>${completionCopy}</p><div class="tp-acceptance-notice"><b>Registro concluído</b><br>Selfie, assinatura e consentimento foram vinculados a este atendimento.</div>`;
 			} catch (error) {
 				button.disabled = false;
 				button.textContent = "Concluir aceite";
@@ -204,7 +208,7 @@
 		renderStart();
 	} catch (error) {
 		card.classList.add("tp-acceptance-error");
-		card.innerHTML = `<p class="tp-acceptance-brand">TECPONTO</p><h1>Link indisponível</h1><p>${escape(error.message)}</p>`;
+		card.innerHTML = `<p class="tp-acceptance-brand">ACEITE DIGITAL</p><h1>Link indisponível</h1><p>${escape(error.message)}</p>`;
 	} finally {
 		window.addEventListener("pagehide", stopCamera, { once: true });
 	}

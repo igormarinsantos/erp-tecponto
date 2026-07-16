@@ -11,12 +11,16 @@ html, body { background: #15181b; color: #f5f6f7; }
 {% endblock %}
 {% block page_content %}
 <main class="tp-tracking" data-token="{{ token | e }}">
+	<header class="tp-public-header" aria-label="Tecponto">
+		<img alt="Tecponto" class="tp-public-logo" src="/assets/tecponto_app/frontend/assets/tecponto-logo-dark.png">
+		<span>Acompanhe seu reparo</span>
+	</header>
   <section class="tp-tracking-card" aria-live="polite">
-    <p class="tp-tracking-brand">TECPONTO</p>
+    <p class="tp-tracking-brand">RASTREIO SEGURO</p>
     <h1>Carregando rastreio</h1>
     <p>Validando seu link seguro.</p>
   </section>
 </main>
-<link rel="stylesheet" href="/assets/tecponto_app/css/tracking.css?v=3.7.2">
-<script src="/assets/tecponto_app/js/tracking.js?v=3.7.2"></script>
+<link rel="stylesheet" href="/assets/tecponto_app/css/tracking.css?v=3.12.1">
+<script src="/assets/tecponto_app/js/tracking.js?v=3.12.1"></script>
 {% endblock %}

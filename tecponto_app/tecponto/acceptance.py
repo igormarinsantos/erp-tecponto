@@ -11,7 +11,7 @@ from frappe.utils.file_manager import save_file
 from frappe.utils import add_to_date, get_url, now_datetime
 
 
-ACCEPTANCE_TYPES = {"Entrada", "Retirada"}
+ACCEPTANCE_TYPES = {"Entrada", "Retirada", "Orçamento"}
 SIGNER_ROLES = {"Dono", "Terceiro"}
 PENDING_STATUS = "Pendente"
 TOKEN_TTL_HOURS = 24
@@ -66,6 +66,55 @@ def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str 
 		"expires_on": str(doc.expires_on),
 		"link": link,
 		"qr_svg": f"data:image/svg+xml;base64,{qr_svg}",
+	}
+
+
+def issue_budget_acceptance_from_tracking(tracking, identity_document: str) -> dict:
+	"""Create a one-time budget-approval acceptance after server-side identity proof.
+
+	The tracking token grants public *viewing* access. The customer must additionally
+	match the CPF/RG held on the Customer record before we issue the separate selfie
+	and signature token for a financially relevant approval.
+	"""
+	order = frappe.get_doc("Service Order", tracking.service_order)
+	if order.get("workflow_state") != "Aguardando aprovação":
+		frappe.throw(_("Este orçamento não está mais disponível para decisão."), frappe.ValidationError)
+	if order.get("approval_deadline") and order.approval_deadline <= now_datetime():
+		frappe.throw(_("O prazo de aprovação deste orçamento expirou."), frappe.ValidationError)
+
+	document_type = _validate_customer_identity(order.customer, identity_document)
+	frappe.db.set_value(
+		"OS Acceptance",
+		{"service_order": order.name, "acceptance_type": "Orçamento", "status": PENDING_STATUS},
+		"status",
+		"Invalidado",
+		update_modified=False,
+	)
+
+	token = secrets.token_urlsafe(32)
+	doc = frappe.get_doc(
+		{
+			"doctype": "OS Acceptance",
+			"service_order": order.name,
+			"acceptance_type": "Orçamento",
+			"signer_role": "Dono",
+			"status": PENDING_STATUS,
+			"token_hash": _token_hash(token),
+			"expires_on": _budget_acceptance_expiry(order, tracking),
+			"issued_by": tracking.issued_by,
+			"tracking_link": tracking.name,
+			"budget_version": int(order.get("budget_version") or 1),
+			"identity_document_type": document_type,
+			"identity_verified_on": now_datetime(),
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	link = f"{get_url()}/tecponto/aceite/{token}"
+	return {
+		"acceptance": doc.name,
+		"acceptance_type": doc.acceptance_type,
+		"expires_on": str(doc.expires_on),
+		"link": link,
 	}
 
 
@@ -152,13 +201,14 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 		client_ip = ""
 		user_agent = ""
 
-	order_field = "entry_signature" if doc.acceptance_type == "Entrada" else "customer_signature"
-	frappe.db.set_value(
-		"Service Order",
-		doc.service_order,
-		{order_field: signature["data_url"]},
-		update_modified=True,
-	)
+	if doc.acceptance_type in {"Entrada", "Retirada"}:
+		order_field = "entry_signature" if doc.acceptance_type == "Entrada" else "customer_signature"
+		frappe.db.set_value(
+			"Service Order",
+			doc.service_order,
+			{order_field: signature["data_url"]},
+			update_modified=True,
+		)
 	frappe.db.set_value(
 		"OS Acceptance",
 		doc.name,
@@ -173,6 +223,12 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 		},
 		update_modified=False,
 	)
+	if doc.acceptance_type == "Orçamento":
+		# The approval is deliberately executed only after identity, selfie, signature
+		# and consent have all been persisted on this one-time acceptance record.
+		from tecponto_app.tecponto.tracking import complete_tracking_budget_acceptance
+
+		complete_tracking_budget_acceptance(doc)
 	return {"completed": True, "acceptance": doc.name, "service_order": doc.service_order, "acceptance_type": doc.acceptance_type}
 
 
@@ -209,6 +265,41 @@ def _public_order_summary(order, acceptance_type: str) -> dict:
 		"physical_state": order.get("physical_state") or "Não informado",
 		"accessories_received": order.get("accessories_received") or "Nenhum acessório informado",
 	}
+
+
+def _budget_acceptance_expiry(order, tracking):
+	"""The second-factor link cannot outlive either the quote or tracking link."""
+	expires = add_to_date(now_datetime(), hours=TOKEN_TTL_HOURS)
+	for candidate in (order.get("approval_deadline"), tracking.get("expires_on")):
+		if candidate and candidate < expires:
+			expires = candidate
+	return expires
+
+
+def _validate_customer_identity(customer_name: str, identity_document: str) -> str:
+	provided_digits = _digits(identity_document)
+	provided_rg = _normalise_rg(identity_document)
+	customer = frappe.db.get_value(
+		"Customer",
+		customer_name,
+		["custom_cpf", "custom_rg"],
+		as_dict=True,
+	) or {}
+	if provided_digits and provided_digits == _digits(customer.get("custom_cpf")):
+		return "CPF"
+	if provided_rg and provided_rg == _normalise_rg(customer.get("custom_rg")):
+		return "RG"
+	# Keep this intentionally neutral: a public link must not disclose which
+	# document exists or any fragment of it.
+	frappe.throw(_("Não foi possível validar o documento informado. Confira e tente novamente."), frappe.PermissionError)
+
+
+def _digits(value: str | None) -> str:
+	return "".join(character for character in (value or "") if character.isdigit())
+
+
+def _normalise_rg(value: str | None) -> str:
+	return "".join(character for character in (value or "").upper() if character.isalnum())
 
 
 def _token_hash(token: str) -> str:

@@ -1,13 +1,19 @@
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 400 700; src: url("/assets/tecponto_app/frontend/assets/space-grotesk-latin-400-normal.woff2") format("woff2"); }
 :root { color-scheme: dark; font-family: "Space Grotesk", Arial, sans-serif; }
-.tp-acceptance { align-items: center; background: #15181b; display: flex; justify-content: center; min-height: 100vh; padding: 24px; }
-.tp-acceptance-card { background: #1d2125; border: 1px solid rgba(245,246,247,.16); border-radius: 16px; box-sizing: border-box; max-width: 640px; padding: 32px; width: 100%; }
-.tp-acceptance-brand { color: #fe5000; font-size: 14px; font-weight: 700; letter-spacing: .08em; margin: 0 0 24px; }
-.tp-acceptance-card h1 { font-size: 28px; margin: 0 0 8px; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.tp-acceptance { align-items: center; background: #15181b; display: flex; flex-direction: column; justify-content: center; max-width: 100%; min-height: 100vh; min-width: 0; padding: 24px; width: 100%; }
+.tp-public-header { align-items: center; display: flex; justify-content: space-between; margin: 0 auto 18px; max-width: 640px; min-width: 0; width: 100%; }
+.tp-public-logo { display: block; filter: brightness(0) invert(1); height: auto; max-width: 164px; width: 42vw; }
+.tp-public-header span { color: #adb4ba; font-size: 12px; font-weight: 600; }
+.tp-acceptance-card { background: #1d2125; border: 1px solid rgba(245,246,247,.14); border-radius: 18px; box-shadow: 0 24px 64px rgba(0,0,0,.28); max-width: 640px; min-width: 0; padding: 32px; width: 100%; }
+.tp-acceptance-brand { color: #fe5000; font-size: 12px; font-weight: 700; letter-spacing: .1em; margin: 0 0 16px; }
+.tp-acceptance-card h1 { font-size: clamp(28px, 7vw, 36px); font-weight: 700; letter-spacing: 0; line-height: 1.12; margin: 0 0 10px; }
 .tp-acceptance-card p { color: #adb4ba; line-height: 1.5; }
 .tp-acceptance-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 24px 0; }
-.tp-acceptance-field { background: #24292e; border-radius: 10px; padding: 14px; }
+.tp-acceptance-field { background: #24292e; border: 1px solid rgba(245,246,247,.08); border-radius: 12px; padding: 14px; }
 .tp-acceptance-field b { color: #adb4ba; display: block; font-size: 12px; margin-bottom: 6px; }
-.tp-acceptance-notice { border-left: 3px solid #fe5000; color: #adb4ba; font-size: 14px; line-height: 1.55; margin-top: 20px; padding: 12px 16px; }
+.tp-acceptance-notice { background: rgba(254,80,0,.08); border: 1px solid rgba(254,80,0,.2); border-left: 3px solid #fe5000; border-radius: 10px; color: #adb4ba; font-size: 14px; line-height: 1.55; margin-top: 20px; padding: 12px 16px; }
 .tp-acceptance-readonly { color: #adb4ba; font-size: 13px; margin-top: 24px; }
 .tp-acceptance-error { border-color: rgba(239,68,68,.6); }
 .tp-camera { border-top: 1px solid rgba(245,246,247,.12); margin-top: 28px; padding-top: 24px; }
@@ -18,8 +24,9 @@
 .tp-camera-stage { align-items: center; background: #101214; border: 1px dashed rgba(245,246,247,.2); border-radius: 12px; display: flex; flex-direction: column; justify-content: center; margin-top: 16px; min-height: 280px; overflow: hidden; padding: 16px; }
 .tp-camera-video, .tp-camera-preview { background: #0a0c0e; border-radius: 10px; display: block; max-height: 420px; max-width: 100%; object-fit: cover; width: 100%; }
 .tp-camera-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 14px; width: 100%; }
-.tp-camera-primary, .tp-camera-secondary { border-radius: 10px; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 700; min-height: 42px; padding: 0 16px; }
+.tp-camera-primary, .tp-camera-secondary { border-radius: 11px; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 700; min-height: 44px; padding: 0 16px; transition: transform .16s ease, border-color .16s ease, background .16s ease; }
 .tp-camera-primary { background: #fe5000; border: 1px solid #fe5000; color: #202428; }
+.tp-camera-primary:hover:not(:disabled) { transform: translateY(-1px); }
 .tp-camera-primary:disabled { cursor: wait; opacity: .6; }
 .tp-camera-secondary { background: #24292e; border: 1px solid rgba(245,246,247,.18); color: #f5f6f7; }
 .tp-camera-complete { align-items: center; color: #25d366; display: flex; flex-direction: column; gap: 8px; text-align: center; }
@@ -31,4 +38,5 @@
 .tp-signature-canvas { background: #fff; border: 1px solid rgba(245,246,247,.2); border-radius: 10px; box-sizing: border-box; cursor: crosshair; display: block; height: 180px; touch-action: none; width: 100%; }
 .tp-lgpd-consent { align-items: flex-start; color: #adb4ba; display: flex; font-size: 14px; gap: 10px; line-height: 1.5; margin-top: 20px; width: 100%; }
 .tp-lgpd-consent input { accent-color: #fe5000; height: 18px; margin: 2px 0 0; width: 18px; }
-@media (max-width: 560px) { .tp-acceptance { padding: 12px; } .tp-acceptance-card { padding: 22px; } .tp-camera-heading { flex-direction: column; gap: 8px; } .tp-camera-stage { min-height: 220px; } .tp-camera-actions > button { flex: 1; } }
+@media (prefers-reduced-motion: reduce) { .tp-camera-primary, .tp-camera-secondary { transition: none; } }
+@media (max-width: 560px) { .tp-acceptance { align-items: stretch; justify-content: flex-start; padding: 16px; } .tp-public-header { margin-bottom: 16px; } .tp-public-logo { max-width: 145px; } .tp-public-header span { font-size: 11px; } .tp-acceptance-card { padding: 22px; } .tp-camera-heading { flex-direction: column; gap: 8px; } .tp-camera-stage { min-height: 220px; } .tp-camera-actions > button { flex: 1; } }

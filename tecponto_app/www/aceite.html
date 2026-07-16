@@ -14,12 +14,16 @@ html, body { background: #15181b; color: #f5f6f7; }
 
 {% block page_content %}
 <main class="tp-acceptance" data-token="{{ token | e }}">
+	<header class="tp-public-header" aria-label="Tecponto">
+		<img alt="Tecponto" class="tp-public-logo" src="/assets/tecponto_app/frontend/assets/tecponto-logo-dark.png">
+		<span>Atendimento seguro</span>
+	</header>
   <section class="tp-acceptance-card" aria-live="polite">
-    <p class="tp-acceptance-brand">TECPONTO</p>
+    <p class="tp-acceptance-brand">ACEITE DIGITAL</p>
     <h1>Carregando aceite</h1>
     <p>Validando seu link seguro.</p>
   </section>
 </main>
-<link rel="stylesheet" href="/assets/tecponto_app/css/acceptance.css?v=3.6.3">
-<script src="/assets/tecponto_app/js/acceptance.js?v=3.6.3"></script>
+<link rel="stylesheet" href="/assets/tecponto_app/css/acceptance.css?v=3.12.1">
+<script src="/assets/tecponto_app/js/acceptance.js?v=3.12.1"></script>
 {% endblock %}

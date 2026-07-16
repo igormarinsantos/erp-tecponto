@@ -154,8 +154,49 @@ def decide_public_tracking_budget(token: str, decision: str, notes: str = "") ->
 		frappe.throw(_("Informe se o orçamento foi aprovado ou reprovado."), frappe.ValidationError)
 	if decision == "reject" and not notes:
 		frappe.throw(_("Informe o motivo da reprovação."), frappe.ValidationError)
+	if decision == "approve":
+		frappe.throw(
+			_("Confirme CPF ou RG e conclua o aceite com selfie e assinatura para aprovar este orçamento."),
+			frappe.ValidationError,
+		)
 
+	_execute_tracking_budget_decision(tracking, "reject", notes)
+	return {
+		"completed": True,
+		"decision": "reject",
+		"tracking": get_public_tracking(token),
+	}
+
+
+@frappe.whitelist(allow_guest=True)
+def start_public_tracking_budget_acceptance(token: str, identity_document: str) -> dict[str, Any]:
+	"""Validate the holder's CPF/RG and issue the selfie/signature budget link."""
+	tracking = _get_valid_tracking(token)
+	if not tracking:
+		frappe.throw(_(INVALID_LINK_MESSAGE), frappe.PermissionError)
+	from tecponto_app.tecponto.acceptance import issue_budget_acceptance_from_tracking
+
+	return issue_budget_acceptance_from_tracking(tracking, identity_document)
+
+
+def complete_tracking_budget_acceptance(acceptance) -> None:
+	"""Revalidate and approve a quote after its public biometric acceptance."""
+	tracking_name = acceptance.get("tracking_link")
+	if not tracking_name:
+		frappe.throw(_("O vínculo de rastreio deste aceite não foi encontrado."), frappe.ValidationError)
+	tracking = frappe.get_doc(TRACKING_DOCTYPE, tracking_name)
+	if tracking.status != ACTIVE_STATUS or (tracking.expires_on and tracking.expires_on <= now_datetime()):
+		frappe.throw(_(INVALID_LINK_MESSAGE), frappe.PermissionError)
+	order = frappe.get_doc("Service Order", acceptance.service_order)
+	if int(order.get("budget_version") or 1) != int(acceptance.get("budget_version") or 0):
+		frappe.throw(_("O orçamento foi revisado. Confirme a versão atual pelo link de rastreio."), frappe.ValidationError)
+	_execute_tracking_budget_decision(tracking, "approve", "Aceite por link com CPF/RG, selfie e assinatura.")
+
+
+def _execute_tracking_budget_decision(tracking, decision: str, notes: str) -> None:
+	"""Run the existing operator-owned workflow after public prerequisites pass."""
 	order = frappe.get_doc("Service Order", tracking.service_order)
+
 	if order.get("workflow_state") != "Aguardando aprovação":
 		frappe.throw(_("Este orçamento não está mais disponível para decisão."), frappe.ValidationError)
 	if order.get("approval_deadline") and order.approval_deadline <= now_datetime():
@@ -166,8 +207,8 @@ def decide_public_tracking_budget(token: str, decision: str, notes: str = "") ->
 	if not actor or not set(frappe.get_roles(actor)).intersection(allowed_roles):
 		frappe.throw(_("Este link não pode mais registrar uma decisão. Peça um novo link à Tecponto."), frappe.PermissionError)
 
-	# The token authorizes the customer decision; the existing motor still runs under
-	# the accountable operator, with its normal role checks and workflow validation.
+	# The public token/acceptance authorizes the customer decision; the existing
+	# workflow still executes under the accountable Tecponto operator.
 	previous_user = frappe.session.user
 	try:
 		frappe.set_user(actor)
@@ -179,12 +220,6 @@ def decide_public_tracking_budget(token: str, decision: str, notes: str = "") ->
 		)
 	finally:
 		frappe.set_user(previous_user)
-
-	return {
-		"completed": True,
-		"decision": decision,
-		"tracking": get_public_tracking(token),
-	}
 
 
 def _get_valid_tracking(token: str):

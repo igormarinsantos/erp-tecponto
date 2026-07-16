@@ -54,6 +54,7 @@ from tecponto_app.tecponto.tracking import (
 	issue_service_order_tracking_link,
 	on_service_order_updated,
 	revoke_service_order_tracking_link,
+	start_public_tracking_budget_acceptance,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.requests import (
@@ -271,6 +272,12 @@ def run_public_tracking_budget_checks() -> dict:
 				raise AssertionError("OS de rastreio não possui a peça necessária ao teste de aprovação.")
 			valuation_rate = flt(frappe.db.get_value("Item", part.item_code, "valuation_rate") or 10)
 			_ensure_pos_demo_stock(part.item_code, part.warehouse, valuation_rate)
+			frappe.db.set_value(
+				"Customer",
+				frappe.db.get_value("Service Order", order_name, "customer"),
+				{"custom_cpf": "12345678909", "custom_rg": "MG-12.345.678", "custom_nao_possui_cpf": 0},
+				update_modified=False,
+			)
 			return order_name
 
 		approve_order = prepare_order()
@@ -287,7 +294,52 @@ def run_public_tracking_budget_checks() -> dict:
 		leaks = contains_sensitive_field(public_budget)
 		if leaks:
 			raise AssertionError(f"Orçamento público expôs campo sensível: {', '.join(leaks)}")
-		approval = decide_public_tracking_budget(approve_token, "approve")
+		identity_mismatch_blocked = False
+		try:
+			start_public_tracking_budget_acceptance(approve_token, "000.000.000-00")
+		except frappe.PermissionError:
+			identity_mismatch_blocked = True
+		if not identity_mismatch_blocked:
+			raise AssertionError("Aprovação pública aceitou CPF/RG que não pertence ao titular da OS.")
+		rg_order = prepare_order()
+		frappe.db.set_value(
+			"Customer",
+			frappe.db.get_value("Service Order", rg_order, "customer"),
+			{"custom_cpf": "", "custom_rg": "MG-12.345.678", "custom_nao_possui_cpf": 1},
+			update_modified=False,
+		)
+		rg_link = issue_tracking_link(rg_order)
+		rg_token = rg_link["link"].rstrip("/").rsplit("/", 1)[-1]
+		rg_acceptance = start_public_tracking_budget_acceptance(rg_token, "mg 12.345.678")
+		if frappe.db.get_value("OS Acceptance", rg_acceptance["acceptance"], "identity_document_type") != "RG":
+			raise AssertionError("Aceite de orçamento não aceitou RG do titular quando CPF não está disponível.")
+		# Restore the fixture's CPF path for the remaining deadline scenario.
+		frappe.db.set_value(
+			"Customer",
+			frappe.db.get_value("Service Order", rg_order, "customer"),
+			{"custom_cpf": "12345678909", "custom_nao_possui_cpf": 0},
+			update_modified=False,
+		)
+
+		budget_acceptance = start_public_tracking_budget_acceptance(approve_token, "123.456.789-09")
+		budget_token = budget_acceptance["link"].rstrip("/").rsplit("/", 1)[-1]
+		budget_acceptance_doc = frappe.get_doc("OS Acceptance", budget_acceptance["acceptance"])
+		if budget_token in frappe.as_json(budget_acceptance_doc.as_dict()) or budget_acceptance_doc.identity_document_type != "CPF":
+			raise AssertionError("Aceite de orçamento não protegeu o token ou não auditou o tipo de documento validado.")
+		camera_image = BytesIO()
+		camera_seed = int(frappe.generate_hash(length=4), 16)
+		Image.new("RGB", (24, 24), color=(camera_seed % 255, 40, 60)).save(camera_image, format="JPEG")
+		camera_selfie = "data:image/jpeg;base64," + b64encode(camera_image.getvalue()).decode()
+		signature_image = BytesIO()
+		signature_canvas = Image.new("RGB", (640, 180), color=(250, 250, 250))
+		signature_draw = ImageDraw.Draw(signature_canvas)
+		signature_draw.line([(40, 120), (180, 50), (300, 135), (430, 45), (580, 110)], fill=(32, 36, 40), width=5)
+		signature_draw.rectangle((620, 160, 635, 175), fill=(camera_seed % 255, 36, 40))
+		signature_canvas.save(signature_image, format="PNG")
+		signature_data = "data:image/png;base64," + b64encode(signature_image.getvalue()).decode()
+		save_public_acceptance_selfie(budget_token, camera_selfie)
+		approval = complete_public_acceptance(budget_token, signature_data, 1)
+		budget_acceptance_doc.reload()
 		approved_doc = frappe.get_doc("Service Order", approve_order)
 		if (
 			not approval.get("completed")
@@ -295,11 +347,12 @@ def run_public_tracking_budget_checks() -> dict:
 			or approved_doc.approval_channel != "Link"
 			or not approved_doc.approval_date
 			or not approved_doc.quote_locked
+			or budget_acceptance_doc.status != "Concluído"
 		):
 			raise AssertionError("Aprovação pelo link não reexecutou o motor com canal Link e timestamp.")
 		decision_repeat_blocked = False
 		try:
-			decide_public_tracking_budget(approve_token, "approve")
+			start_public_tracking_budget_acceptance(approve_token, "12345678909")
 		except frappe.ValidationError:
 			decision_repeat_blocked = True
 		if not decision_repeat_blocked:
@@ -328,7 +381,7 @@ def run_public_tracking_budget_checks() -> dict:
 		frappe.set_user("Guest")
 		expired_blocked = False
 		try:
-			decide_public_tracking_budget(expired_token, "approve")
+			start_public_tracking_budget_acceptance(expired_token, "12345678909")
 		except frappe.ValidationError:
 			expired_blocked = True
 		if not expired_blocked or frappe.db.get_value("Service Order", expired_order, "workflow_state") != "Aguardando aprovação":
@@ -341,6 +394,9 @@ def run_public_tracking_budget_checks() -> dict:
 			"rejected_state": rejected_doc.workflow_state,
 			"rejection_reason_required": rejection_reason_required,
 			"decision_repeat_blocked": decision_repeat_blocked,
+			"identity_mismatch_blocked": identity_mismatch_blocked,
+			"rg_identity_accepted": True,
+			"budget_acceptance": budget_acceptance_doc.name,
 			"expired_blocked": expired_blocked,
 			"sensitive_guard": {"leaked_fields": leaks},
 		}
@@ -1067,7 +1123,8 @@ def run_public_acceptance_checks() -> dict:
 		if frappe.db.get_value("OS Acceptance", acceptance.name, "status") != "Pendente":
 			raise AssertionError("Consulta pública não pode consumir ou alterar um aceite pendente.")
 		camera_image = BytesIO()
-		Image.new("RGB", (24, 24), color=(20, 40, 60)).save(camera_image, format="JPEG")
+		camera_seed = int(frappe.generate_hash(length=4), 16)
+		Image.new("RGB", (24, 24), color=(camera_seed % 255, 40, 60)).save(camera_image, format="JPEG")
 		camera_selfie = "data:image/jpeg;base64," + b64encode(camera_image.getvalue()).decode()
 		saved = save_public_acceptance_selfie(raw_token, camera_selfie)
 		acceptance.reload()
@@ -1093,7 +1150,9 @@ def run_public_acceptance_checks() -> dict:
 			raise AssertionError("Endpoint público aceitou formato fora da captura JPEG da câmera.")
 		signature_image = BytesIO()
 		signature_canvas = Image.new("RGB", (640, 180), color=(250, 250, 250))
-		ImageDraw.Draw(signature_canvas).line([(40, 120), (180, 50), (300, 135), (430, 45), (580, 110)], fill=(32, 36, 40), width=5)
+		signature_draw = ImageDraw.Draw(signature_canvas)
+		signature_draw.line([(40, 120), (180, 50), (300, 135), (430, 45), (580, 110)], fill=(32, 36, 40), width=5)
+		signature_draw.rectangle((620, 160, 635, 175), fill=(camera_seed % 255, 36, 40))
 		signature_canvas.save(signature_image, format="PNG")
 		signature_data = "data:image/png;base64," + b64encode(signature_image.getvalue()).decode()
 		consent_required = False
