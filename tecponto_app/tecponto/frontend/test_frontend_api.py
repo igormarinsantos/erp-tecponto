@@ -1183,11 +1183,18 @@ def run_daily_action_checks() -> dict:
 		technical = list_daily_actions("tecnico")
 		if any(item.get("reference_name") == order_name for item in technical["derived"]):
 			raise AssertionError("Tecnico recebeu pendencia de OS atribuida ao Atendente.")
+
+		multi_role_user = _find_or_create_multi_role_user()
+		frappe.set_user(multi_role_user)
+		unified = list_daily_actions("unified")
+		if not unified.get("items"):
+			raise AssertionError("Agenda unificada do usuario multipapel nao retornou itens.")
 		return {
 			"status": "ok",
 			"derived_disappears": True,
 			"manual_task_lifecycle": True,
 			"unified_urgency_agenda": True,
+			"multi_role_agenda": True,
 			"role_scoped": True,
 		}
 	finally:

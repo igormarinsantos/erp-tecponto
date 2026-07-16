@@ -12,7 +12,8 @@ export type NavigationTarget =
   | "commercial-products"
   | "used-devices"
   | "pos"
-  | "sales";
+  | "sales"
+  | "approval-requests";
 
 export interface LoggedUser {
   name: string;

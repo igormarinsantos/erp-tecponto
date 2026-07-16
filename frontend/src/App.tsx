@@ -298,6 +298,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
     title: "Vendas e acessórios",
     subtitle: "Acesso rápido ao fluxo de venda do balcão.",
   },
+  "approval-requests": {
+    title: "Central de aprovacoes",
+    subtitle: "Solicitacoes que exigem decisao de Gestor ou Diretor.",
+  },
 };
 
 export function App() {
@@ -314,6 +318,7 @@ export function App() {
   const [pendingOrderFlow, setPendingOrderFlow] = useState<ServiceOrderFlow | null>(null);
   const [pendingPosBarcode, setPendingPosBarcode] = useState<PendingPosBarcode | null>(null);
   const [pendingRetailBarcode, setPendingRetailBarcode] = useState<PendingRetailBarcode | null>(null);
+  const [pendingServiceOrderStatus, setPendingServiceOrderStatus] = useState<QueueFilter | null>(null);
   const [serviceOrdersView, setServiceOrdersView] = useState<ServiceOrdersViewMode>(getStoredServiceOrdersView);
   const [theme, setTheme] = useState<AppTheme>("dark");
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -469,6 +474,11 @@ export function App() {
     setSelectedOrderName(name);
     setPendingOrderFlow(flow);
     setActiveView("service-order-detail");
+  }, []);
+
+  const openServiceOrderList = useCallback((status: QueueFilter = "all") => {
+    setPendingServiceOrderStatus(status);
+    setActiveView("service-orders");
   }, []);
 
   const clearPendingOrderFlow = useCallback(() => {
@@ -825,15 +835,13 @@ export function App() {
           {activeView === "overview" ? (
             <OverviewContent
               actions={panel.actions}
-              metrics={state.metrics}
               onNavigate={setActiveView}
-              onOpenNotifications={() => setNotificationsOpen(true)}
               onStartCheckin={startCheckin}
               onOpenServiceOrder={openServiceOrder}
               onToast={showToast}
-              orders={state.orders}
-              panel={panel}
-              panelName={visualUser.panel}
+              onOpenServiceOrderList={openServiceOrderList}
+              agendaPanel={rolePanels.length > 1 ? "unified" : visualUser.panel}
+              canApprove={rolePanels.includes("gestor") || rolePanels.includes("diretor")}
             />
           ) : (
             <NavigationContent
@@ -844,6 +852,8 @@ export function App() {
               canEditServiceCatalog={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
               onInitialPosBarcodeHandled={() => setPendingPosBarcode(null)}
               onInitialRetailBarcodeHandled={() => setPendingRetailBarcode(null)}
+              initialServiceOrderStatus={pendingServiceOrderStatus}
+              onInitialServiceOrderStatusHandled={() => setPendingServiceOrderStatus(null)}
               onRegisterUnknownRetailBarcode={(code) => {
                 setPendingRetailBarcode({ code, id: Date.now() });
                 setActiveView("commercial-products");
@@ -1305,70 +1315,166 @@ function HelpModal({
 
 function OverviewContent({
   actions,
-  metrics,
   onNavigate,
-  onOpenNotifications,
+  onOpenServiceOrderList,
   onOpenServiceOrder,
   onToast,
   onStartCheckin,
-  orders,
-  panel,
-  panelName,
+  agendaPanel,
+  canApprove,
 }: {
   actions: ActionDefinition[];
-  metrics: DashboardMetrics;
   onNavigate: (target: NavigationTarget) => void;
-  onOpenNotifications: () => void;
   onOpenServiceOrder: (name: string) => void;
+  onOpenServiceOrderList: (status: QueueFilter) => void;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   onStartCheckin: () => void;
-  orders: ServiceOrderSummary[];
-  panel: (typeof panelDefinitions)[keyof typeof panelDefinitions];
-  panelName: RolePanel;
+  agendaPanel: RolePanel | "unified";
+  canApprove: boolean;
 }) {
-  const [periodFilter, setPeriodFilter] = useState<DashboardPeriodFilter>(DEFAULT_DASHBOARD_PERIOD);
-  const periodOrders = useMemo(() => filterOrdersByDashboardPeriod(orders, periodFilter), [orders, periodFilter]);
+  const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
+  const [salesStats, setSalesStats] = useState<Array<{ key: string; label: string; value: number; amount?: number }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([serviceOrders.statBar(), balcao.getListStatBar("sales")])
+      .then(([serviceOrdersResponse, salesResponse]) => {
+        if (!cancelled) {
+          setServiceOrderStats(serviceOrdersResponse.items);
+          setSalesStats(salesResponse.items);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setServiceOrderStats([]);
+          setSalesStats([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const statItems = [
+    ...serviceOrderStats.map((item) => ({ ...item, ...getStatBarVisual("service_orders", item.key) })),
+    ...salesStats.map((item) => ({
+      ...item,
+      ...getStatBarVisual("sales", item.key),
+      displayValue: item.key === "amount" ? item.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : undefined,
+    })),
+  ];
 
   return (
     <>
-      <DashboardPeriodControl filter={periodFilter} onChange={setPeriodFilter} resultCount={periodOrders.length} />
-
-      <div className="tp-bento-grid">
-        {panel.metrics.map((metric) => (
-          <MetricCard
-            detail={metric.detail}
-            icon={<metric.icon size={22} />}
-            key={metric.label}
-            label={metric.label}
-            tone={metric.tone}
-            value={metric.value(metrics)}
-          />
-        ))}
-      </div>
-
-      <div className="tp-layout-grid mt-4">
-        <OperationsTable
-          onOpenOrder={onOpenServiceOrder}
-          onToast={onToast}
-          onShowAll={() => onNavigate("service-orders")}
-          orders={periodOrders}
-          title={panel.tableTitle}
+      <HomeSectorActions actions={actions} onNavigate={onNavigate} onStartCheckin={onStartCheckin} />
+      <section className="mt-4">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-xl font-bold text-white">Operacao agora</h2>
+            <p className="mt-1 text-sm text-tec-muted">OS por etapa e vendas do dia. Sem custo, margem ou lucro.</p>
+          </div>
+          <button className="text-sm font-bold text-tec-orange hover:text-tec-digital-orange" onClick={() => onOpenServiceOrderList("all")} type="button">
+            Ver Ordens de servico <ArrowRight className="ml-1 inline" size={16} />
+          </button>
+        </div>
+        <StatBar
+          items={statItems}
+          onSelect={(key) => onOpenServiceOrderList(QUEUE_FILTERS.some((filter) => filter.value === key) ? key as QueueFilter : "all")}
         />
-        <RightRail
-          actions={actions}
-          metrics={metrics}
-          onNavigate={onNavigate}
-          onOpenNotifications={onOpenNotifications}
-          onStartCheckin={onStartCheckin}
-        />
-      </div>
+      </section>
       <div className="mt-4">
-        <DailyActionsPanel onOpenOrder={onOpenServiceOrder} onToast={onToast} panel={panelName} />
+        <DailyActionsPanel onOpenOrder={onOpenServiceOrder} onToast={onToast} panel={agendaPanel} />
       </div>
-      <div className="mt-4">
-        <ApprovalRequestsPanel onToast={onToast} />
-      </div>
+      {canApprove ? <div className="mt-4">
+        <ApprovalRequestsPanel compact onOpenAll={() => onNavigate("approval-requests")} onToast={onToast} />
+      </div> : null}
     </>
+  );
+}
+
+function HomeSectorActions({
+  actions,
+  onNavigate,
+  onStartCheckin,
+}: {
+  actions: ActionDefinition[];
+  onNavigate: (target: NavigationTarget) => void;
+  onStartCheckin: () => void;
+}) {
+  const shortcuts = [
+    { action: actions.find((item) => item.target === "pos"), key: "F2" },
+    { action: actions.find((item) => item.opensCheckin), key: "F3" },
+    { action: actions.find((item) => item.target === "customers"), key: "F4" },
+    { action: actions.find((item) => item.target === "trade-ins"), key: "F5" },
+  ].filter((item): item is { action: ActionDefinition; key: string } => Boolean(item.action));
+
+  const runAction = useCallback((action: ActionDefinition) => {
+    if (action.opensCheckin) {
+      onStartCheckin();
+    } else if (action.externalHref) {
+      window.open(action.externalHref, "_blank", "noopener,noreferrer");
+    } else if (action.target) {
+      onNavigate(action.target);
+    }
+  }, [onNavigate, onStartCheckin]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        event.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+      const shortcut = shortcuts.find((item) => item.key === event.key);
+      if (!shortcut) {
+        return;
+      }
+      event.preventDefault();
+      runAction(shortcut.action);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [runAction, shortcuts]);
+
+  return (
+    <section>
+      <div className="mb-3">
+        <h2 className="text-xl font-bold text-white">Atalhos do setor</h2>
+        <p className="mt-1 text-sm text-tec-muted">Acoes frequentes para manter o balcao em movimento.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {shortcuts.map(({ action, key }) => {
+          const ActionIcon = action.icon;
+          const highlighted = action.target === "pos";
+          return (
+            <button
+              aria-keyshortcuts={key}
+              className={cx(
+                "group flex min-h-28 items-center gap-4 rounded-card border p-4 text-left transition",
+                highlighted
+                  ? "border-tec-orange bg-tec-orange text-tec-ink shadow-glow hover:bg-tec-digital-orange"
+                  : "border-tec-border/20 bg-tec-panel hover:border-tec-orange/50 hover:bg-tec-field",
+              )}
+              key={action.label}
+              onClick={() => runAction(action)}
+              type="button"
+            >
+              <span className={cx("grid h-12 w-12 shrink-0 place-items-center rounded-control", highlighted ? "bg-tec-ink/15 text-tec-ink" : "bg-tec-orange/10 text-tec-orange")}>
+                <ActionIcon size={25} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className={cx("block text-base font-bold", highlighted ? "text-tec-ink" : "text-white")}>{action.label}</span>
+                <span className={cx("mt-1 block text-xs", highlighted ? "text-tec-ink/80" : "text-tec-muted")}>{action.detail}</span>
+              </span>
+              <kbd className={cx("rounded-control border px-2 py-1 text-xs font-bold", highlighted ? "border-tec-ink/25 bg-tec-ink/10 text-tec-ink" : "border-tec-border/20 bg-tec-field text-tec-muted")}>{key}</kbd>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1448,10 +1554,12 @@ function NavigationContent({
   activeView,
   initialPosBarcode,
   initialRetailBarcode,
+  initialServiceOrderStatus,
   canReceiveStock,
   canEditServiceCatalog,
   onInitialPosBarcodeHandled,
   onInitialRetailBarcodeHandled,
+  onInitialServiceOrderStatusHandled,
   onRegisterUnknownRetailBarcode,
   initialOrderFlow,
   onInitialOrderFlowHandled,
@@ -1470,9 +1578,11 @@ function NavigationContent({
   canEditServiceCatalog: boolean;
   initialPosBarcode: PendingPosBarcode | null;
   initialRetailBarcode: PendingRetailBarcode | null;
+  initialServiceOrderStatus: QueueFilter | null;
   initialOrderFlow: ServiceOrderFlow | null;
   onInitialPosBarcodeHandled: () => void;
   onInitialRetailBarcodeHandled: () => void;
+  onInitialServiceOrderStatusHandled: () => void;
   onRegisterUnknownRetailBarcode: (barcode: string) => void;
   onInitialOrderFlowHandled: () => void;
   onNavigate: (target: NavigationTarget) => void;
@@ -1496,6 +1606,14 @@ function NavigationContent({
   const serviceOrderSourceOrders = serviceOrderListState.status === "ready" ? serviceOrderListState.items : orders;
   const serviceOrderScreenOrders = filterOrdersForServiceOrderScreen(serviceOrderSourceOrders, serviceOrderFilters);
   const serviceOrderResultCount = serviceOrderScreenOrders.length;
+
+  useEffect(() => {
+    if (activeView !== "service-orders" || !initialServiceOrderStatus) {
+      return;
+    }
+    setServiceOrderFilters({ ...DEFAULT_SERVICE_ORDER_FILTERS, status: initialServiceOrderStatus });
+    onInitialServiceOrderStatusHandled();
+  }, [activeView, initialServiceOrderStatus, onInitialServiceOrderStatusHandled]);
 
   useEffect(() => {
     if (activeView !== "service-orders") {
@@ -1598,6 +1716,10 @@ function NavigationContent({
         />
       </div>
     );
+  }
+
+  if (activeView === "approval-requests") {
+    return <ApprovalRequestsPanel onToast={onToast} />;
   }
 
   if (activeView === "customers") {
@@ -5447,7 +5569,7 @@ function DailyActionsPanel({
 }: {
   onOpenOrder: (name: string) => void;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
-  panel: RolePanel;
+  panel: RolePanel | "unified";
 }) {
   const [state, setState] = useState<DailyActionsResponse | null>(null);
   const [title, setTitle] = useState("");

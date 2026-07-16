@@ -42,8 +42,13 @@ def action_for_service_order_state(state: str | None) -> dict[str, str]:
 
 @frappe.whitelist()
 def list_daily_actions(panel: str | None = None) -> dict[str, Any]:
-	_panel = _resolve_panel(panel)
-	derived = _derived_actions(_panel)
+	panels = _resolve_panels(panel)
+	derived_by_key = {
+		item["key"]: item
+		for resolved_panel in panels
+		for item in _derived_actions(resolved_panel)
+	}
+	derived = _sort_actions(list(derived_by_key.values()))
 	manual = _manual_actions()
 	return {
 		"derived": derived,
@@ -277,15 +282,25 @@ def _clock_sort_at(clock: dict[str, Any], row: Any) -> str:
 
 
 def _resolve_panel(panel: str | None) -> str:
+	return _resolve_panels(panel)[0]
+
+
+def _resolve_panels(panel: str | None) -> list[str]:
 	_require_frontend_role()
 	requested = (panel or "").strip().lower()
 	roles = set(frappe.get_roles())
+	available = [
+		candidate
+		for candidate in ("gestor", "tecnico", "atendente", "diretor")
+		if PANEL_ROLES[candidate] in roles or "System Manager" in roles or frappe.session.user == "Administrator"
+	]
+	if requested == "unified":
+		return available or ["diretor"]
 	if requested in PANEL_ROLES and (PANEL_ROLES[requested] in roles or "System Manager" in roles or frappe.session.user == "Administrator"):
-		return requested
-	for candidate in ("gestor", "tecnico", "atendente", "diretor"):
-		if PANEL_ROLES[candidate] in roles:
-			return candidate
-	return "diretor"
+		return [requested]
+	if available:
+		return [available[0]]
+	return ["diretor"]
 
 
 def _require_frontend_role() -> None:
