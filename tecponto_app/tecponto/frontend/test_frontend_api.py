@@ -93,6 +93,7 @@ from tecponto_app.tecponto.pos import (
 from tecponto_app.tecponto import notify
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD
 from tecponto_app.tecponto.pending import complete_manual_task, create_manual_task, list_daily_actions
+from tecponto_app.tecponto.service_order.stage_clock import get_stage_clock
 from tecponto_app.tecponto.service_order.stage_sla import add_commercial_business_hours, get_stage_slas
 
 
@@ -147,6 +148,7 @@ def run_foundation_checks() -> dict:
 		customer_registration_checks = run_customer_registration_checks()
 		service_catalog_checks = run_service_catalog_checks()
 		stage_sla_checks = run_stage_sla_checks()
+		stage_clock_checks = run_stage_clock_checks()
 		public_acceptance_checks = run_public_acceptance_checks()
 		tracking_checks = run_public_tracking_checks()
 		tracking_budget_checks = run_public_tracking_budget_checks()
@@ -172,6 +174,7 @@ def run_foundation_checks() -> dict:
 			"customer_registration_checks": customer_registration_checks,
 			"service_catalog_checks": service_catalog_checks,
 			"stage_sla_checks": stage_sla_checks,
+			"stage_clock_checks": stage_clock_checks,
 			"public_acceptance_checks": public_acceptance_checks,
 			"tracking_checks": tracking_checks,
 			"tracking_budget_checks": tracking_budget_checks,
@@ -579,6 +582,36 @@ def run_stage_sla_checks() -> dict:
 		if original_entry_sla:
 			frappe.set_user(_find_or_create_user("Tecponto Gestor"))
 			save_stage_sla(original_entry_sla)
+		frappe.set_user(previous_user)
+
+
+def run_stage_clock_checks() -> dict:
+	"""A delay is derived from stage timestamps and clears by moving forward."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		manager = _find_or_create_user("Tecponto Gestor")
+		frappe.set_user(manager)
+		order = frappe.get_doc("Service Order", _create_action_request_service_order(manager))
+		old = add_to_date(now_datetime(), hours=-48)
+		frappe.db.set_value("Service Order", order.name, {"workflow_state": "Entrada criada", "stage_entered_at": old, "estimated_deadline": add_days(now_datetime().date(), -1)}, update_modified=False)
+		order.reload()
+		overdue = get_stage_clock(order)
+		if not overdue["is_stage_overdue"] or not overdue["is_total_overdue"] or not overdue["is_overdue"]:
+			raise AssertionError("OS parada além do SLA/data prometida não foi marcada como atrasada.")
+		listed = list_service_orders(query=order.name, limit=1)["items"]
+		if not listed or not listed[0].get("stage_clock", {}).get("is_overdue"):
+			raise AssertionError("Lista de OS não recebeu a flag derivada de atraso.")
+		statbar = get_service_order_statbar()["items"]
+		if not next((item for item in statbar if item["key"] == "overdue" and item["value"] >= 1), None):
+			raise AssertionError("StatBar não recebeu o contador derivado de atrasadas.")
+		frappe.db.set_value("Service Order", order.name, {"workflow_state": "Em reparo", "stage_entered_at": now_datetime(), "estimated_deadline": add_days(now_datetime().date(), 2)}, update_modified=False)
+		order.reload()
+		cleared = get_stage_clock(order)
+		if cleared["is_overdue"]:
+			raise AssertionError("Avançar a OS não limpou o alerta derivado.")
+		return {"status": "ok", "stage_overdue": True, "total_overdue": True, "list_and_statbar_fed": True, "clears_after_stage_change": True}
+	finally:
 		frappe.set_user(previous_user)
 
 

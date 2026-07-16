@@ -96,6 +96,16 @@ export interface ServiceOrderSummary {
   technician: string | null;
   priority: string | null;
   workflow_state: string | null;
+  stage_clock?: {
+    stage_entered_at: string;
+    stage_sla_business_hours: number;
+    stage_deadline: string;
+    estimated_deadline: string;
+    is_stage_overdue: boolean;
+    is_total_overdue: boolean;
+    is_overdue: boolean;
+    urgency: "overdue" | "normal";
+  };
   workflow_transitions: ServiceOrderWorkflowAction[];
   next_action?: { label: string; tone: "orange" | "amber" | "blue" | "green" | "muted" };
   reported_defect: string | null;

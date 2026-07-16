@@ -275,6 +275,7 @@ doc_events = {
 	"Service Order": {
 		"before_validate": "tecponto_app.tecponto.stock.apply_service_order_stock_defaults",
 		"validate": [
+			"tecponto_app.tecponto.service_order.stage_clock.set_stage_entered_at",
 			"tecponto_app.tecponto.pricing.validate_service_order_pricing",
 			"tecponto_app.tecponto.service_order.aceites.validate_aceites",
 			"tecponto_app.tecponto.service_order.policies.validate_repare_rules",

@@ -27,7 +27,7 @@ from tecponto_app.tecponto.service_order.print_formats import (
 )
 from tecponto_app.tecponto.workflow import _get_service_order_transitions, get_service_order_workflow_state_names
 from tecponto_app.tecponto import service_catalog
-from tecponto_app.tecponto.service_order import stage_sla
+from tecponto_app.tecponto.service_order import stage_clock, stage_sla
 
 
 ROLE_PANELS = (
@@ -101,6 +101,7 @@ SAFE_SERVICE_ORDER_FIELDS = (
 	"technician",
 	"priority",
 	"workflow_state",
+	"stage_entered_at",
 	"reported_defect",
 	"approval_status",
 	"approval_deadline",
@@ -324,7 +325,9 @@ def get_service_order_statbar() -> dict[str, Any]:
 	"""Operational workflow counts only; deliberately excludes all financial fields."""
 	_require_frontend_role()
 	states = ["Entrada criada", "Em diagnóstico", "Aguardando aprovação", "Aguardando peça", "Em reparo", "Pronto para retirada"]
-	return {"items": [{"key": state, "label": state, "value": frappe.db.count("Service Order", {"workflow_state": state})} for state in states]}
+	items = [{"key": "overdue", "label": "Atrasadas", "value": len(stage_clock.list_overdue_service_order_names())}]
+	items.extend({"key": state, "label": state, "value": frappe.db.count("Service Order", {"workflow_state": state})} for state in states)
+	return {"items": items}
 
 
 @frappe.whitelist()
@@ -1496,6 +1499,7 @@ def _count_service_orders(filters: dict[str, Any], or_filters: list[list[str]]) 
 
 
 def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
+	clock = stage_clock.get_stage_clock(item)
 	return {
 		"name": item.get("name"),
 		"customer": item.get("customer"),
@@ -1505,6 +1509,7 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 		"technician": item.get("technician"),
 		"priority": item.get("priority"),
 		"workflow_state": item.get("workflow_state"),
+		"stage_clock": clock,
 		"workflow_transitions": _get_service_order_transition_options(item.get("workflow_state")),
 		"next_action": action_for_service_order_state(item.get("workflow_state")),
 		"reported_defect": item.get("reported_defect"),
@@ -2039,13 +2044,7 @@ def _like_filters(query: str, fields: tuple[str, ...]) -> list[list[str]]:
 
 
 def _count_overdue_service_orders() -> int:
-	return frappe.db.count(
-		"Service Order",
-		{
-			"approval_deadline": ["<", now_datetime()],
-			"workflow_state": ["not in", ["Entregue", "Cancelada", "Orçamento expirado"]],
-		},
-	)
+	return len(stage_clock.list_overdue_service_order_names())
 
 
 def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple[float, ...] | set[float] | None = None) -> list[str]:

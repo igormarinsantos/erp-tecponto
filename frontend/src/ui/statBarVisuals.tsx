@@ -29,6 +29,7 @@ function visual(Icon: LucideIcon, tone: NonNullable<StatBarItem["tone"]>): Visua
 export function getStatBarVisual(scope: string, key: string): Visual {
   const maps: Record<string, Record<string, Visual>> = {
     service_orders: {
+	  overdue: visual(AlertTriangle, "orange"),
       "Entrada criada": visual(Archive, "blue"),
       "Em diagnóstico": visual(SearchCheck, "blue"),
       "Aguardando aprovação": visual(Clock3, "amber"),

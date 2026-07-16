@@ -68,6 +68,8 @@ def save_stage_sla(payload: dict[str, Any]) -> dict[str, Any]:
 		doc.insert(ignore_permissions=True)
 	else:
 		doc.save(ignore_permissions=True)
+	if hasattr(frappe.local, "_tecponto_stage_sla_hours"):
+		del frappe.local._tecponto_stage_sla_hours
 	return _serialize_sla(doc)
 
 
@@ -99,7 +101,7 @@ def add_commercial_business_hours(start_datetime, hours: float, holiday_list: st
 	"""Advance only during Mon-Fri 09:00-18:00, excluding Guarulhos holidays."""
 	current = get_datetime(start_datetime)
 	remaining_seconds = max(0, flt(hours)) * 60 * 60
-	holiday_dates = _get_holiday_dates(holiday_list or ensure_guarulhos_holiday_list())
+	holiday_dates = _commercial_holiday_dates(holiday_list)
 	while remaining_seconds > 0:
 		current = _normalise_business_time(current, holiday_dates)
 		end_of_day = datetime.combine(getdate(current), BUSINESS_DAY_END)
@@ -108,6 +110,17 @@ def add_commercial_business_hours(start_datetime, hours: float, holiday_list: st
 		current += timedelta(seconds=consume)
 		remaining_seconds -= consume
 	return current
+
+
+def _commercial_holiday_dates(holiday_list: str | None = None) -> set:
+	"""Holiday setup is allowed once per request; deadline reads never write per OS."""
+	if holiday_list:
+		return _get_holiday_dates(holiday_list)
+	cached = getattr(frappe.local, "_tecponto_commercial_holiday_dates", None)
+	if cached is None:
+		cached = _get_holiday_dates(ensure_guarulhos_holiday_list())
+		frappe.local._tecponto_commercial_holiday_dates = cached
+	return cached
 
 
 def _duration_as_business_hours(duration: float, unit: str) -> float:

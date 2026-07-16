@@ -17,6 +17,7 @@
   "technician",
   "priority",
   "workflow_state",
+  "stage_entered_at",
   "entry_section",
   "reported_defect",
   "attendance_notes",
@@ -157,6 +158,13 @@
    "in_list_view": 1,
    "label": "Status (workflow)",
    "options": "Workflow State"
+  },
+  {
+   "fieldname": "stage_entered_at",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Entrada na etapa",
+   "read_only": 1
   },
   {
    "fieldname": "entry_section",

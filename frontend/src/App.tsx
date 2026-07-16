@@ -1896,7 +1896,7 @@ function OperationsTable({
         className: "w-[150px]",
         key: "status",
         label: "Status",
-        render: (row) => <BadgeStatus status={row.workflow_state} />,
+		render: (row) => <div className="flex items-center gap-2"><BadgeStatus status={row.workflow_state} />{row.stage_clock?.is_overdue ? <span className="text-xs font-bold text-red-400">Atrasada</span> : null}</div>,
       },
       {
         className: "w-[142px]",
@@ -2003,7 +2003,7 @@ function OperationsTable({
             >
               <div className="flex items-start justify-between gap-3">
                 <span className="font-bold text-white">{row.name}</span>
-                <BadgeStatus status={row.workflow_state} />
+				<div className="flex items-center gap-2"><BadgeStatus status={row.workflow_state} />{row.stage_clock?.is_overdue ? <span className="text-xs font-bold text-red-400">Atrasada</span> : null}</div>
               </div>
               <span className="mt-3 block truncate text-sm font-semibold text-tec-text">{row.customer ?? "Cliente não informado"}</span>
               <span className="mt-1 block truncate text-xs text-tec-muted">{row.customer_device ?? "Aparelho não vinculado"}</span>

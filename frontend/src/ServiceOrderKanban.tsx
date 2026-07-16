@@ -450,6 +450,7 @@ function KanbanCard({
       className={cx(
         "group w-full cursor-grab rounded-card border border-tec-border/20 bg-tec-panel-strong/70 p-3 text-left shadow-sm transition hover:border-tec-orange/55 hover:bg-tec-panel-strong active:cursor-grabbing",
         moving && "opacity-60",
+		item.stage_clock?.is_overdue && "border-red-500/60 ring-1 ring-red-500/25",
       )}
       data-tp-context="service-order"
       data-tp-customer={item.customer ?? ""}
@@ -480,6 +481,7 @@ function KanbanCard({
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <BadgeStatus status={item.workflow_state} />
+		{item.stage_clock?.is_overdue ? <span className="text-xs font-bold text-red-400">Atrasada</span> : null}
         <WorkflowMoveMenu actions={item.workflow_transitions} busy={moving} onSelect={(action) => onQuickMove(item, action.next_state)} />
       </div>
     </article>
