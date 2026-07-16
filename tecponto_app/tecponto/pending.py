@@ -4,7 +4,9 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date, getdate, now_datetime, today
+from frappe.utils import get_datetime, getdate, now_datetime, today
+
+from tecponto_app.tecponto.service_order import stage_clock
 
 
 FRONTEND_ROLES = {
@@ -46,6 +48,7 @@ def list_daily_actions(panel: str | None = None) -> dict[str, Any]:
 	return {
 		"derived": derived,
 		"manual": manual,
+		"items": _sort_actions([*derived, *manual]),
 		"count": len(derived) + len(manual),
 	}
 
@@ -106,7 +109,7 @@ def _attendant_actions() -> list[dict[str, Any]]:
 	rows = frappe.get_all(
 		"Service Order",
 		filters={"attendant": user, "workflow_state": ["in", ["Aguardando aprova\u00e7\u00e3o", "Pronto para retirada", "Reprovado", "Or\u00e7amento expirado"]]},
-		fields=["name", "workflow_state", "customer", "modified", "approval_deadline", "entry_date"],
+		fields=_clock_fields(),
 		order_by="modified desc",
 		limit_page_length=50,
 	)
@@ -120,7 +123,7 @@ def _technician_actions() -> list[dict[str, Any]]:
 	rows = frappe.get_all(
 		"Service Order",
 		filters={"technician": user, "workflow_state": ["in", ["Em diagn\u00f3stico", "Aguardando pe\u00e7a", "Em reparo"]]},
-		fields=["name", "workflow_state", "customer", "modified", "entry_date"],
+		fields=_clock_fields(),
 		order_by="modified asc",
 		limit_page_length=50,
 	)
@@ -151,12 +154,12 @@ def _manager_actions() -> list[dict[str, Any]]:
 			)
 	for row in frappe.get_all(
 		"Service Order",
-		filters={"approval_deadline": ["<", now_datetime()], "workflow_state": ["not in", ["Entregue", "Cancelada", "Or\u00e7amento expirado"]]},
-		fields=["name", "workflow_state", "customer", "modified", "approval_deadline"],
-		order_by="approval_deadline asc",
+		filters={"workflow_state": ["not in", list(stage_clock.TERMINAL_STATES)]},
+		fields=_clock_fields(),
+		order_by="modified asc",
 		limit_page_length=50,
 	):
-		items.append(_service_order_action(row, panel="gestor", overdue=True))
+		items.append(_service_order_action(row, panel="gestor"))
 	return _sort_actions(items)
 
 
@@ -181,21 +184,24 @@ def _rejected_request_actions() -> list[dict[str, Any]]:
 	]
 
 
-def _service_order_action(row: Any, panel: str, overdue: bool = False) -> dict[str, Any]:
+def _service_order_action(row: Any, panel: str) -> dict[str, Any]:
 	state = row.workflow_state
 	state_action = action_for_service_order_state(state)
-	urgency = "high" if overdue or state in {"Pronto para retirada", "Aguardando aprova\u00e7\u00e3o"} else "normal"
-	if panel == "tecnico" and state == "Em reparo" and row.entry_date and getdate(row.entry_date) <= add_to_date(getdate(today()), days=-3):
-		urgency = "high"
+	clock = stage_clock.get_stage_clock(row)
+	urgency = _clock_urgency(clock)
+	urgency_sort_at = _clock_sort_at(clock, row)
 	return _action(
 		key=f"service-order:{row.name}",
 		title=state_action["label"],
 		description=f"{row.name} - {row.customer or 'Cliente nao informado'}",
 		urgency=urgency,
+		urgency_sort_at=urgency_sort_at,
+		group_key=f"service-order:{state or 'sem-etapa'}",
+		group_label=f"OS {str(state or 'sem etapa').lower()}",
 		link=f"/tecponto?view=service-orders&order={row.name}",
 		reference_doctype="Service Order",
 		reference_name=row.name,
-		tone=state_action["tone"],
+		tone="orange" if urgency == "overdue" else state_action["tone"],
 	)
 
 
@@ -204,7 +210,10 @@ def _manual_actions() -> list[dict[str, Any]]:
 		{
 			**_serialize_manual_task(row),
 			"kind": "manual",
-			"urgency": "high" if row.due_date and getdate(row.due_date) < getdate(today()) else "normal",
+			"urgency": "overdue" if row.due_date and getdate(row.due_date) < getdate(today()) else "due_today" if row.due_date and getdate(row.due_date) == getdate(today()) else "scheduled",
+			"urgency_sort_at": str(row.due_date or "9999-12-31"),
+			"group_key": "manual-task",
+			"group_label": "Tarefas manuais",
 		}
 		for row in frappe.get_all(
 			"Tecponto Task",
@@ -232,8 +241,39 @@ def _action(**values: Any) -> dict[str, Any]:
 
 
 def _sort_actions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-	priority = {"high": 0, "normal": 1, "low": 2}
-	return sorted(items, key=lambda item: (priority.get(item["urgency"], 1), item["title"]))
+	priority = {"overdue": 0, "due_today": 1, "scheduled": 2, "high": 0, "normal": 1, "low": 2}
+	return sorted(
+		items,
+		key=lambda item: (
+			priority.get(item["urgency"], 1),
+			item.get("urgency_sort_at") or "9999-12-31 23:59:59",
+			item["title"],
+		),
+	)
+
+
+def _clock_fields() -> list[str]:
+	return ["name", "workflow_state", "customer", "modified", "entry_date", "stage_entered_at", "estimated_deadline"]
+
+
+def _clock_urgency(clock: dict[str, Any]) -> str:
+	if clock.get("is_overdue"):
+		return "overdue"
+	today_value = getdate(today())
+	for value in (clock.get("stage_deadline"), clock.get("estimated_deadline")):
+		if value and getdate(value) <= today_value:
+			return "due_today"
+	return "scheduled"
+
+
+def _clock_sort_at(clock: dict[str, Any], row: Any) -> str:
+	"""Earliest actual deadline first makes the most overdue work surface first."""
+	candidates = [
+		get_datetime(value)
+		for value in (clock.get("stage_deadline"), clock.get("estimated_deadline"), row.get("stage_entered_at"), row.get("entry_date"))
+		if value
+	]
+	return str(min(candidates)) if candidates else "9999-12-31 23:59:59"
 
 
 def _resolve_panel(panel: str | None) -> str:

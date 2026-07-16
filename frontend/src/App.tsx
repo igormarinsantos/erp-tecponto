@@ -7,6 +7,8 @@ import {
   Barcode,
   Box,
   CalendarClock,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
   ClipboardCheck,
   Clock3,
@@ -5451,6 +5453,7 @@ function DailyActionsPanel({
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -5495,7 +5498,19 @@ function DailyActionsPanel({
 
   const derived = state?.derived ?? [];
   const manual = state?.manual ?? [];
+  const agendaItems = state?.items ?? [...derived, ...manual];
   const count = state?.count ?? 0;
+  const groupedAgenda = useMemo(() => {
+    return (["overdue", "due_today", "scheduled"] as const).map((urgency) => {
+      const items = agendaItems.filter((item) => item.urgency === urgency);
+      const groups = new Map<string, typeof items>();
+      for (const item of items) {
+        const key = item.group_key || ("key" in item ? item.key : item.name);
+        groups.set(key, [...(groups.get(key) ?? []), item]);
+      }
+      return { urgency, groups: [...groups.entries()] };
+    });
+  }, [agendaItems]);
 
   return (
     <Card className="p-5" data-testid="daily-actions-panel">
@@ -5505,7 +5520,7 @@ function DailyActionsPanel({
             <h2 className="text-xl font-bold text-white">Precisa de voce hoje</h2>
             <span className="rounded-full bg-tec-orange/15 px-2 py-1 text-xs font-bold text-tec-orange">{count}</span>
           </div>
-          <p className="mt-1 text-sm text-tec-muted">Pendencias operacionais somem quando o trabalho real e resolvido.</p>
+          <p className="mt-1 text-sm text-tec-muted">Atrasos, prazos de hoje e programados vêm do estado real; tarefas manuais entram na mesma agenda.</p>
         </div>
         <Button icon={<RefreshCw size={16} />} onClick={() => void refresh()} variant="secondary">
           Atualizar
@@ -5514,27 +5529,28 @@ function DailyActionsPanel({
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
         <section>
-          <div className="mb-3 flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-control bg-tec-orange/10 text-tec-orange"><Clock3 size={16} /></span>
-            <h3 className="font-bold text-white">Geradas pela operacao</h3>
-          </div>
-          <div className="space-y-2">
-            {derived.length ? derived.map((item) => (
-              <button
-                className="flex w-full items-center justify-between gap-3 rounded-control border border-tec-border/20 bg-tec-field/55 px-3 py-3 text-left transition hover:border-tec-orange/50 hover:bg-tec-orange/10"
-                key={item.key}
-                onClick={() => item.reference_doctype === "Service Order" && item.reference_name ? onOpenOrder(item.reference_name) : undefined}
-                title={item.reference_doctype === "Service Order" ? "Abrir ordem de servico" : item.title}
-                type="button"
-              >
-                <span className="min-w-0">
-                  <span className="flex items-center gap-2"><span className={cx("h-2.5 w-2.5 shrink-0 rounded-full", item.urgency === "high" ? "bg-tec-red" : "bg-tec-orange")} /><span className="block truncate text-sm font-bold text-white">{item.title}</span></span>
-                  <span className="mt-1 block truncate text-xs text-tec-muted">{item.description}</span>
-                </span>
-                <ArrowRight className="shrink-0 text-tec-muted" size={17} />
-              </button>
-            )) : <p className="rounded-control border border-dashed border-tec-border/20 px-4 py-5 text-sm text-tec-muted">Nenhuma pendencia derivada para este contexto.</p>}
-          </div>
+          {groupedAgenda.map(({ urgency, groups }) => {
+            const meta = urgency === "overdue" ? { label: "Atrasado", dot: "bg-tec-red" } : urgency === "due_today" ? { label: "Vence hoje", dot: "bg-tec-amber" } : { label: "Programado", dot: "bg-tec-success" };
+            return (
+              <section className="mb-4 last:mb-0" key={urgency}>
+                <div className="mb-2 flex items-center gap-2"><span className={cx("h-2.5 w-2.5 rounded-full", meta.dot)} /><h3 className="text-sm font-bold text-white">{meta.label}</h3></div>
+                <div className="space-y-2">
+                  {groups.length ? groups.map(([groupKey, items]) => {
+                    const groupLabel = items[0]?.group_label || items[0]?.title || "Itens";
+                    const expanded = expandedGroups[groupKey] ?? false;
+                    const multiple = items.length > 1;
+                    return <div className="overflow-hidden rounded-control border border-tec-border/20 bg-tec-field/55" key={groupKey}>
+                      {multiple ? <button aria-expanded={expanded} className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left transition hover:bg-tec-orange/10" onClick={() => setExpandedGroups((current) => ({ ...current, [groupKey]: !expanded }))} type="button"><span className="flex min-w-0 items-center gap-2"><span className="text-sm font-bold text-white">{items.length} {groupLabel}</span><span className="truncate text-xs text-tec-muted">Expandir detalhes</span></span>{expanded ? <ChevronDown className="shrink-0 text-tec-muted" size={17} /> : <ChevronRight className="shrink-0 text-tec-muted" size={17} />}</button> : null}
+                      {(!multiple || expanded) ? <div className={multiple ? "border-t border-tec-border/15" : ""}>{items.map((item) => {
+                        const derivedItem = "key" in item;
+                        return <button className="flex w-full items-center justify-between gap-3 border-b border-tec-border/15 px-3 py-3 text-left last:border-b-0 transition hover:border-tec-orange/50 hover:bg-tec-orange/10" key={derivedItem ? item.key : item.name} onClick={() => item.reference_doctype === "Service Order" && item.reference_name ? onOpenOrder(item.reference_name) : undefined} title={item.reference_doctype === "Service Order" ? "Abrir ordem de servico" : item.title} type="button"><span className="min-w-0"><span className="block truncate text-sm font-bold text-white">{item.title}</span><span className="mt-1 block truncate text-xs text-tec-muted">{derivedItem ? item.description : item.due_date || "Tarefa sem prazo"}</span></span>{derivedItem ? <ArrowRight className="shrink-0 text-tec-muted" size={17} /> : <CheckCircle2 className="shrink-0 text-tec-success" size={17} />}</button>;
+                      })}</div> : null}
+                    </div>;
+                  }) : <p className="rounded-control border border-dashed border-tec-border/20 px-3 py-3 text-sm text-tec-muted">Nenhum item.</p>}
+                </div>
+              </section>
+            );
+          })}
         </section>
 
         <section className="border-t border-tec-border/15 pt-5 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">

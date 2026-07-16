@@ -63,7 +63,10 @@ export interface DailyAction {
   kind: "derived";
   title: string;
   description: string;
-  urgency: "high" | "normal" | "low";
+  urgency: "overdue" | "due_today" | "scheduled" | "high" | "normal" | "low";
+  urgency_sort_at?: string;
+  group_key?: string;
+  group_label?: string;
   link: string;
   reference_doctype: string | null;
   reference_name: string | null;
@@ -78,12 +81,16 @@ export interface TecpontoTask {
   reference_name: string | null;
   status: "Aberta" | "Concluida";
   kind?: "manual";
-  urgency?: "high" | "normal" | "low";
+  urgency?: "overdue" | "due_today" | "scheduled" | "high" | "normal" | "low";
+  urgency_sort_at?: string;
+  group_key?: string;
+  group_label?: string;
 }
 
 export interface DailyActionsResponse {
   derived: DailyAction[];
   manual: TecpontoTask[];
+  items: Array<DailyAction | TecpontoTask>;
   count: number;
 }
 

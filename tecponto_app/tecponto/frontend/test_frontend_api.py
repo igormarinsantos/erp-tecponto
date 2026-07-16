@@ -1113,18 +1113,54 @@ def ensure_service_order_detail_demo_data() -> dict:
 def run_daily_action_checks() -> dict:
 	"""Pendencias derivadas disappear with the source document; manual tasks are explicit."""
 	previous_user = frappe.session.user
-	original_state = None
+	original_orders = {}
 	order_name = None
 	try:
 		demo = ensure_service_order_detail_demo_data()
 		attendant = demo["attendant_user"]
 		order_name = demo["orders"]["aprovacao"]["name"]
-		original_state = frappe.db.get_value("Service Order", order_name, "workflow_state")
+		due_today_name = demo["orders"]["retirada"]["name"]
+		scheduled_name = demo["orders"]["entrada"]["name"]
+		for name in (order_name, due_today_name, scheduled_name):
+			original_orders[name] = frappe.db.get_value(
+				"Service Order",
+				name,
+				["workflow_state", "stage_entered_at", "estimated_deadline"],
+				as_dict=True,
+			)
 
 		frappe.set_user(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			order_name,
+			{"workflow_state": "Aguardando aprovação", "stage_entered_at": add_to_date(now_datetime(), hours=-72), "estimated_deadline": add_days(nowdate(), -1)},
+			update_modified=False,
+		)
+		frappe.db.set_value(
+			"Service Order",
+			due_today_name,
+			{"workflow_state": "Pronto para retirada", "stage_entered_at": now_datetime(), "estimated_deadline": nowdate()},
+			update_modified=False,
+		)
+		frappe.db.set_value(
+			"Service Order",
+			scheduled_name,
+			{"workflow_state": "Reprovado", "stage_entered_at": now_datetime(), "estimated_deadline": add_days(nowdate(), 3)},
+			update_modified=False,
+		)
 		before = list_daily_actions("atendente")
 		if not any(item["reference_name"] == order_name for item in before["derived"]):
 			raise AssertionError("OS aguardando aprovacao nao apareceu nas pendencias do Atendente.")
+		if not before.get("items"):
+			raise AssertionError("Agenda não retornou a lista unificada por urgência.")
+
+		overdue_items = [item for item in before["items"] if item.get("urgency") == "overdue"]
+		if overdue_items != sorted(overdue_items, key=lambda item: item.get("urgency_sort_at") or "9999-12-31 23:59:59"):
+			raise AssertionError("Itens atrasados nao estao ordenados pelo prazo mais antigo primeiro.")
+		if any(item.get("reference_doctype") == "Service Order" and not item.get("group_key") for item in before["items"]):
+			raise AssertionError("Pendencias de OS nao receberam grupo expansivel.")
+		if not {"overdue", "due_today", "scheduled"}.issubset({item.get("urgency") for item in before["items"]}):
+			raise AssertionError("Agenda nao retornou as secoes atrasado, vence hoje e programado.")
 
 		frappe.db.set_value("Service Order", order_name, "workflow_state", "Entregue", update_modified=False)
 		after = list_daily_actions("atendente")
@@ -1135,6 +1171,8 @@ def run_daily_action_checks() -> dict:
 		with_task = list_daily_actions("atendente")
 		if not any(item["name"] == task["name"] for item in with_task["manual"]):
 			raise AssertionError("Tarefa manual criada nao apareceu para o proprio usuario.")
+		if not any(item.get("name") == task["name"] for item in with_task["items"]):
+			raise AssertionError("Tarefa manual não entrou na agenda unificada.")
 		complete_manual_task(task["name"])
 		after_task = list_daily_actions("atendente")
 		if any(item["name"] == task["name"] for item in after_task["manual"]):
@@ -1149,11 +1187,12 @@ def run_daily_action_checks() -> dict:
 			"status": "ok",
 			"derived_disappears": True,
 			"manual_task_lifecycle": True,
+			"unified_urgency_agenda": True,
 			"role_scoped": True,
 		}
 	finally:
-		if order_name and original_state:
-			frappe.db.set_value("Service Order", order_name, "workflow_state", original_state, update_modified=False)
+		for name, values in original_orders.items():
+			frappe.db.set_value("Service Order", name, values, update_modified=False)
 		frappe.set_user(previous_user)
 
 
