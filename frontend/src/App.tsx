@@ -27,7 +27,6 @@ import {
   Send,
   ShieldAlert,
   ShoppingCart,
-  SlidersHorizontal,
   Smartphone,
   Tag,
 	QrCode,
@@ -1764,7 +1763,6 @@ function ServiceOrderFilterBar({
   onChange: (filters: ServiceOrderFilterState) => void;
   resultCount: number;
 }) {
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const updatePeriodMode = (mode: DashboardPeriodMode) => {
     onChange({
       ...filters,
@@ -1776,83 +1774,26 @@ function ServiceOrderFilterBar({
     });
   };
   const resetFilters = () => onChange(DEFAULT_SERVICE_ORDER_FILTERS);
-  const hasActiveFilters =
-    filters.query.trim().length > 0 ||
-    filters.status !== "all" ||
-		filters.assignment !== "all" ||
-    filters.period.mode !== DEFAULT_SERVICE_ORDER_FILTERS.period.mode ||
-		filters.priority !== "all" ||
-    filters.period.fromDate !== "" ||
-    filters.period.toDate !== "";
-
   return (
-    <div className="space-y-3 rounded-card bg-tec-field/35 p-3">
+    <LayeredFilters
+      active={filters.period.mode}
+      filters={DASHBOARD_PERIOD_OPTIONS.map((option) => ({ key: option.value, label: option.label }))}
+      onClear={resetFilters}
+      onSelect={(mode) => updatePeriodMode(mode as DashboardPeriodMode)}
+      primary={<>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0 flex-1 space-y-3">
-          <div className="grid gap-3 2xl:grid-cols-[minmax(280px,1fr)_auto]">
-            <label className="relative block min-w-0">
-              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-tec-muted" size={17} />
-              <input
-                className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field pl-10 pr-3 text-sm font-medium text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
-                onChange={(event) => onChange({ ...filters, query: event.target.value })}
-                placeholder="Buscar OS, cliente, IMEI, aparelho ou defeito..."
-                type="search"
-                value={filters.query}
-              />
-            </label>
+          <label className="relative block min-w-0">
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-tec-muted" size={17} />
+            <input
+              className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field pl-10 pr-3 text-sm font-medium text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
+              onChange={(event) => onChange({ ...filters, query: event.target.value })}
+              placeholder="Buscar OS, cliente, IMEI, aparelho ou defeito..."
+              type="search"
+              value={filters.query}
+            />
+          </label>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {DASHBOARD_PERIOD_OPTIONS.map((option) => {
-                const selected = filters.period.mode === option.value;
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={cx(
-                      "min-h-9 rounded-control border px-3 text-xs font-bold transition",
-                      selected
-                        ? "border-tec-orange bg-tec-orange text-tec-ink shadow-glow"
-                        : "border-tec-border/20 bg-tec-field/70 text-tec-subtle hover:border-tec-orange/50 hover:text-tec-text",
-                    )}
-                    key={option.value}
-                    onClick={() => updatePeriodMode(option.value)}
-                    type="button"
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {filters.period.mode === "custom" ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-2 text-xs font-semibold text-tec-muted">
-                <Clock3 size={14} />
-                Período personalizado
-              </span>
-              <input
-                aria-label="Data inicial do filtro de OS"
-                className="h-9 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-semibold text-tec-text outline-none focus:border-tec-orange/70"
-                onChange={(event) =>
-                  onChange({ ...filters, period: { ...filters.period, fromDate: event.target.value } })
-                }
-                type="date"
-                value={filters.period.fromDate}
-              />
-              <span className="text-xs font-semibold text-tec-muted">até</span>
-              <input
-                aria-label="Data final do filtro de OS"
-                className="h-9 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-semibold text-tec-text outline-none focus:border-tec-orange/70"
-                onChange={(event) =>
-                  onChange({ ...filters, period: { ...filters.period, toDate: event.target.value } })
-                }
-                type="date"
-                value={filters.period.toDate}
-              />
-            </div>
-          ) : null}
-
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap gap-2">
             {QUEUE_FILTERS.map((filter) => {
               const selected = filters.status === filter.value;
@@ -1876,34 +1817,20 @@ function ServiceOrderFilterBar({
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-tec-muted">
               <span>{resultCount} OS no recorte</span>
-				<button
-					aria-expanded={advancedOpen}
-					className="inline-flex min-h-8 items-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-bold text-tec-text transition hover:border-tec-orange/50"
-					onClick={() => setAdvancedOpen((open) => !open)}
-					type="button"
-				>
-					<SlidersHorizontal size={14} />
-					Filtros
-				</button>
-              <button
-                className={cx(
-                  "min-h-8 rounded-control border px-3 text-xs font-bold transition",
-                  hasActiveFilters
-                    ? "border-tec-border/20 bg-tec-field text-tec-text hover:border-tec-orange/50"
-                    : "cursor-not-allowed border-tec-border/10 bg-tec-field/45 text-tec-muted",
-                )}
-                disabled={!hasActiveFilters}
-                onClick={resetFilters}
-                type="button"
-              >
-                Limpar filtros
-              </button>
             </div>
           </div>
         </div>
-      </div>
-			{advancedOpen ? (
-				<div className="grid gap-3 border-t border-tec-border/15 pt-3 sm:grid-cols-2">
+      </>}
+    >
+				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+					{filters.period.mode === "custom" ? <div className="sm:col-span-2 xl:col-span-3">
+						<span className="mb-2 inline-flex items-center gap-2 text-xs font-semibold text-tec-muted"><Clock3 size={14} />Periodo personalizado</span>
+						<div className="flex flex-wrap items-center gap-2">
+							<input aria-label="Data inicial do filtro de OS" className="h-9 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-semibold text-tec-text outline-none focus:border-tec-orange/70" onChange={(event) => onChange({ ...filters, period: { ...filters.period, fromDate: event.target.value } })} type="date" value={filters.period.fromDate} />
+							<span className="text-xs font-semibold text-tec-muted">ate</span>
+							<input aria-label="Data final do filtro de OS" className="h-9 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-semibold text-tec-text outline-none focus:border-tec-orange/70" onChange={(event) => onChange({ ...filters, period: { ...filters.period, toDate: event.target.value } })} type="date" value={filters.period.toDate} />
+						</div>
+					</div> : null}
 					<label className="text-xs font-bold text-tec-subtle">
 						Prioridade
 						<select className="tp-input mt-1 w-full" onChange={(event) => onChange({ ...filters, priority: event.target.value as ServiceOrderFilterState["priority"] })} value={filters.priority}>
