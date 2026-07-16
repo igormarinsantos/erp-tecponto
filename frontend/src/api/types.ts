@@ -469,6 +469,21 @@ export interface DashboardMetrics {
 
 export interface ListStatBarResponse { items: Array<{ key: string; label: string; value: number; amount?: number }>; }
 
+export interface SaleSummary {
+  name: string;
+  customer: string | null;
+  posting_date: string;
+  grand_total: number;
+  status: string | null;
+  modified: string;
+}
+
+export interface SaleListResponse {
+  items: SaleSummary[];
+  count: number;
+  fields: string[];
+}
+
 export interface CustomerSummary {
   name: string;
   customer_name: string | null;

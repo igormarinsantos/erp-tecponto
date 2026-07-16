@@ -32,6 +32,7 @@ from tecponto_app.tecponto.frontend.api import (
 	list_customer_devices,
 	list_service_orders,
 	list_stock_items,
+	list_sales,
 	list_trade_evaluations,
 	move_service_order,
 	create_stock_transfer,
@@ -2356,6 +2357,7 @@ def _check_attendant_navigation_apis(user: str) -> dict:
 		"devices": list_customer_devices(limit=5),
 		"trade_evaluations": list_trade_evaluations(limit=5),
 		"stock_items": list_stock_items(limit=5),
+		"sales": list_sales(limit=5),
 	}
 	leaks = contains_sensitive_field(payload)
 	if leaks:
@@ -2367,6 +2369,7 @@ def _check_attendant_navigation_apis(user: str) -> dict:
 		"devices": payload["devices"]["count"],
 		"trade_evaluations": payload["trade_evaluations"]["count"],
 		"stock_items": payload["stock_items"]["count"],
+		"sales": payload["sales"]["count"],
 	}
 
 
@@ -2421,6 +2424,7 @@ def _check_sensitive_guard(user: str) -> dict:
 			"list_customer_devices",
 			"list_trade_evaluations",
 			"list_stock_items",
+			"list_sales",
 		],
 		"leaked_fields": leaks,
 	}

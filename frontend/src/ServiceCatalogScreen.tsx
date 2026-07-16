@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { BookOpenCheck, Edit3, Plus, Settings2, ToggleLeft, ToggleRight, Wrench } from "lucide-react";
 
 import { balcao, serviceCatalog, type ServiceCatalogReference, type ServiceCatalogReferenceResponse, type ServiceCatalogService } from "./api";
-import { Button, Card, ListGridToggle, Modal, StatBar, type ListPresentation } from "./ui";
+import { Button, Card, getStatBarVisual, getStoredListPresentation, LayeredFilters, ListGridToggle, Modal, StatBar, type ListPresentation } from "./ui";
 
 type ToastTone = "success" | "error";
 type ServiceDraft = Partial<ServiceCatalogService>;
@@ -31,7 +31,9 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
   const [referencesOpen, setReferencesOpen] = useState(false);
   const [editing, setEditing] = useState<ServiceDraft>(emptyService);
   const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
-  const [presentation, setPresentation] = useState<ListPresentation>(() => window.localStorage.getItem("tecponto.catalog.presentation") === "grid" ? "grid" : "list");
+  const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.catalog.presentation"));
+  const [quickFilter, setQuickFilter] = useState("active");
+  const [advancedFilter, setAdvancedFilter] = useState("all");
 
   useEffect(() => {
     window.localStorage.setItem("tecponto.catalog.presentation", presentation);
@@ -81,7 +83,7 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
 
   return (
     <>
-      <StatBar items={statItems.map((item) => ({ ...item, icon: <Wrench size={19} />, tone: item.key === "active" ? "green" : "blue" }))} />
+      <StatBar items={statItems.map((item) => ({ ...item, ...getStatBarVisual("catalog", item.key) }))} />
       <Card className="p-4">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
@@ -90,18 +92,24 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
           </div>
           {canEdit ? <div className="flex flex-wrap gap-2"><Button icon={<Settings2 size={17} />} onClick={() => setReferencesOpen(true)}>Tipos e categorias</Button><Button icon={<Plus size={17} />} onClick={openNew} variant="primary">Novo serviço</Button></div> : <span className="rounded-control bg-tec-field px-3 py-2 text-xs font-semibold text-tec-muted">Consulta operacional</span>}
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <LayeredFilters active={quickFilter} filters={[{ key: "active", label: "Ativos" }, { key: "all", label: "Todos" }, { key: "parts", label: "Com peça" }]} onSelect={(key) => {
+          setQuickFilter(key);
+          if (key === "active") setIncludeInactive(false);
+          if (key === "all") setIncludeInactive(true);
+        }} primary={
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <input className="h-11 rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm text-tec-text outline-none focus:border-tec-orange/70" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar serviço" value={query} />
           <select className="h-11 rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm text-tec-text outline-none focus:border-tec-orange/70" onChange={(event) => setDeviceType(event.target.value)} value={deviceType}><option value="">Todos os tipos</option>{references.device_types.map((item) => <option key={item.name} value={item.name}>{item.value}{item.active ? "" : " (inativo)"}</option>)}</select>
           <select className="h-11 rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm text-tec-text outline-none focus:border-tec-orange/70" onChange={(event) => setCategory(event.target.value)} value={category}><option value="">Todas as categorias</option>{references.categories.map((item) => <option key={item.name} value={item.name}>{item.value}{item.active ? "" : " (inativa)"}</option>)}</select>
           <label className="flex h-11 items-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-subtle"><input checked={includeInactive} onChange={(event) => setIncludeInactive(event.target.checked)} type="checkbox" /> Mostrar inativos</label>
         </div>
+        } onClear={() => { setQuickFilter("active"); setAdvancedFilter("all"); setQuery(""); setDeviceType(""); setCategory(""); setIncludeInactive(false); }}><label className="block text-xs font-bold text-tec-subtle">Preço e prazo sugeridos<select className="tp-input mt-1 w-full" onChange={(event) => setAdvancedFilter(event.target.value)} value={advancedFilter}><option value="all">Sem filtro adicional</option><option value="priced">Com preço sugerido</option><option value="unpriced">Sem preço sugerido</option><option value="with_duration">Com prazo sugerido</option></select></label></LayeredFilters>
       </Card>
       <Card className="mt-4 overflow-hidden">
         <div className="flex items-center justify-between border-b border-tec-border/15 px-4 py-3"><div className="flex items-center gap-2"><Wrench className="text-tec-orange" size={18} /><h2 className="font-bold text-white">Serviços</h2></div><div className="flex items-center gap-3"><span className="text-sm text-tec-muted">{items.length} item{items.length === 1 ? "" : "s"}</span><ListGridToggle onChange={setPresentation} value={presentation} /></div></div>
         {loading ? <p className="p-5 text-sm text-tec-muted">Carregando catálogo...</p> : null}
         {!loading && items.length === 0 ? <p className="p-5 text-sm text-tec-muted">Nenhum serviço encontrado com estes filtros.</p> : null}
-        {!loading && items.length > 0 ? <div className={presentation === "grid" ? "grid gap-3 p-4 md:grid-cols-2" : "divide-y divide-tec-border/15"}>{items.map((item) => <ServiceRow canEdit={canEdit} grid={presentation === "grid"} item={item} key={item.name} onEdit={() => { setEditing(item); setEditorOpen(true); }} />)}</div> : null}
+        {!loading && items.length > 0 ? <div className={presentation === "grid" ? "grid gap-3 p-4 md:grid-cols-2" : "divide-y divide-tec-border/15"}>{items.filter((item) => (quickFilter !== "parts" || item.requires_part) && (advancedFilter !== "priced" || item.default_labor_price > 0) && (advancedFilter !== "unpriced" || item.default_labor_price <= 0) && (advancedFilter !== "with_duration" || item.default_duration > 0)).map((item) => <ServiceRow canEdit={canEdit} grid={presentation === "grid"} item={item} key={item.name} onEdit={() => { setEditing(item); setEditorOpen(true); }} />)}</div> : null}
       </Card>
       <ServiceEditor activeCategories={activeCategories} activeDeviceTypes={activeDeviceTypes} canEdit={canEdit} draft={editing} onChange={setEditing} onClose={() => setEditorOpen(false)} onSave={() => void saveService()} open={editorOpen} />
       <ReferenceManager onChanged={() => void load()} onClose={() => setReferencesOpen(false)} onToast={onToast} open={referencesOpen} references={references} />

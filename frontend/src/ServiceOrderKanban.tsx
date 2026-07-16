@@ -8,7 +8,7 @@ import {
   type ServiceOrderQueryParams,
   type ServiceOrderSummary,
 } from "./api";
-import { BadgeStatus, Button, Card } from "./ui";
+import { BadgeStatus, Button, Card, HorizontalScroller } from "./ui";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { WorkflowMoveMenu } from "./WorkflowMoveMenu";
 import { cx } from "./ui/utils";
@@ -231,6 +231,7 @@ export function ServiceOrderKanban({
       </div>
       {filterBar ? <div className="mb-4">{filterBar}</div> : null}
 
+      <HorizontalScroller className="mt-1">
       <div
         className={compactMode ? "tp-kanban-compact-grid" : "tp-kanban-grid"}
         style={
@@ -266,6 +267,7 @@ export function ServiceOrderKanban({
           />
         ))}
       </div>
+      </HorizontalScroller>
     </Card>
     <ApprovalRequestModal
       onClose={() => setMoveApproval(null)}

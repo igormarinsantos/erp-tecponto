@@ -23,6 +23,7 @@ import {
   Send,
   ShieldAlert,
   ShoppingCart,
+  SlidersHorizontal,
   Smartphone,
   Tag,
 	QrCode,
@@ -54,6 +55,7 @@ import {
   type NavigationTarget,
   type NotificationListResponse,
   type QuoteSendPayload,
+  type RolePanel,
   type ServiceOrderBudgetLine,
   type ServiceOrderDetailResponse,
   type ServiceOrderPrintLink,
@@ -63,6 +65,7 @@ import {
   type ServiceCatalogService,
   type ServiceOrderSummary,
   type ServiceOrderStatBarResponse,
+	type SaleSummary,
   type TrackingLinkResponse,
   type StockItemSummary,
   type TecpontoNotification,
@@ -79,7 +82,7 @@ import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
 import { LoginScreen, type LoginReason } from "./LoginScreen";
 import { PosScreen } from "./PosScreen";
 import { RetailProductModal } from "./RetailProductModal";
-import { getUnifiedPanelDefinition, type ActionDefinition, type PanelDefinition } from "./roleConfig";
+import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
 import { WorkflowMoveMenu } from "./WorkflowMoveMenu";
@@ -90,6 +93,10 @@ import {
   Card,
   ContextMenu,
   DataTable,
+  getStatBarVisual,
+  getStoredListPresentation,
+  LayeredFilters,
+  ListGridToggle,
   MetricCard,
   Modal,
   Sidebar,
@@ -98,6 +105,8 @@ import {
   Topbar,
   WhatsAppLogo,
   type ContextMenuItem,
+  type ListPresentation,
+  type QuickFilter,
   type TableColumn,
 } from "./ui";
 import { cx } from "./ui/utils";
@@ -114,7 +123,7 @@ type ServiceOrderListState =
   | { status: "error"; message: string };
 type ToastState = { message: string; tone: "success" | "error" };
 type ServiceOrderFlow = "approve" | "reject" | "pickup";
-type ServiceOrdersViewMode = "list" | "kanban";
+type ServiceOrdersViewMode = "list" | "grid" | "kanban";
 type AppTheme = "dark" | "light";
 type ContextMenuKind = "global" | "service-order";
 type PendingPosBarcode = { code: string; id: number };
@@ -143,7 +152,9 @@ interface DashboardPeriodFilter {
 }
 
 interface ServiceOrderFilterState {
+	assignment: "all" | "assigned" | "unassigned";
   period: DashboardPeriodFilter;
+	priority: "all" | "Alta" | "Media" | "Normal";
   query: string;
   status: QueueFilter;
 }
@@ -158,7 +169,9 @@ const DEFAULT_DASHBOARD_PERIOD: DashboardPeriodFilter = {
   toDate: "",
 };
 const DEFAULT_SERVICE_ORDER_FILTERS: ServiceOrderFilterState = {
+	assignment: "all",
   period: DEFAULT_DASHBOARD_PERIOD,
+	priority: "all",
   query: "",
   status: "all",
 };
@@ -818,7 +831,7 @@ export function App() {
               onToast={showToast}
               orders={state.orders}
               panel={panel}
-              panelNames={rolePanels}
+              panelName={visualUser.panel}
             />
           ) : (
             <NavigationContent
@@ -1298,7 +1311,7 @@ function OverviewContent({
   onStartCheckin,
   orders,
   panel,
-  panelNames,
+  panelName,
 }: {
   actions: ActionDefinition[];
   metrics: DashboardMetrics;
@@ -1308,8 +1321,8 @@ function OverviewContent({
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   onStartCheckin: () => void;
   orders: ServiceOrderSummary[];
-  panel: PanelDefinition;
-  panelNames: string[];
+  panel: (typeof panelDefinitions)[keyof typeof panelDefinitions];
+  panelName: RolePanel;
 }) {
   const [periodFilter, setPeriodFilter] = useState<DashboardPeriodFilter>(DEFAULT_DASHBOARD_PERIOD);
   const periodOrders = useMemo(() => filterOrdersByDashboardPeriod(orders, periodFilter), [orders, periodFilter]);
@@ -1348,7 +1361,7 @@ function OverviewContent({
         />
       </div>
       <div className="mt-4">
-        <DailyActionsPanel onOpenOrder={onOpenServiceOrder} onToast={onToast} panels={panelNames} />
+        <DailyActionsPanel onOpenOrder={onOpenServiceOrder} onToast={onToast} panel={panelName} />
       </div>
       <div className="mt-4">
         <ApprovalRequestsPanel onToast={onToast} />
@@ -1478,10 +1491,9 @@ function NavigationContent({
   });
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
   const serviceOrderQueryParams = useMemo(() => toServiceOrderQueryParams(serviceOrderFilters, 100), [serviceOrderFilters]);
-  const serviceOrderScreenOrders =
-    serviceOrderListState.status === "ready" ? serviceOrderListState.items : filterOrdersForServiceOrderScreen(orders, serviceOrderFilters);
-  const serviceOrderResultCount =
-    serviceOrderListState.status === "ready" ? serviceOrderListState.count : serviceOrderScreenOrders.length;
+  const serviceOrderSourceOrders = serviceOrderListState.status === "ready" ? serviceOrderListState.items : orders;
+  const serviceOrderScreenOrders = filterOrdersForServiceOrderScreen(serviceOrderSourceOrders, serviceOrderFilters);
+  const serviceOrderResultCount = serviceOrderScreenOrders.length;
 
   useEffect(() => {
     if (activeView !== "service-orders") {
@@ -1544,7 +1556,7 @@ function NavigationContent({
       <div className="tp-layout-grid">
         <section className="min-w-0 space-y-4">
           <StatBar
-            items={serviceOrderStats.map((item) => ({ ...item, icon: <Wrench size={19} />, tone: item.key === "Aguardando aprovação" ? "amber" : item.key === "Pronto para retirada" ? "green" : "blue" }))}
+            items={serviceOrderStats.map((item) => ({ ...item, ...getStatBarVisual("service_orders", item.key) }))}
             onSelect={(status) => setServiceOrderFilters((current) => ({ ...current, status: status as QueueFilter }))}
           />
           {serviceOrderListState.status === "error" ? (
@@ -1566,6 +1578,7 @@ function NavigationContent({
               onOpenOrder={(name) => onOpenServiceOrder(name)}
               onToast={onToast}
               orders={serviceOrderScreenOrders}
+              presentation={serviceOrdersView === "grid" ? "grid" : "list"}
               showQuickStatusFilters={false}
               title="Lista de OS"
             />
@@ -1621,6 +1634,7 @@ function ServiceOrderFilterBar({
   onChange: (filters: ServiceOrderFilterState) => void;
   resultCount: number;
 }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const updatePeriodMode = (mode: DashboardPeriodMode) => {
     onChange({
       ...filters,
@@ -1635,7 +1649,9 @@ function ServiceOrderFilterBar({
   const hasActiveFilters =
     filters.query.trim().length > 0 ||
     filters.status !== "all" ||
+		filters.assignment !== "all" ||
     filters.period.mode !== DEFAULT_SERVICE_ORDER_FILTERS.period.mode ||
+		filters.priority !== "all" ||
     filters.period.fromDate !== "" ||
     filters.period.toDate !== "";
 
@@ -1730,6 +1746,15 @@ function ServiceOrderFilterBar({
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-tec-muted">
               <span>{resultCount} OS no recorte</span>
+				<button
+					aria-expanded={advancedOpen}
+					className="inline-flex min-h-8 items-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-bold text-tec-text transition hover:border-tec-orange/50"
+					onClick={() => setAdvancedOpen((open) => !open)}
+					type="button"
+				>
+					<SlidersHorizontal size={14} />
+					Filtros
+				</button>
               <button
                 className={cx(
                   "min-h-8 rounded-control border px-3 text-xs font-bold transition",
@@ -1747,6 +1772,27 @@ function ServiceOrderFilterBar({
           </div>
         </div>
       </div>
+			{advancedOpen ? (
+				<div className="grid gap-3 border-t border-tec-border/15 pt-3 sm:grid-cols-2">
+					<label className="text-xs font-bold text-tec-subtle">
+						Prioridade
+						<select className="tp-input mt-1 w-full" onChange={(event) => onChange({ ...filters, priority: event.target.value as ServiceOrderFilterState["priority"] })} value={filters.priority}>
+							<option value="all">Todas</option>
+							<option value="Alta">Alta</option>
+							<option value="Media">Média</option>
+							<option value="Normal">Normal</option>
+						</select>
+					</label>
+					<label className="text-xs font-bold text-tec-subtle">
+						Atribuição técnica
+						<select className="tp-input mt-1 w-full" onChange={(event) => onChange({ ...filters, assignment: event.target.value as ServiceOrderFilterState["assignment"] })} value={filters.assignment}>
+							<option value="all">Todas as OS</option>
+							<option value="assigned">Com técnico atribuído</option>
+							<option value="unassigned">Sem técnico atribuído</option>
+						</select>
+					</label>
+				</div>
+			) : null}
     </div>
   );
 }
@@ -1757,6 +1803,7 @@ function OperationsTable({
   onToast,
   onShowAll,
   orders,
+  presentation = "list",
   showQuickStatusFilters = true,
   title,
 }: {
@@ -1765,6 +1812,7 @@ function OperationsTable({
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   onShowAll?: () => void;
   orders: ServiceOrderSummary[];
+  presentation?: ListPresentation;
   showQuickStatusFilters?: boolean;
   title: string;
 }) {
@@ -1939,19 +1987,50 @@ function OperationsTable({
           </div>
         ) : null}
       </div>
-      <DataTable
-        columns={columns}
-        emptyLabel="Nenhuma OS encontrada para este papel."
-        getRowProps={(row) => ({
-          "data-tp-context": "service-order",
-          "data-tp-customer": row.customer ?? "",
-          "data-tp-label": row.customer ?? row.name,
-          "data-tp-name": row.name,
-          "data-tp-workflow-state": row.workflow_state ?? "",
-        })}
-        onRowClick={(row) => onOpenOrder(row.name)}
-        rows={visibleOrders}
-      />
+      {presentation === "grid" ? (
+        <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+          {visibleOrders.map((row) => (
+            <button
+              className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-field"
+              data-tp-context="service-order"
+              data-tp-customer={row.customer ?? ""}
+              data-tp-label={row.customer ?? row.name}
+              data-tp-name={row.name}
+              data-tp-workflow-state={row.workflow_state ?? ""}
+              key={row.name}
+              onClick={() => onOpenOrder(row.name)}
+              type="button"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="font-bold text-white">{row.name}</span>
+                <BadgeStatus status={row.workflow_state} />
+              </div>
+              <span className="mt-3 block truncate text-sm font-semibold text-tec-text">{row.customer ?? "Cliente não informado"}</span>
+              <span className="mt-1 block truncate text-xs text-tec-muted">{row.customer_device ?? "Aparelho não vinculado"}</span>
+              <span className="mt-3 block line-clamp-2 text-sm leading-5 text-tec-subtle">{compactServiceOrderDescription(row.reported_defect)}</span>
+              <div className="mt-4 flex items-center justify-between gap-3 border-t border-tec-border/15 pt-3">
+                <NextActionPill order={row} />
+                <span className="inline-flex items-center gap-1 text-xs font-bold text-tec-orange">Abrir <ArrowRight size={14} /></span>
+              </div>
+            </button>
+          ))}
+          {!visibleOrders.length ? <p className="col-span-full py-8 text-center text-sm text-tec-muted">Nenhuma OS encontrada para este recorte.</p> : null}
+        </div>
+      ) : (
+        <DataTable
+          columns={columns}
+          emptyLabel="Nenhuma OS encontrada para este papel."
+          getRowProps={(row) => ({
+            "data-tp-context": "service-order",
+            "data-tp-customer": row.customer ?? "",
+            "data-tp-label": row.customer ?? row.name,
+            "data-tp-name": row.name,
+            "data-tp-workflow-state": row.workflow_state ?? "",
+          })}
+          onRowClick={(row) => onOpenOrder(row.name)}
+          rows={visibleOrders}
+        />
+      )}
       {onShowAll ? (
         <button
           className="mx-auto mt-4 flex items-center gap-2 text-sm font-semibold text-tec-subtle hover:text-white"
@@ -2070,7 +2149,6 @@ function ServiceOrderDetail({
     setHistoryOpen(false);
     setQuoteSendOpen(false);
 		setAcceptanceType(null);
-    setTrackingOpen(false);
     setMoveApproval(null);
     setState({ status: "loading" });
     serviceOrders
@@ -2155,6 +2233,12 @@ function ServiceOrderDetail({
 
   return (
     <div className="space-y-4">
+      <TrackingLinkBanner
+        customerName={customerLabel}
+        onToast={onToast}
+        phone={detail.customer?.custom_whatsapp || detail.customer?.mobile_no}
+        serviceOrder={detail.name}
+      />
       <ServiceOrderHero
         detail={detail}
         onBack={onBack}
@@ -2216,26 +2300,13 @@ function ServiceOrderDetail({
 
         <aside className="space-y-4">
           <NextActionCard
-            detail={detail}
-            onOpenFlow={setActiveFlow}
-            onOpenQuoteSend={() => setQuoteSendOpen(true)}
-            onRefresh={() => void refreshServiceOrder()}
-          />
-          <WorkflowCard
             actions={detail.workflow_transitions}
             detail={detail}
             onOpenFlow={setActiveFlow}
             onOpenHistory={() => setHistoryOpen(true)}
+            onOpenQuoteSend={() => setQuoteSendOpen(true)}
+            onRefresh={() => void refreshServiceOrder()}
             onSimpleMove={handleSimpleWorkflowMove}
-          />
-          <TrackingLinkCard
-            customerName={customerLabel}
-            onToast={onToast}
-            open={trackingOpen}
-            phone={detail.customer?.custom_whatsapp || detail.customer?.mobile_no}
-            serviceOrder={detail.name}
-            onOpen={() => setTrackingOpen(true)}
-            onClose={() => setTrackingOpen(false)}
           />
           <ServiceOrderAttendanceCard detail={detail} />
         </aside>
@@ -4041,6 +4112,9 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.customers.presentation"));
+  const [quickFilter, setQuickFilter] = useState("all");
+  const [advancedFilter, setAdvancedFilter] = useState("all");
 
   const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
 	const [suggestionsOpen, setSuggestionsOpen] = useState(false);
@@ -4061,6 +4135,18 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
     void search("");
     void balcao.getListStatBar("customers").then((result) => setStatItems(result.items)).catch(() => setStatItems([]));
   }, [search]);
+
+  useEffect(() => {
+    window.localStorage.setItem("tecponto.customers.presentation", presentation);
+  }, [presentation]);
+
+  const filteredRows = useMemo(() => rows.filter((row) => {
+    if (quickFilter === "whatsapp") return Boolean(row.custom_whatsapp || row.mobile_no);
+    if (quickFilter === "email") return Boolean(row.email_id);
+    if (advancedFilter === "no_contact") return !row.custom_whatsapp && !row.mobile_no && !row.email_id;
+    if (advancedFilter === "no_document") return !row.custom_cpf && !row.custom_rg;
+    return true;
+  }), [advancedFilter, quickFilter, rows]);
 
 	useEffect(() => {
 		const term = query.trim();
@@ -4131,7 +4217,6 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
 		onSearchKeyDown={handleSearchKeyDown}
         placeholder="Buscar cliente por nome, telefone ou e-mail"
         query={query}
-        rows={rows}
 		searchSuggestions={
 			suggestionsOpen ? (
 				<div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-control border border-tec-border/25 bg-tec-panel-strong p-1.5 shadow-panel" role="listbox">
@@ -4153,9 +4238,17 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
 			) : null
 		}
         setQuery={setQuery}
-        statBar={<StatBar items={statItems.map((item) => ({ ...item, icon: <UserRound size={19} />, tone: item.key === "active" ? "green" : "blue" }))} />}
+		statBar={<StatBar items={statItems.map((item) => ({ ...item, ...getStatBarVisual("customers", item.key) }))} />}
         status={status}
         title="Clientes"
+        activeQuickFilter={quickFilter}
+        advancedFilters={<label className="block text-xs font-bold text-tec-subtle">Dados cadastrais<select className="tp-input mt-1 w-full" onChange={(event) => setAdvancedFilter(event.target.value)} value={advancedFilter}><option value="all">Sem filtro adicional</option><option value="no_contact">Sem contato informado</option><option value="no_document">Sem CPF ou RG</option></select></label>}
+        onClear={() => { setQuickFilter("all"); setAdvancedFilter("all"); }}
+        onPresentationChange={setPresentation}
+        onQuickFilterChange={setQuickFilter}
+        presentation={presentation}
+        quickFilters={[{ key: "all", label: "Todos" }, { key: "whatsapp", label: "Com WhatsApp" }, { key: "email", label: "Com e-mail" }]}
+        rows={filteredRows}
       />
       <CustomerRegistrationModal
         onClose={() => setRegistrationOpen(false)}
@@ -4271,6 +4364,9 @@ function DeviceLookup({ onToast }: { onToast: (message: string, tone?: ToastStat
   const [selectedDevice, setSelectedDevice] = useState<CustomerDeviceSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.devices.presentation"));
+  const [quickFilter, setQuickFilter] = useState("all");
+  const [advancedFilter, setAdvancedFilter] = useState("all");
 
   const search = useCallback(async (nextQuery: string) => {
     setStatus("loading");
@@ -4286,6 +4382,18 @@ function DeviceLookup({ onToast }: { onToast: (message: string, tone?: ToastStat
   useEffect(() => {
     void search("");
   }, [search]);
+
+  useEffect(() => {
+    window.localStorage.setItem("tecponto.devices.presentation", presentation);
+  }, [presentation]);
+
+  const filteredRows = useMemo(() => rows.filter((row) => {
+    if (quickFilter === "imei") return Boolean(row.imei_serial);
+    if (quickFilter === "photo") return Boolean(row.photo_url);
+    if (advancedFilter === "without_imei") return !row.imei_serial;
+    if (advancedFilter === "without_photo") return !row.photo_url;
+    return true;
+  }), [advancedFilter, quickFilter, rows]);
 
   const columns = useMemo<Array<TableColumn<CustomerDeviceSummary>>>(
     () => [
@@ -4326,8 +4434,15 @@ function DeviceLookup({ onToast }: { onToast: (message: string, tone?: ToastStat
         }}
         onRowClick={setSelectedDevice}
         placeholder="Buscar por cliente, modelo ou IMEI"
+        activeQuickFilter={quickFilter}
+        advancedFilters={<label className="block text-xs font-bold text-tec-subtle">Complementos do cadastro<select className="tp-input mt-1 w-full" onChange={(event) => setAdvancedFilter(event.target.value)} value={advancedFilter}><option value="all">Sem filtro adicional</option><option value="without_imei">Sem IMEI ou serial</option><option value="without_photo">Sem foto</option></select></label>}
+		onClear={() => { setQuickFilter("all"); setAdvancedFilter("all"); }}
+        onPresentationChange={setPresentation}
+        onQuickFilterChange={setQuickFilter}
+        presentation={presentation}
         query={query}
-        rows={rows}
+        quickFilters={[{ key: "all", label: "Todos" }, { key: "imei", label: "Com IMEI" }, { key: "photo", label: "Com foto" }]}
+        rows={filteredRows}
         setQuery={setQuery}
         status={status}
         title="Aparelhos"
@@ -4433,6 +4548,9 @@ function TradeLookup({ onToast }: { onToast: (message: string, tone?: ToastState
   const [selectedTrade, setSelectedTrade] = useState<TradeEvaluationSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
+  const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.trades.presentation"));
+  const [quickFilter, setQuickFilter] = useState("open");
+  const [advancedFilter, setAdvancedFilter] = useState("all");
 
   const search = useCallback(async (nextQuery: string) => {
     setStatus("loading");
@@ -4449,6 +4567,19 @@ function TradeLookup({ onToast }: { onToast: (message: string, tone?: ToastState
     void search("");
     void balcao.getListStatBar("trades").then((result) => setStatItems(result.items)).catch(() => setStatItems([]));
   }, [search]);
+
+  useEffect(() => {
+    window.localStorage.setItem("tecponto.trades.presentation", presentation);
+  }, [presentation]);
+
+  const filteredRows = useMemo(() => rows.filter((row) => {
+    if (quickFilter === "approval") return row.workflow_state === "Aguardando aprovação";
+    if (quickFilter === "purchased") return row.workflow_state === "Comprado";
+    if (quickFilter === "open") return !["Comprado", "Descartado"].includes(row.workflow_state ?? "");
+    if (advancedFilter === "with_imei") return Boolean(row.imei);
+    if (advancedFilter === "without_imei") return !row.imei;
+    return true;
+  }), [advancedFilter, quickFilter, rows]);
 
   const columns = useMemo<Array<TableColumn<TradeEvaluationSummary>>>(
     () => [
@@ -4473,11 +4604,18 @@ function TradeLookup({ onToast }: { onToast: (message: string, tone?: ToastState
         }}
         placeholder="Buscar por cliente, aparelho ou IMEI"
         query={query}
-        rows={rows}
+        rows={filteredRows}
         setQuery={setQuery}
-        statBar={<StatBar items={statItems.map((item) => ({ ...item, icon: <ArrowRightLeft size={19} />, tone: item.key === "approval" ? "amber" : "blue" }))} />}
+        statBar={<StatBar items={statItems.map((item) => ({ ...item, ...getStatBarVisual("trades", item.key) }))} />}
         status={status}
         title="Trocas"
+        activeQuickFilter={quickFilter}
+        advancedFilters={<label className="block text-xs font-bold text-tec-subtle">Identificação do aparelho<select className="tp-input mt-1 w-full" onChange={(event) => setAdvancedFilter(event.target.value)} value={advancedFilter}><option value="all">Todas</option><option value="with_imei">Com IMEI ou serial</option><option value="without_imei">Sem IMEI ou serial</option></select></label>}
+        onClear={() => { setQuickFilter("open"); setAdvancedFilter("all"); }}
+        onPresentationChange={setPresentation}
+        onQuickFilterChange={setQuickFilter}
+        presentation={presentation}
+        quickFilters={[{ key: "open", label: "Em andamento" }, { key: "approval", label: "Aguardando aprovação" }, { key: "purchased", label: "Compradas" }, { key: "all", label: "Todas" }]}
       />
 		<TradeEvaluationDetailModal
 			evaluation={selectedTrade}
@@ -4628,6 +4766,9 @@ function StockLookup({
   const [registrationBarcode, setRegistrationBarcode] = useState<string | null>(null);
 
   const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
+  const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation(`tecponto.stock.${scope}.presentation`));
+  const [quickFilter, setQuickFilter] = useState("available");
+  const [advancedFilter, setAdvancedFilter] = useState("all");
 	const [transferItem, setTransferItem] = useState<StockItemSummary | null>(null);
 	const [transferQty, setTransferQty] = useState("1");
 	const [transferBusy, setTransferBusy] = useState(false);
@@ -4652,6 +4793,20 @@ function StockLookup({
     void search("");
     void balcao.getListStatBar(`stock:${scope}`).then((result) => setStatItems(result.items)).catch(() => setStatItems([]));
   }, [search]);
+
+  useEffect(() => {
+    window.localStorage.setItem(`tecponto.stock.${scope}.presentation`, presentation);
+  }, [presentation, scope]);
+
+  const filteredRows = useMemo(() => rows.filter((row) => {
+    if (quickFilter === "available") return row.available_qty > 0;
+    if (quickFilter === "low") return row.available_qty > 0 && row.available_qty <= 2;
+    if (quickFilter === "empty") return row.available_qty <= 0;
+		if (advancedFilter === "with_barcode") return Boolean(row.barcode);
+		if (advancedFilter === "without_barcode") return !row.barcode && !row.has_serial_no;
+		if (advancedFilter === "serialized") return row.has_serial_no;
+    return true;
+  }), [advancedFilter, quickFilter, rows]);
 
   useEffect(() => {
     if (!initialBarcode || !isCommercialCatalog) return;
@@ -4786,12 +4941,19 @@ function StockLookup({
         }}
         placeholder={scopeCopy.searchPlaceholder}
         query={query}
-        rows={rows}
+        rows={filteredRows}
         setQuery={setQuery}
-        statBar={<StatBar items={statItems.map((item) => ({ ...item, icon: <Package size={19} />, tone: item.key === "empty" ? "amber" : "blue" }))} />}
+        statBar={<StatBar items={statItems.map((item) => ({ ...item, ...getStatBarVisual("stock", item.key) }))} />}
         status={status}
         tableMinWidthClassName="min-w-[940px]"
         title={scopeCopy.title}
+        activeQuickFilter={quickFilter}
+        advancedFilters={<label className="block text-xs font-bold text-tec-subtle">Controle do item<select className="tp-input mt-1 w-full" onChange={(event) => setAdvancedFilter(event.target.value)} value={advancedFilter}><option value="all">Todos os itens</option><option value="with_barcode">Com código de barras</option><option value="without_barcode">Sem código de barras</option><option value="serialized">Controlados por IMEI/serial</option></select></label>}
+        onClear={() => { setQuickFilter("available"); setAdvancedFilter("all"); }}
+        onPresentationChange={setPresentation}
+        onQuickFilterChange={setQuickFilter}
+        presentation={presentation}
+        quickFilters={[{ key: "available", label: "Disponíveis" }, { key: "low", label: "Baixo estoque" }, { key: "empty", label: "Sem estoque" }, { key: "all", label: "Todos" }]}
       />
       {isCommercialCatalog ? (
         <RetailProductModal
@@ -4843,12 +5005,66 @@ function StockLookup({
 
 function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) => void }) {
   const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number; amount?: number }>>([]);
+  const [query, setQuery] = useState("");
+  const [period, setPeriod] = useState("today");
+  const [rows, setRows] = useState<SaleSummary[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.sales.presentation"));
+  const [advancedFilter, setAdvancedFilter] = useState("all");
   useEffect(() => {
     void balcao.getListStatBar("sales").then((result) => setStatItems(result.items)).catch(() => setStatItems([]));
   }, []);
+
+  const load = useCallback(async (nextQuery = query, nextPeriod = period) => {
+    setStatus("loading");
+    try {
+      const response = await balcao.listSales(nextQuery, 50, nextPeriod);
+      setRows(response.items);
+      setStatus("ready");
+    } catch {
+      setStatus("error");
+    }
+  }, [period, query]);
+
+  useEffect(() => { void load("", period); }, [load, period]);
+  useEffect(() => { window.localStorage.setItem("tecponto.sales.presentation", presentation); }, [presentation]);
+	const filteredRows = useMemo(() => rows.filter((row) => {
+		if (advancedFilter === "under_100") return row.grand_total < 100;
+		if (advancedFilter === "100_to_500") return row.grand_total >= 100 && row.grand_total <= 500;
+		if (advancedFilter === "above_500") return row.grand_total > 500;
+		return true;
+	}), [advancedFilter, rows]);
+
+  const columns = useMemo<Array<TableColumn<SaleSummary>>>(() => [
+    { key: "name", label: "Venda", render: (row) => <span className="font-semibold text-white">{row.name}</span> },
+    { key: "customer", label: "Cliente", render: (row) => row.customer || "Consumidor final" },
+    { key: "posting_date", label: "Data", render: (row) => formatDate(row.posting_date) },
+    { key: "grand_total", label: "Total", render: (row) => row.grand_total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) },
+    { key: "status", label: "Status", render: (row) => <BadgeStatus status={row.status || "Concluída"} /> },
+  ], []);
+
   return (
     <div className="space-y-4">
-      <StatBar items={statItems.map((item) => ({ ...item, detail: item.amount !== undefined ? item.amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : undefined, icon: <ShoppingCart size={19} />, tone: "green" }))} />
+      <StatBar items={statItems.map((item) => ({ ...item, ...getStatBarVisual("sales", item.key), displayValue: item.key === "amount" ? item.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : undefined }))} />
+      <LookupCard
+        activeQuickFilter={period}
+        advancedFilters={<label className="block text-xs font-bold text-tec-subtle">Faixa do total da venda<select className="tp-input mt-1 w-full" onChange={(event) => setAdvancedFilter(event.target.value)} value={advancedFilter}><option value="all">Todas as faixas</option><option value="under_100">Abaixo de R$ 100</option><option value="100_to_500">De R$ 100 a R$ 500</option><option value="above_500">Acima de R$ 500</option></select></label>}
+        onClear={() => { setPeriod("today"); setAdvancedFilter("all"); void load(query, "today"); }}
+        columns={columns}
+        emptyLabel={status === "error" ? "Falha ao consultar vendas." : "Nenhuma venda neste recorte."}
+        headerAction={<Button onClick={() => onNavigate("pos")} variant="primary">Abrir PDV</Button>}
+        onPresentationChange={setPresentation}
+        onQuickFilterChange={(nextPeriod) => { setPeriod(nextPeriod); void load(query, nextPeriod); }}
+        onSearch={(event) => { event.preventDefault(); void load(); }}
+        placeholder="Buscar número da venda ou cliente"
+        presentation={presentation}
+        query={query}
+        quickFilters={[{ key: "today", label: "Hoje" }, { key: "7d", label: "Últimos 7 dias" }, { key: "all", label: "Todas" }]}
+        rows={filteredRows}
+        setQuery={setQuery}
+        status={status}
+        title="Histórico de vendas"
+      />
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.5fr)]">
       <Card className="overflow-hidden p-0">
         <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-start sm:justify-between">
@@ -4961,14 +5177,22 @@ function SalesChecklistItem({ icon, label }: { icon: ReactNode; label: string })
 }
 
 function LookupCard<T>({
+  activeQuickFilter,
+  advancedFilters,
   columns,
   emptyLabel,
   headerAction,
+	 onClear,
   onSearch,
+
+	onQuickFilterChange,
+	onPresentationChange,
 	onSearchFocus,
 	onSearchKeyDown,
   onRowClick,
   placeholder,
+  presentation,
+  quickFilters,
   query,
   rows,
   searchSuggestions,
@@ -4978,14 +5202,21 @@ function LookupCard<T>({
   tableMinWidthClassName,
   title,
 }: {
+  activeQuickFilter?: string;
+  advancedFilters?: ReactNode;
   columns: Array<TableColumn<T>>;
   emptyLabel: string;
   headerAction?: ReactNode;
+	 onClear?: () => void;
   onSearch: (event: FormEvent<HTMLFormElement>) => void;
+	onQuickFilterChange?: (key: string) => void;
+	onPresentationChange?: (value: ListPresentation) => void;
 	onSearchFocus?: () => void;
 	onSearchKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
   onRowClick?: (row: T) => void;
   placeholder: string;
+  presentation?: ListPresentation;
+  quickFilters?: QuickFilter[];
   query: string;
   rows: T[];
   searchSuggestions?: ReactNode;
@@ -4995,27 +5226,29 @@ function LookupCard<T>({
   tableMinWidthClassName?: string;
   title: string;
 }) {
+  const searchForm = <form className="flex flex-col gap-3 md:flex-row" onSubmit={onSearch}>
+    <div className="relative flex-1">
+      <SearchIcon className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tec-muted" size={18} />
+      <input
+        className="h-11 w-full rounded-control border border-tec-border/25 bg-tec-field pl-11 pr-4 text-sm text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
+        onChange={(event) => setQuery(event.target.value)}
+		onFocus={onSearchFocus}
+		onKeyDown={onSearchKeyDown}
+        placeholder={placeholder}
+        type="search"
+        value={query}
+      />
+		{searchSuggestions}
+    </div>
+    <Button icon={<SearchIcon size={17} />} type="submit" variant="primary">Buscar</Button>
+  </form>;
+
   return (
     <Card className="p-4">
       {statBar ? <div className="mb-4">{statBar}</div> : null}
-      <form className="mb-4 flex flex-col gap-3 md:flex-row" onSubmit={onSearch}>
-        <div className="relative flex-1">
-          <SearchIcon className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tec-muted" size={18} />
-          <input
-            className="h-11 w-full rounded-control border border-tec-border/25 bg-tec-field pl-11 pr-4 text-sm text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
-            onChange={(event) => setQuery(event.target.value)}
-			onFocus={onSearchFocus}
-			onKeyDown={onSearchKeyDown}
-            placeholder={placeholder}
-            type="search"
-            value={query}
-          />
-			{searchSuggestions}
-        </div>
-        <Button icon={<SearchIcon size={17} />} type="submit" variant="primary">
-          Buscar
-        </Button>
-      </form>
+      <div className="mb-4">
+        {quickFilters && onQuickFilterChange ? <LayeredFilters active={activeQuickFilter} filters={quickFilters} onClear={onClear} onSelect={onQuickFilterChange} primary={searchForm}>{advancedFilters}</LayeredFilters> : searchForm}
+      </div>
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-bold text-white">{title}</h2>
@@ -5023,9 +5256,9 @@ function LookupCard<T>({
             {status === "loading" ? "..." : rows.length}
           </span>
         </div>
-        {headerAction}
+        <div className="flex items-center gap-2">{presentation && onPresentationChange ? <ListGridToggle onChange={onPresentationChange} value={presentation} /> : null}{headerAction}</div>
       </div>
-      <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} onRowClick={onRowClick} rows={rows} tableMinWidthClassName={tableMinWidthClassName} />
+      {presentation === "grid" ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{rows.map((row, rowIndex) => <button className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-field" key={rowIndex} onClick={() => onRowClick?.(row)} type="button">{columns.slice(0, 4).map((column) => <div className="mt-2 first:mt-0" key={column.key}><span className="block text-[11px] font-bold uppercase text-tec-muted">{column.label}</span><span className="mt-0.5 block text-sm text-tec-text">{column.render(row)}</span></div>)}</button>)}</div> : <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} onRowClick={onRowClick} rows={rows} tableMinWidthClassName={tableMinWidthClassName} />}
     </Card>
   );
 }
@@ -5039,11 +5272,12 @@ function ServiceOrderViewToggle({
 }) {
   const options: Array<{ label: string; value: ServiceOrdersViewMode }> = [
     { label: "Lista", value: "list" },
+    { label: "Grid", value: "grid" },
     { label: "Kanban", value: "kanban" },
   ];
 
   return (
-    <div className="inline-grid grid-cols-2 gap-1 rounded-control border border-tec-border/15 bg-tec-field/70 p-1">
+    <div className="inline-grid grid-cols-3 gap-1 rounded-control border border-tec-border/15 bg-tec-field/70 p-1">
       {options.map((option) => (
         <button
           aria-pressed={value === option.value}
@@ -5066,7 +5300,7 @@ function ServiceOrderViewToggle({
 function getStoredServiceOrdersView(): ServiceOrdersViewMode {
   try {
     const stored = window.localStorage.getItem(SERVICE_ORDERS_VIEW_KEY);
-    return stored === "kanban" || stored === "list" ? stored : "kanban";
+    return stored === "kanban" || stored === "grid" || stored === "list" ? stored : "kanban";
   } catch {
     return "kanban";
   }
@@ -5207,36 +5441,24 @@ function ActionPanel({
 function DailyActionsPanel({
   onOpenOrder,
   onToast,
-  panels,
+  panel,
 }: {
   onOpenOrder: (name: string) => void;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
-  panels: string[];
+  panel: RolePanel;
 }) {
   const [state, setState] = useState<DailyActionsResponse | null>(null);
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const panelsKey = panels.join("|");
-
   const refresh = useCallback(async () => {
     try {
-      const requestedPanels = panelsKey.split("|").filter(Boolean);
-      const responses = await Promise.all(requestedPanels.map((panel) => dailyActions.list(panel)));
-      const seen = new Set<string>();
-      const derived = responses.flatMap((response) => response.derived).filter((action) => {
-        const key = `${action.reference_doctype}:${action.reference_name}:${action.title}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-      const manual = responses[0]?.manual ?? [];
-      setState({ count: derived.length + manual.length, derived, manual });
+      setState(await dailyActions.list(panel));
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Falha ao carregar pendencias.", "error");
     }
-  }, [onToast, panelsKey]);
+  }, [onToast, panel]);
 
   useEffect(() => {
     void refresh();
@@ -5476,6 +5698,15 @@ function filterOrdersForServiceOrderScreen(orders: ServiceOrderSummary[], filter
     if (filters.status !== "all" && order.workflow_state !== filters.status) {
       return false;
     }
+		if (filters.priority !== "all" && order.priority !== filters.priority) {
+			return false;
+		}
+		if (filters.assignment === "assigned" && !order.technician) {
+			return false;
+		}
+		if (filters.assignment === "unassigned" && order.technician) {
+			return false;
+		}
     return matchesServiceOrderSearch(order, filters.query);
   });
 }

@@ -9,6 +9,7 @@ import type {
   CustomerSearchResponse,
   DashboardMetrics,
   ListStatBarResponse,
+	SaleListResponse,
   StockItemListResponse,
 	StockTransferResponse,
 	TradeEvaluationListResponse,
@@ -21,6 +22,9 @@ export const balcao = {
   getListStatBar(scope: string) {
     return rpc<ListStatBarResponse>(`${API}.get_list_statbar`, { query: { scope } });
   },
+	listSales(query = "", limit = 50, period = "today") {
+		return rpc<SaleListResponse>(`${API}.list_sales`, { query: { query, limit, period } });
+	},
   getDashboardMetrics() {
     return rpc<DashboardMetrics>(`${API}.get_dashboard_metrics`);
   },

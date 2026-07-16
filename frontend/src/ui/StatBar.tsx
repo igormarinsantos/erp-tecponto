@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
+import { HorizontalScroller } from "./HorizontalScroller";
 
 export interface StatBarItem {
   key: string;
   label: string;
   value: number;
   detail?: string;
+  displayValue?: string;
   icon?: ReactNode;
   tone?: "orange" | "blue" | "amber" | "green";
 }
@@ -19,9 +21,10 @@ export function StatBar({ items, onSelect }: { items: StatBarItem[]; onSelect?: 
   const baseClass = "flex min-h-20 items-center gap-3 rounded-card border border-tec-border/15 bg-tec-panel p-4 text-left";
 
   return (
-    <section aria-label="Resumo da lista" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <HorizontalScroller>
+    <section aria-label="Resumo da lista" className={`tp-statbar-grid ${items.length > 4 ? "tp-statbar-scrollable" : ""}`}>
       {items.map((item) => {
-        const content = <><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-control ${tones[item.tone ?? "orange"]}`}>{item.icon}</span><span><span className="block text-xs font-semibold text-tec-muted">{item.label}</span><strong className="tp-metric-value mt-1 block text-2xl text-white">{item.value}</strong>{item.detail ? <span className="mt-0.5 block text-xs font-medium text-tec-muted">{item.detail}</span> : null}</span></>;
+        const content = <><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-control ${tones[item.tone ?? "orange"]}`}>{item.icon}</span><span><span className="block text-xs font-semibold text-tec-muted">{item.label}</span><strong className="tp-metric-value mt-1 block text-2xl text-white">{item.displayValue ?? item.value}</strong>{item.detail ? <span className="mt-0.5 block text-xs font-medium text-tec-muted">{item.detail}</span> : null}</span></>;
 
         return onSelect ? (
           <button className={`${baseClass} cursor-pointer transition hover:border-tec-orange/50 hover:bg-tec-field`} key={item.key} onClick={() => onSelect(item.key)} type="button">
@@ -32,5 +35,6 @@ export function StatBar({ items, onSelect }: { items: StatBarItem[]; onSelect?: 
         );
       })}
     </section>
+    </HorizontalScroller>
   );
 }

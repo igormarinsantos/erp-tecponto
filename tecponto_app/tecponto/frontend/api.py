@@ -8,7 +8,7 @@ from urllib.parse import quote
 import frappe
 from frappe import _
 from frappe.model.workflow import apply_workflow
-from frappe.utils import cint, flt, getdate, now_datetime, strip_html, today
+from frappe.utils import add_days, cint, flt, getdate, now_datetime, strip_html, today
 from frappe.utils.file_manager import save_file
 
 from tecponto_app.tecponto.customer import (
@@ -140,6 +140,14 @@ SAFE_TRADE_EVALUATION_FIELDS = (
 	"table_max",
 	"approved_value",
 	"workflow_state",
+	"modified",
+)
+SAFE_SALES_INVOICE_FIELDS = (
+	"name",
+	"customer",
+	"posting_date",
+	"grand_total",
+	"status",
 	"modified",
 )
 
@@ -347,7 +355,10 @@ def get_list_statbar(scope: str) -> dict[str, Any]:
 		items = [("open", "Avaliações abertas", frappe.db.count("Device Trade Evaluation", {"workflow_state": ["not in", ["Comprado", "Descartado"]]})), ("approval", "Aguardando aprovação", frappe.db.count("Device Trade Evaluation", {"workflow_state": "Aguardando aprovação"})), ("closed", "Fechadas no mês", frappe.db.count("Device Trade Evaluation", {"workflow_state": "Comprado", "modified": [">=", getdate(today()).replace(day=1)]}))]
 	elif scope == "sales":
 		count, total = frappe.db.sql("select count(*), coalesce(sum(grand_total),0) from `tabSales Invoice` where docstatus=1 and is_return=0 and posting_date=%(date)s", {"date": today()})[0]
-		return {"items": [{"key": "today", "label": "Vendas hoje", "value": count, "amount": float(total or 0)}]}
+		return {"items": [
+			{"key": "today", "label": "Vendas hoje", "value": int(count or 0)},
+			{"key": "amount", "label": "Valor vendido", "value": float(total or 0), "amount": float(total or 0)},
+		]}
 	elif scope == "catalog":
 		items = [
 			("active", "Servicos ativos", frappe.db.count("Tecponto Service", {"active": 1})),
@@ -357,6 +368,32 @@ def get_list_statbar(scope: str) -> dict[str, Any]:
 	else:
 		frappe.throw(_("Resumo não disponível."), frappe.ValidationError)
 	return {"items": [{"key": key, "label": label, "value": int(value or 0)} for key, label, value in items]}
+
+
+@frappe.whitelist()
+def list_sales(query: str = "", limit: int = 50, period: str = "today") -> dict[str, Any]:
+	"""Counter sales projection. It deliberately contains no inventory cost or profitability data."""
+	_require_frontend_role()
+	limit = max(1, min(int(limit or 50), 100))
+	period = (period or "today").strip()
+	filters: dict[str, Any] = {"docstatus": 1, "is_return": 0}
+	if period == "today":
+		filters["posting_date"] = today()
+	elif period == "7d":
+		filters["posting_date"] = [">=", add_days(today(), -6)]
+	elif period != "all":
+		frappe.throw(_("Período de vendas inválido."), frappe.ValidationError)
+	term = (query or "").strip()
+	or_filters = _like_filters(term, ("name", "customer")) if term else None
+	items = frappe.get_all(
+		"Sales Invoice",
+		fields=list(SAFE_SALES_INVOICE_FIELDS),
+		filters=filters,
+		or_filters=or_filters,
+		order_by="posting_date desc, modified desc",
+		limit_page_length=limit,
+	)
+	return {"items": items, "count": len(items), "fields": list(SAFE_SALES_INVOICE_FIELDS)}
 
 
 @frappe.whitelist()

@@ -37,6 +37,8 @@ export type {
   DailyActionsResponse,
   LoggedUser,
   ListStatBarResponse,
+	SaleListResponse,
+	SaleSummary,
   NavigationTarget,
   NotificationListResponse,
   RolePanel,
