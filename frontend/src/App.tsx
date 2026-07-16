@@ -5566,10 +5566,11 @@ function DailyActionsPanel({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [agendaView, setAgendaView] = useState<AgendaView>(() => {
     try {
-      const stored = window.localStorage.getItem("tecponto.agenda.view." + storageKey);
-      return stored === "week" || stored === "month" ? stored : "list";
+      // A versioned preference promotes the calendar for existing users too.
+      const stored = window.localStorage.getItem("tecponto.agenda.v2.view." + storageKey);
+      return stored === "list" || stored === "week" ? stored : "month";
     } catch {
-      return "list";
+      return "month";
     }
   });
   const [calendarAnchor, setCalendarAnchor] = useState(() => toIsoDate(new Date()));
@@ -5591,7 +5592,7 @@ function DailyActionsPanel({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem("tecponto.agenda.view." + storageKey, agendaView);
+      window.localStorage.setItem("tecponto.agenda.v2.view." + storageKey, agendaView);
     } catch {
       // Persisting a visual preference must never affect the agenda.
     }
@@ -5687,9 +5688,9 @@ function DailyActionsPanel({
         <div className="flex flex-wrap items-center gap-2">
           <div aria-label="Visao da agenda" className="inline-flex rounded-control border border-tec-border/20 bg-tec-field/65 p-1" role="group">
             {([
-              ["list", "Lista", ClipboardCheck],
-              ["week", "Semana", CalendarDays],
               ["month", "Mes", CalendarClock],
+              ["week", "Semana", CalendarDays],
+              ["list", "Lista", ClipboardCheck],
             ] as const).map(([view, label, Icon]) => (
               <button
                 className={cx("inline-flex items-center gap-1.5 rounded-control px-3 py-2 text-xs font-bold transition", agendaView === view ? "bg-tec-orange text-tec-graphite" : "text-tec-subtle hover:bg-tec-panel hover:text-white")}
