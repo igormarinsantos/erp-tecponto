@@ -131,6 +131,10 @@ def get_public_tracking(token: str) -> dict[str, Any]:
 			"device": _device_label(device),
 			"imei_suffix": _imei_suffix(device.get("imei_serial")),
 			"reported_defect": order.get("reported_defect") or "Não informado",
+			"entry_date": str(order.get("entry_date") or order.get("creation") or ""),
+			"last_updated": str(order.get("modified") or ""),
+			"estimated_deadline": str(order.get("estimated_deadline") or ""),
+			"service_channel": order.get("approval_channel") or "Balcao",
 			"approval_deadline": str(order.get("approval_deadline") or "") if awaiting_approval else "",
 			"warranty_expiry": str(order.get("warranty_expiry") or "") if order.get("workflow_state") == "Entregue" else "",
 		},
@@ -255,7 +259,7 @@ def _device_label(device: dict[str, Any]) -> str:
 
 def _imei_suffix(imei: str | None) -> str:
 	value = (imei or "").strip()
-	return f"•••• {value[-4:]}" if value else "Não informado"
+	return f"\u2022\u2022\u2022\u2022 {value[-4:]}" if value else "Nao informado"
 
 
 def _public_budget(order: Any) -> dict[str, Any]:
