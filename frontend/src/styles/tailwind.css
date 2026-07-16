@@ -174,10 +174,12 @@ h4 {
 }
 
 .tp-horizontal-scroll-top {
-  height: 7px;
+  height: 8px;
   margin-bottom: 0.35rem;
   overflow-x: auto;
   overflow-y: hidden;
+  border-radius: 999px;
+  background: rgb(var(--tp-border) / 0.12);
 }
 
 .tp-horizontal-scroll-bottom {
@@ -193,7 +195,7 @@ h4 {
 
 .tp-horizontal-scroll-top::-webkit-scrollbar-thumb,
 .tp-horizontal-scroll-bottom::-webkit-scrollbar-thumb {
-  background: rgb(var(--tp-border) / 0.55);
+  background: rgb(var(--tp-border) / 0.65);
   border-radius: 999px;
 }
 
