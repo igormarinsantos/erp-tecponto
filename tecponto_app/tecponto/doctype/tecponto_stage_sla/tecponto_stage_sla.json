@@ -1,0 +1,28 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:workflow_state",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["workflow_state", "business_hours", "description", "active"],
+ "fields": [
+  {"fieldname":"workflow_state","fieldtype":"Data","label":"Etapa","reqd":1,"unique":1,"in_list_view":1,"search_index":1},
+  {"fieldname":"business_hours","fieldtype":"Float","label":"Prazo interno (horas úteis)","precision":"1","in_list_view":1},
+  {"fieldname":"description","fieldtype":"Small Text","label":"Observação"},
+  {"fieldname":"active","fieldtype":"Check","label":"Ativo","default":"1","in_list_view":1}
+ ],
+ "module": "Tecponto",
+ "name": "Tecponto Stage SLA",
+ "permissions": [
+  {"role":"System Manager","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1,"print":1,"email":1,"share":1},
+  {"role":"Tecponto Diretor","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1,"print":1,"email":1,"share":1},
+  {"role":"Tecponto Gestor","read":1,"write":1,"create":1,"delete":1,"report":1,"export":1,"print":1,"email":1,"share":1},
+  {"role":"Tecponto Atendente","read":1,"report":1,"export":1,"print":1,"email":1,"share":1},
+  {"role":"Tecponto Tecnico","read":1,"report":1,"export":1,"print":1,"email":1,"share":1}
+ ],
+ "search_fields": "workflow_state",
+ "sort_field": "workflow_state",
+ "sort_order": "ASC",
+ "title_field": "workflow_state",
+ "track_changes": 1
+}

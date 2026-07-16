@@ -404,6 +404,8 @@ export interface CheckinPayload {
     accessories_received?: string;
     is_warranty?: boolean;
     original_service_order?: string;
+    estimated_deadline?: string;
+    lead_time_business_hours?: number;
   };
   entry_photo: {
     data_url: string;
@@ -431,6 +433,14 @@ export interface CheckinResponse {
   service_order: Pick<ServiceOrderDetailResponse, "name" | "workflow_state" | "customer" | "device" | "print_links">;
   entry_photo_url: string;
   tracking: TrackingLinkResponse;
+}
+
+export interface DeliverySuggestion {
+  suggested_delivery_date: string;
+  total_business_hours: number;
+  stage_business_hours: number;
+  service_business_hours: number;
+  lead_time_business_hours: number;
 }
 
 export interface TrackingLinkResponse {

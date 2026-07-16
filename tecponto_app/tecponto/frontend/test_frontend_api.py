@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from base64 import b64encode
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from tecponto_app.tecponto.frontend.api import (
 	issue_os_acceptance,
 	add_catalog_service_to_service_order,
 	create_service_order_checkin,
+	get_checkin_delivery_suggestion,
 	list_warranty_candidates,
 	create_customer,
 	list_catalog_references,
@@ -43,6 +45,7 @@ from tecponto_app.tecponto.frontend.api import (
 	set_tradein_approved_value,
 	save_catalog_reference,
 	save_catalog_service,
+	save_stage_sla,
 	submit_stock_transfer,
 )
 from tecponto_app.tecponto.acceptance import complete_public_acceptance, get_public_acceptance, save_public_acceptance_selfie
@@ -90,6 +93,7 @@ from tecponto_app.tecponto.pos import (
 from tecponto_app.tecponto import notify
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD
 from tecponto_app.tecponto.pending import complete_manual_task, create_manual_task, list_daily_actions
+from tecponto_app.tecponto.service_order.stage_sla import add_commercial_business_hours, get_stage_slas
 
 
 TEST_USERS = {
@@ -142,6 +146,7 @@ def run_foundation_checks() -> dict:
 		quick_stage_checks = run_quick_stage_move_checks()
 		customer_registration_checks = run_customer_registration_checks()
 		service_catalog_checks = run_service_catalog_checks()
+		stage_sla_checks = run_stage_sla_checks()
 		public_acceptance_checks = run_public_acceptance_checks()
 		tracking_checks = run_public_tracking_checks()
 		tracking_budget_checks = run_public_tracking_budget_checks()
@@ -166,6 +171,7 @@ def run_foundation_checks() -> dict:
 			"quick_stage_checks": quick_stage_checks,
 			"customer_registration_checks": customer_registration_checks,
 			"service_catalog_checks": service_catalog_checks,
+			"stage_sla_checks": stage_sla_checks,
 			"public_acceptance_checks": public_acceptance_checks,
 			"tracking_checks": tracking_checks,
 			"tracking_budget_checks": tracking_budget_checks,
@@ -496,6 +502,83 @@ def run_tracking_lifecycle_checks() -> dict:
 			"sensitive_guard": {"leaked_fields": leaks},
 		}
 	finally:
+		frappe.set_user(previous_user)
+
+
+def run_stage_sla_checks() -> dict:
+	"""Prove SLA defaults, commercial hours, editable suggestion, and non-blocking check-in."""
+	previous_user = frappe.session.user
+	original_entry_sla = None
+	created_order = None
+	try:
+		ensure_frontend_foundation()
+		manager = _find_or_create_user("Tecponto Gestor")
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(manager)
+		slas = get_stage_slas()
+		entry_sla = next((row for row in slas if row["workflow_state"] == "Entrada criada"), None)
+		if not entry_sla or entry_sla["business_hours"] != 4:
+			raise AssertionError("SLA default de Entrada criada não foi carregado.")
+		original_entry_sla = dict(entry_sla)
+
+		friday = datetime(2026, 7, 17, 17, 0)
+		monday = add_commercial_business_hours(friday, 4)
+		if monday != datetime(2026, 7, 20, 12, 0):
+			raise AssertionError(f"Cálculo comercial não pulou fim de semana/expediente: {monday!s}")
+
+		before = get_checkin_delivery_suggestion(lead_time_business_hours=9)
+		updated = save_stage_sla(
+			{
+				"workflow_state": "Entrada criada",
+				"business_hours": 10,
+				"description": "Teste temporário de SLA.",
+				"active": True,
+			}
+		)["item"]
+		after = get_checkin_delivery_suggestion(lead_time_business_hours=9)
+		if updated["business_hours"] != 10 or after["total_business_hours"] != before["total_business_hours"] + 6:
+			raise AssertionError("Edição do SLA não alterou a sugestão de entrega.")
+
+		photo = BytesIO()
+		Image.new("RGB", (24, 24), color=(20, 40, 60)).save(photo, format="JPEG")
+		photo_data = "data:image/jpeg;base64," + b64encode(photo.getvalue()).decode()
+		suffix = frappe.generate_hash(length=8).upper()
+		frappe.set_user(attendant)
+		checkin = create_service_order_checkin(
+			{
+				"customer": {
+					"customer_name": f"Cliente SLA {suffix}",
+					"mobile_no": "11999998888",
+					"custom_whatsapp": "11999998888",
+					"custom_nao_possui_cpf": 1,
+					"custom_rg": f"RG-SLA-{suffix}",
+				},
+				"device": {
+					"brand": "Apple",
+					"model": "iPhone SLA",
+					"imei_serial": f"35{int(suffix, 16) % 10**13:013d}",
+				},
+				"service_order": {
+					"reported_defect": "Teste de OS sem prazo prometido.",
+					"physical_state": "Sem danos aparentes.",
+					"estimated_deadline": "",
+				},
+				"entry_photo": {"data_url": photo_data, "filename": f"sla-{suffix}.jpg"},
+			}
+		)
+		created_order = checkin["service_order"]["name"]
+		if frappe.db.get_value("Service Order", created_order, "estimated_deadline"):
+			raise AssertionError("OS com prazo em branco foi preenchida à força ou bloqueada.")
+		return {
+			"status": "ok",
+			"commercial_hours_skip_weekend": str(monday),
+			"sla_edit_changes_suggestion": True,
+			"suggested_date_editable_and_blank_allowed": True,
+		}
+	finally:
+		if original_entry_sla:
+			frappe.set_user(_find_or_create_user("Tecponto Gestor"))
+			save_stage_sla(original_entry_sla)
 		frappe.set_user(previous_user)
 
 

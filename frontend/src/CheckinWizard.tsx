@@ -267,6 +267,8 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
     reported_defect: "",
     physical_state: "",
     accessories_received: "",
+    estimated_deadline: "",
+    lead_time_business_hours: "",
   });
   const [serviceSelections, setServiceSelections] = useState<ServiceSelections>(defaultServiceSelections);
   const [warrantyCandidates, setWarrantyCandidates] = useState<WarrantyCandidate[]>([]);
@@ -296,12 +298,28 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
   }, [open]);
 
   useEffect(() => {
-    setServiceOrder({
+    setServiceOrder((current) => ({
+      ...current,
       reported_defect: generatedSummary,
       physical_state: serviceSelections.physicalStates.join("; "),
       accessories_received: serviceSelections.accessories.join("; "),
-    });
+    }));
   }, [generatedSummary, serviceSelections.accessories, serviceSelections.physicalStates]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const leadTime = Number(serviceOrder.lead_time_business_hours) || 0;
+    checkin.getDeliverySuggestion(leadTime).then((suggestion) => {
+      if (!cancelled) {
+        setServiceOrder((current) => ({
+          ...current,
+          estimated_deadline: current.estimated_deadline || suggestion.suggested_delivery_date,
+        }));
+      }
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [open, serviceOrder.lead_time_business_hours]);
 
   useEffect(() => {
     const customer = selectedCustomer?.name ?? "";
@@ -415,6 +433,8 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
         accessories_received: serviceOrder.accessories_received.trim(),
         is_warranty: Boolean(originalServiceOrder),
         original_service_order: originalServiceOrder || undefined,
+        estimated_deadline: serviceOrder.estimated_deadline,
+        lead_time_business_hours: Number(serviceOrder.lead_time_business_hours) || 0,
       },
       entry_photo: {
         data_url: photo.dataUrl,
@@ -496,6 +516,8 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
                     generatedSummary={generatedSummary}
                     originalServiceOrder={originalServiceOrder}
                     selections={serviceSelections}
+                    serviceOrder={serviceOrder}
+                    setServiceOrder={setServiceOrder}
                     warrantyCandidates={warrantyCandidates}
                     warrantyLoading={warrantyLoading}
                     setOriginalServiceOrder={setOriginalServiceOrder}
@@ -1416,7 +1438,9 @@ function ServiceDataStep({
   generatedSummary,
   originalServiceOrder,
   selections,
+  serviceOrder,
   setOriginalServiceOrder,
+  setServiceOrder,
   setSelections,
   warrantyCandidates,
   warrantyLoading,
@@ -1424,7 +1448,15 @@ function ServiceDataStep({
   generatedSummary: string;
   originalServiceOrder: string;
   selections: ServiceSelections;
+  serviceOrder: {
+    reported_defect: string;
+    physical_state: string;
+    accessories_received: string;
+    estimated_deadline: string;
+    lead_time_business_hours: string;
+  };
   setOriginalServiceOrder: (value: string) => void;
+  setServiceOrder: (value: { reported_defect: string; physical_state: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string } | ((current: { reported_defect: string; physical_state: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string }) => { reported_defect: string; physical_state: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string })) => void;
   setSelections: (value: ServiceSelections | ((current: ServiceSelections) => ServiceSelections)) => void;
   warrantyCandidates: WarrantyCandidate[];
   warrantyLoading: boolean;
@@ -1484,6 +1516,28 @@ function ServiceDataStep({
         title="Seleções mais precisas geram orçamentos mais assertivos e execuções técnicas mais alinhadas."
         text="Quanto mais detalhe você registrar agora, menos dúvidas no orçamento e mais agilidade no reparo."
       />
+
+      <WizardCard>
+        <SectionTitle icon={<ClipboardList size={21} />} title="Previsão de entrega" />
+        <p className="mt-3 text-sm leading-6 text-tec-muted">
+          O motor sugere uma data usando os SLAs internos e dias úteis. Ela é apenas uma previsão: pode ser ajustada ou deixada em branco sem impedir a abertura da OS.
+        </p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <Field
+            label="Data prometida ao cliente"
+            onChange={(value) => setServiceOrder((current) => ({ ...current, estimated_deadline: value }))}
+            type="date"
+            value={serviceOrder.estimated_deadline}
+          />
+          <Field
+            inputMode="decimal"
+            label="Prazo da peça (horas úteis)"
+            onChange={(value) => setServiceOrder((current) => ({ ...current, lead_time_business_hours: value.replace(/[^0-9.,]/g, "").replace(",", ".") }))}
+            placeholder="Opcional, ex.: 18"
+            value={serviceOrder.lead_time_business_hours}
+          />
+        </div>
+      </WizardCard>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <WizardCard>

@@ -27,6 +27,7 @@ from tecponto_app.tecponto.service_order.print_formats import (
 )
 from tecponto_app.tecponto.workflow import _get_service_order_transitions, get_service_order_workflow_state_names
 from tecponto_app.tecponto import service_catalog
+from tecponto_app.tecponto.service_order import stage_sla
 
 
 ROLE_PANELS = (
@@ -934,6 +935,16 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.accessories_received = (data["service_order"].get("accessories_received") or "").strip()
 	order.is_warranty = cint(data["service_order"].get("is_warranty"))
 	order.original_service_order = (data["service_order"].get("original_service_order") or "").strip() or None
+	# The check-in may deliberately leave the promise empty. When it is absent
+	# altogether, retain the operational suggestion as a helpful default only.
+	if "estimated_deadline" in data["service_order"]:
+		order.estimated_deadline = (data["service_order"].get("estimated_deadline") or "").strip() or None
+	else:
+		suggestion = stage_sla.calculate_suggested_delivery(
+			start_datetime=order.entry_date,
+			lead_time_business_hours=data["service_order"].get("lead_time_business_hours") or 0,
+		)
+		order.estimated_deadline = suggestion["suggested_delivery_date"] or None
 	order.insert(ignore_permissions=True)
 
 	photo_url = _save_checkin_photo(order.name, data["entry_photo"])
@@ -958,6 +969,24 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 		"entry_photo_url": photo_url,
 		"tracking": tracking,
 	}
+
+
+@frappe.whitelist()
+def get_checkin_delivery_suggestion(lead_time_business_hours: float = 0) -> dict[str, Any]:
+	_require_checkin_role()
+	return stage_sla.calculate_suggested_delivery(lead_time_business_hours=lead_time_business_hours)
+
+
+@frappe.whitelist()
+def list_stage_slas() -> dict[str, Any]:
+	_require_frontend_role()
+	return {"items": [stage_sla._serialize_sla(row) for row in stage_sla.get_stage_slas()]}
+
+
+@frappe.whitelist()
+def save_stage_sla(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_frontend_role()
+	return {"item": stage_sla.save_stage_sla(_parse_payload(payload))}
 
 
 @frappe.whitelist()
