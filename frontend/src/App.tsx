@@ -8,6 +8,7 @@ import {
   Box,
   CalendarClock,
   CheckCircle2,
+  ClipboardCheck,
   Clock3,
   Copy,
   CreditCard,
@@ -2054,7 +2055,6 @@ function ServiceOrderDetail({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [quoteSendOpen, setQuoteSendOpen] = useState(false);
   const [acceptanceType, setAcceptanceType] = useState<"Entrada" | "Retirada" | null>(null);
-  const [trackingOpen, setTrackingOpen] = useState(false);
   const [moveApproval, setMoveApproval] = useState<{ targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
   const initialFlowRef = useRef(initialFlow);
 
@@ -2434,6 +2434,101 @@ function TrackingLinkCard({
   );
 }
 
+function TrackingLinkBanner({
+  customerName,
+  onToast,
+  phone,
+  serviceOrder,
+}: {
+  customerName: string;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+  phone?: string | null;
+  serviceOrder: string;
+}) {
+  const [tracking, setTracking] = useState<TrackingLinkResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function generate() {
+    setLoading(true);
+    try {
+      setTracking(await serviceOrders.issueTrackingLink(serviceOrder));
+    } catch (caught) {
+      onToast(caught instanceof Error ? caught.message : "Não foi possível gerar o link de rastreio.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function copyLink() {
+    if (!tracking) return;
+    try {
+      await navigator.clipboard.writeText(tracking.link);
+      onToast("Link de rastreio copiado.");
+    } catch {
+      onToast("Não foi possível copiar automaticamente.", "error");
+    }
+  }
+
+  const trackingWhatsApp = tracking
+    ? buildWhatsAppUrl(phone, `Olá, ${customerName}. Acompanhe sua OS ${serviceOrder}: ${tracking.link}`)
+    : null;
+
+  return (
+    <section aria-label="Link de rastreio do cliente" className="tp-tracking-banner">
+      <div className="min-w-0 p-5 sm:p-6">
+        <div className="flex items-center gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-card bg-tec-orange/15 text-tec-orange">
+            <QrCode size={22} />
+          </span>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-tec-orange/85">Link de rastreio do cliente</p>
+            <p className="mt-1 text-sm text-tec-subtle">Acompanhe o reparo e decida o orçamento em tempo real.</p>
+          </div>
+        </div>
+
+        {tracking ? (
+          <>
+            <p className="tp-display mt-5 truncate text-2xl font-bold text-tec-orange sm:text-3xl" title={tracking.link}>
+              {tracking.link.replace(/^https?:\/\//, "")}
+            </p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {trackingWhatsApp ? (
+                <a className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-orange/35 bg-tec-orange/10 px-4 text-sm font-bold text-tec-orange transition hover:bg-tec-orange/20" href={trackingWhatsApp} rel="noreferrer" target="_blank">
+                  <Send size={16} />
+                  Compartilhar com o cliente
+                </a>
+              ) : null}
+              <Button icon={<Copy size={16} />} onClick={() => void copyLink()} variant="secondary">Copiar link</Button>
+              <Button icon={<ArrowRight size={16} />} onClick={() => window.open(tracking.link, "_blank", "noopener,noreferrer")} variant="secondary">Abrir link</Button>
+            </div>
+            <p className="mt-3 text-xs font-medium text-tec-muted">
+              {tracking.expires_on ? `Válido até ${formatDate(tracking.expires_on)}.` : "Ativo durante o reparo e por 90 dias após a retirada."}
+            </p>
+          </>
+        ) : (
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <p className="max-w-2xl text-sm leading-relaxed text-tec-subtle">
+              Gere o link seguro para o cliente acompanhar esta OS. Uma nova emissão substitui o link anterior por segurança.
+            </p>
+            <Button disabled={loading} icon={<QrCode size={17} />} onClick={() => void generate()} variant="primary">
+              {loading ? "Gerando link..." : "Gerar link e QR"}
+            </Button>
+          </div>
+        )}
+      </div>
+      <div className="tp-tracking-qr">
+        {tracking ? (
+          <img alt={`QR Code do rastreio da OS ${serviceOrder}`} className="h-40 w-40 sm:h-44 sm:w-44" src={tracking.qr_svg} />
+        ) : (
+          <div className="grid h-40 w-40 place-items-center rounded-card border border-dashed border-tec-orange/35 bg-tec-field/35 p-4 text-center text-xs font-semibold text-tec-muted sm:h-44 sm:w-44">
+            O QR aparece após gerar o link.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ServiceOrderHero({
   detail,
   onBack,
@@ -2508,10 +2603,11 @@ function WorkflowStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
       {SERVICE_ORDER_STEPS.map((step, index) => {
         const done = index < activeIndex;
         const active = index === activeIndex;
+        const StepIcon = workflowStepIcon(index);
         return (
           <div
             className={cx(
-              "relative rounded-control border p-3 transition",
+              "relative rounded-control border p-3 transition md:after:absolute md:after:-right-2 md:after:top-1/2 md:after:h-px md:after:w-4 md:after:bg-tec-border/25 md:last:after:hidden",
               active
                 ? "border-tec-orange/60 bg-tec-orange/10 shadow-glow"
                 : done
@@ -2531,7 +2627,7 @@ function WorkflowStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
                       : "bg-tec-field text-tec-muted",
                 )}
               >
-                {done ? <CheckCircle2 size={15} /> : index + 1}
+                {done ? <CheckCircle2 size={15} /> : active ? index + 1 : <StepIcon size={14} />}
               </span>
               <span>
                 <span className={cx("block text-xs font-bold", active ? "text-tec-orange" : done ? "text-tec-success" : "text-tec-muted")}>
@@ -2545,6 +2641,10 @@ function WorkflowStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
       })}
     </div>
   );
+}
+
+function workflowStepIcon(index: number) {
+  return [ClipboardCheck, SearchIcon, FileText, Send, Wrench, Package][index] ?? FileText;
 }
 
 function serviceOrderStepIndex(state: string | null) {
@@ -2582,19 +2682,48 @@ function serviceOrderStepSubtitles(detail: ServiceOrderDetailResponse, activeInd
 }
 
 function NextActionCard({
+  actions,
   detail,
   onOpenFlow,
+  onOpenHistory,
   onOpenQuoteSend,
   onRefresh,
+  onSimpleMove,
 }: {
+  actions: ServiceOrderWorkflowAction[];
   detail: ServiceOrderDetailResponse;
   onOpenFlow: (flow: "approve" | "reject" | "pickup") => void;
+  onOpenHistory: () => void;
   onOpenQuoteSend: () => void;
   onRefresh: () => void;
+  onSimpleMove: (nextState: string) => Promise<void>;
 }) {
   const action = nextRecommendedAction(detail.workflow_state);
   const isQuoteSendAction = action.kind === "quote-send";
   const buttonIcon = action.flow ? <ArrowRight size={17} /> : isQuoteSendAction ? <Send size={17} /> : <RefreshCw size={17} />;
+  const [movingTo, setMovingTo] = useState<string | null>(null);
+
+  async function handleWorkflowAction(workflowAction: ServiceOrderWorkflowAction) {
+    if (workflowAction.next_state === "Aprovado") {
+      onOpenFlow("approve");
+      return;
+    }
+    if (workflowAction.next_state === "Reprovado") {
+      onOpenFlow("reject");
+      return;
+    }
+    if (workflowAction.next_state === "Entregue") {
+      onOpenFlow("pickup");
+      return;
+    }
+
+    setMovingTo(workflowAction.next_state);
+    try {
+      await onSimpleMove(workflowAction.next_state);
+    } finally {
+      setMovingTo(null);
+    }
+  }
 
   return (
     <Card className="border-tec-orange/25 bg-tec-orange/5 p-5">
@@ -2625,6 +2754,38 @@ function NextActionCard({
         {action.button}
       </Button>
       <p className="mt-3 text-xs font-medium text-tec-muted">{action.hint}</p>
+
+      <div className="mt-5 border-t border-tec-border/15 pt-4">
+        <p className="text-xs font-bold uppercase tracking-wide text-tec-muted">Outras ações</p>
+        <div className="mt-2 space-y-2">
+          {actions.length ? actions.map((workflowAction) => (
+            <button
+              className="group flex w-full items-center justify-between gap-3 rounded-control border border-tec-border/15 bg-tec-field/60 px-3 py-2.5 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
+              disabled={Boolean(movingTo)}
+              key={`${workflowAction.action}-${workflowAction.next_state}`}
+              onClick={() => void handleWorkflowAction(workflowAction)}
+              title={workflowActionTitle(workflowAction)}
+              type="button"
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-bold text-white">{movingTo === workflowAction.next_state ? "Atualizando..." : workflowActionLabel(workflowAction)}</span>
+                <span className="mt-0.5 block text-xs text-tec-muted">{workflowActionDescription(workflowAction)}</span>
+              </span>
+              <ArrowRight className="shrink-0 text-tec-orange transition group-hover:translate-x-0.5" size={16} />
+            </button>
+          )) : (
+            <p className="rounded-control bg-tec-field/45 px-3 py-2.5 text-xs font-medium text-tec-muted">Nenhuma outra ação disponível para este papel.</p>
+          )}
+          <button
+            className="group flex w-full items-center justify-between gap-3 rounded-control border border-tec-border/15 bg-tec-field/35 px-3 py-2.5 text-left transition hover:border-tec-orange/45 hover:bg-tec-field"
+            onClick={onOpenHistory}
+            type="button"
+          >
+            <span className="flex items-center gap-2 text-sm font-bold text-tec-subtle"><History size={16} className="text-tec-orange" /> Ver histórico da OS</span>
+            <ArrowRight className="shrink-0 text-tec-orange transition group-hover:translate-x-0.5" size={16} />
+          </button>
+        </div>
+      </div>
     </Card>
   );
 }

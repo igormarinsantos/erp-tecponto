@@ -184,6 +184,46 @@ h4 {
   animation: tp-urgent-pulse 1.8s ease-in-out infinite;
 }
 
+.tp-tracking-banner {
+  align-items: stretch;
+  background:
+    radial-gradient(circle at 82% 24%, rgb(var(--tp-orange) / 0.22) 0 2px, transparent 2.5px) 0 0 / 14px 14px,
+    linear-gradient(105deg, rgb(var(--tp-orange) / 0.2), rgb(var(--tp-panel-strong) / 0.84) 52%, rgb(var(--tp-panel) / 0.96));
+  border: 1px solid rgb(var(--tp-orange) / 0.34);
+  border-radius: var(--tp-radius-card);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  overflow: hidden;
+  position: relative;
+}
+
+.tp-tracking-banner::after {
+  background: linear-gradient(90deg, transparent, rgb(var(--tp-orange) / 0.14));
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.tp-tracking-banner > * {
+  position: relative;
+  z-index: 1;
+}
+
+.tp-tracking-qr {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  padding: 1.25rem 1.5rem;
+}
+
+.tp-tracking-qr img {
+  background: #fff;
+  border: 5px solid #fff;
+  border-radius: 0.6rem;
+  box-shadow: 0 12px 26px rgb(0 0 0 / 0.18);
+}
+
 .tp-bento-grid > *,
 .tp-layout-grid > *,
 .tp-action-grid > *,
@@ -306,6 +346,15 @@ h4 {
 }
 
 @media (max-width: 767px) {
+  .tp-tracking-banner {
+    grid-template-columns: 1fr;
+  }
+
+  .tp-tracking-qr {
+    justify-content: flex-start;
+    padding: 0 1.25rem 1.25rem;
+  }
+
   .tp-topbar-search,
   .tp-topbar-whatsapp {
     display: none !important;
