@@ -210,11 +210,10 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
     ],
     actions: [
       {
-        disabledReason: "Pendente do POS restrito da Fase 3.5. Não liberamos Sales User amplo para o diretor.",
         icon: ShoppingCart,
         label: "Lançar venda",
         detail: "Venda no balcão",
-        pendingLabel: "Pendente 3.5",
+        target: "pos",
       },
       { icon: Wrench, label: "Abrir OS", detail: "Atendimento", target: "service-orders" },
       { icon: BarChart3, label: "Ver relatório", detail: "Indicadores", target: "sales" },

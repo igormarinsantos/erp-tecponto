@@ -34,7 +34,7 @@ export function BadgeStatus({ status }: { status?: string | null }) {
   return (
     <span
       className={cx(
-        "inline-flex min-h-7 max-w-full items-center whitespace-nowrap rounded-full px-3 text-xs font-semibold ring-1",
+        "inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[11px] font-semibold leading-none ring-1",
         toneClasses[tone],
       )}
       title={label}

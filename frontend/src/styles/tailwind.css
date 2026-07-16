@@ -68,7 +68,7 @@ textarea {
   height: 2.75rem;
   width: 100%;
   border: 1px solid rgb(var(--tp-border) / 0.25);
-  border-radius: var(--tp-radius-control);
+  border-radius: var(--tp-control-radius);
   background: rgb(var(--tp-field));
   color: rgb(var(--tp-text));
   outline: none;
@@ -190,7 +190,7 @@ h4 {
     radial-gradient(circle at 82% 24%, rgb(var(--tp-orange) / 0.22) 0 2px, transparent 2.5px) 0 0 / 14px 14px,
     linear-gradient(105deg, rgb(var(--tp-orange) / 0.2), rgb(var(--tp-panel-strong) / 0.84) 52%, rgb(var(--tp-panel) / 0.96));
   border: 1px solid rgb(var(--tp-orange) / 0.34);
-  border-radius: var(--tp-radius-card);
+  border-radius: var(--tp-card-radius);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   overflow: hidden;
