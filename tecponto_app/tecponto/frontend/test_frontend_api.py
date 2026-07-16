@@ -337,8 +337,12 @@ def run_public_tracking_budget_checks() -> dict:
 		if budget_token in frappe.as_json(budget_acceptance_doc.as_dict()) or budget_acceptance_doc.identity_document_type != "CPF":
 			raise AssertionError("Aceite de orçamento não protegeu o token ou não auditou o tipo de documento validado.")
 		camera_image = BytesIO()
-		camera_seed = int(frappe.generate_hash(length=4), 16)
-		Image.new("RGB", (24, 24), color=(camera_seed % 255, 40, 60)).save(camera_image, format="JPEG")
+		camera_seed = int(frappe.generate_hash(length=8), 16)
+		Image.new(
+			"RGB",
+			(24, 24),
+			color=(camera_seed & 0xFF, (camera_seed >> 8) & 0xFF, (camera_seed >> 16) & 0xFF),
+		).save(camera_image, format="JPEG")
 		camera_selfie = "data:image/jpeg;base64," + b64encode(camera_image.getvalue()).decode()
 		signature_image = BytesIO()
 		signature_canvas = Image.new("RGB", (640, 180), color=(250, 250, 250))

@@ -153,13 +153,20 @@ def save_public_acceptance_selfie(token: str, image_data: str) -> dict:
 		frappe.throw(_("A selfie deste aceite já foi registrada."), frappe.ValidationError)
 
 	content = _decode_camera_selfie(image_data)
-	file_doc = save_file(
-		f"selfie-{doc.name}.jpg",
-		content,
-		dt="Service Order",
-		dn=doc.service_order,
-		is_private=1,
-	)
+	previous_user = frappe.session.user
+	try:
+		# The guest token authorizes this narrowly-scoped private attachment.
+		# Frappe's File validation requires an internal user for private files.
+		frappe.set_user("Administrator")
+		file_doc = save_file(
+			f"selfie-{doc.name}.jpg",
+			content,
+			dt="Service Order",
+			dn=doc.service_order,
+			is_private=1,
+		)
+	finally:
+		frappe.set_user(previous_user)
 	doc.db_set("selfie_file", file_doc.name, update_modified=False)
 	return {"saved": True, "acceptance": doc.name}
 
