@@ -92,7 +92,7 @@ from tecponto_app.tecponto.pos import (
 )
 from tecponto_app.tecponto import notify
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD
-from tecponto_app.tecponto.pending import complete_manual_task, create_manual_task, list_daily_actions
+from tecponto_app.tecponto.pending import complete_manual_task, create_manual_task, list_agenda_calendar, list_daily_actions
 from tecponto_app.tecponto.service_order.stage_clock import get_stage_clock
 from tecponto_app.tecponto.service_order.stage_sla import add_commercial_business_hours, get_stage_slas
 
@@ -1125,7 +1125,7 @@ def run_daily_action_checks() -> dict:
 			original_orders[name] = frappe.db.get_value(
 				"Service Order",
 				name,
-				["workflow_state", "stage_entered_at", "estimated_deadline"],
+				["workflow_state", "stage_entered_at", "estimated_deadline", "pickup_date"],
 				as_dict=True,
 			)
 
@@ -1139,13 +1139,13 @@ def run_daily_action_checks() -> dict:
 		frappe.db.set_value(
 			"Service Order",
 			due_today_name,
-			{"workflow_state": "Pronto para retirada", "stage_entered_at": now_datetime(), "estimated_deadline": nowdate()},
+			{"workflow_state": "Pronto para retirada", "stage_entered_at": now_datetime(), "estimated_deadline": nowdate(), "pickup_date": nowdate()},
 			update_modified=False,
 		)
 		frappe.db.set_value(
 			"Service Order",
 			scheduled_name,
-			{"workflow_state": "Reprovado", "stage_entered_at": now_datetime(), "estimated_deadline": add_days(nowdate(), 3)},
+			{"workflow_state": "Pronto para retirada", "stage_entered_at": now_datetime(), "estimated_deadline": add_days(nowdate(), 3)},
 			update_modified=False,
 		)
 		before = list_daily_actions("atendente")
@@ -1161,6 +1161,10 @@ def run_daily_action_checks() -> dict:
 			raise AssertionError("Pendencias de OS nao receberam grupo expansivel.")
 		if not {"overdue", "due_today", "scheduled"}.issubset({item.get("urgency") for item in before["items"]}):
 			raise AssertionError("Agenda nao retornou as secoes atrasado, vence hoje e programado.")
+		calendar = list_agenda_calendar("atendente", str(add_days(nowdate(), -1)), str(add_days(nowdate(), 7)))
+		calendar_keys = {item["key"] for item in calendar["items"]}
+		if not {f"delivery:{order_name}", f"delivery:{due_today_name}", f"delivery:{scheduled_name}", f"pickup:{due_today_name}:{nowdate()}"}.issubset(calendar_keys):
+			raise AssertionError("Agenda de calendario nao retornou entregas prometidas e retirada do Atendente.")
 
 		frappe.db.set_value("Service Order", order_name, "workflow_state", "Entregue", update_modified=False)
 		after = list_daily_actions("atendente")
@@ -1168,6 +1172,9 @@ def run_daily_action_checks() -> dict:
 			raise AssertionError("Pendencia derivada continuou apos a OS ser resolvida.")
 
 		task = create_manual_task("Retornar para cliente da pendencia diaria", str(today()))
+		calendar_with_task = list_agenda_calendar("atendente", str(add_days(nowdate(), -1)), str(add_days(nowdate(), 7)))
+		if f"task:{task['name']}" not in {item["key"] for item in calendar_with_task["items"]}:
+			raise AssertionError("Tarefa manual datada nao apareceu no calendario.")
 		with_task = list_daily_actions("atendente")
 		if not any(item["name"] == task["name"] for item in with_task["manual"]):
 			raise AssertionError("Tarefa manual criada nao apareceu para o proprio usuario.")
@@ -1183,6 +1190,9 @@ def run_daily_action_checks() -> dict:
 		technical = list_daily_actions("tecnico")
 		if any(item.get("reference_name") == order_name for item in technical["derived"]):
 			raise AssertionError("Tecnico recebeu pendencia de OS atribuida ao Atendente.")
+		technical_calendar = list_agenda_calendar("tecnico", str(add_days(nowdate(), -1)), str(add_days(nowdate(), 7)))
+		if any(item.get("reference_name") == order_name for item in technical_calendar["items"]):
+			raise AssertionError("Tecnico recebeu item de calendario de OS atribuida ao Atendente.")
 
 		multi_role_user = _find_or_create_multi_role_user()
 		frappe.set_user(multi_role_user)
@@ -1195,6 +1205,7 @@ def run_daily_action_checks() -> dict:
 			"manual_task_lifecycle": True,
 			"unified_urgency_agenda": True,
 			"multi_role_agenda": True,
+			"calendar_projection": True,
 			"role_scoped": True,
 		}
 	finally:
@@ -2566,6 +2577,7 @@ def _check_sensitive_guard(user: str) -> dict:
 		"metrics": get_dashboard_metrics(),
 		"service_orders": list_service_orders(limit=20),
 		"daily_actions": list_daily_actions("tecnico"),
+		"agenda_calendar": list_agenda_calendar("tecnico", str(nowdate()), str(add_days(nowdate(), 7))),
 		"customers": search_customers(limit=5),
 		"devices": list_customer_devices(limit=5),
 		"trade_evaluations": list_trade_evaluations(limit=5),
@@ -2582,6 +2594,7 @@ def _check_sensitive_guard(user: str) -> dict:
 		"get_dashboard_metrics",
 		"list_service_orders",
 		"list_daily_actions",
+		"list_agenda_calendar",
 		"search_customers",
 			"list_customer_devices",
 			"list_trade_evaluations",

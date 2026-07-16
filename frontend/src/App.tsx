@@ -6,8 +6,10 @@ import {
   BadgeInfo,
   Barcode,
   Box,
+  CalendarDays,
   CalendarClock,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CheckCircle2,
   ClipboardCheck,
@@ -53,6 +55,7 @@ import {
   type CustomerDeviceSummary,
   type CustomerSummary,
   type DashboardMetrics,
+  type AgendaCalendarEvent,
   type DailyActionsResponse,
   type NavigationTarget,
   type NotificationListResponse,
@@ -841,6 +844,7 @@ export function App() {
               onToast={showToast}
               onOpenServiceOrderList={openServiceOrderList}
               agendaPanel={rolePanels.length > 1 ? "unified" : visualUser.panel}
+              agendaStorageKey={state.boot.user.name}
               canApprove={rolePanels.includes("gestor") || rolePanels.includes("diretor")}
             />
           ) : (
@@ -1321,6 +1325,7 @@ function OverviewContent({
   onToast,
   onStartCheckin,
   agendaPanel,
+  agendaStorageKey,
   canApprove,
 }: {
   actions: ActionDefinition[];
@@ -1330,6 +1335,7 @@ function OverviewContent({
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   onStartCheckin: () => void;
   agendaPanel: RolePanel | "unified";
+  agendaStorageKey: string;
   canApprove: boolean;
 }) {
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
@@ -1383,7 +1389,7 @@ function OverviewContent({
         />
       </section>
       <div className="mt-4">
-        <DailyActionsPanel onOpenOrder={onOpenServiceOrder} onToast={onToast} panel={agendaPanel} />
+        <DailyActionsPanel key={agendaStorageKey} onOpenOrder={onOpenServiceOrder} onToast={onToast} panel={agendaPanel} storageKey={agendaStorageKey} />
       </div>
       {canApprove ? <div className="mt-4">
         <ApprovalRequestsPanel compact onOpenAll={() => onNavigate("approval-requests")} onToast={onToast} />
@@ -1916,8 +1922,7 @@ function ServiceOrderFilterBar({
 						</select>
 					</label>
 				</div>
-			) : null}
-    </div>
+    </LayeredFilters>
   );
 }
 
@@ -5562,20 +5567,99 @@ function ActionPanel({
   );
 }
 
+type AgendaView = "list" | "week" | "month";
+
+type AgendaRange = {
+  start: string;
+  end: string;
+  days: string[];
+  label: string;
+};
+
+function toIsoDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return year + "-" + month + "-" + day;
+}
+
+function fromIsoDate(value: string): Date {
+  const parts = value.split("-").map(Number);
+  return new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
+}
+
+function addAgendaDays(value: string, days: number): string {
+  const date = fromIsoDate(value);
+  date.setDate(date.getDate() + days);
+  return toIsoDate(date);
+}
+
+function addAgendaMonths(value: string, months: number): string {
+  const date = fromIsoDate(value);
+  date.setDate(1);
+  date.setMonth(date.getMonth() + months);
+  return toIsoDate(date);
+}
+
+function getAgendaRange(anchor: string, view: AgendaView): AgendaRange {
+  const anchorDate = fromIsoDate(anchor);
+  if (view === "week") {
+    const mondayOffset = (anchorDate.getDay() + 6) % 7;
+    anchorDate.setDate(anchorDate.getDate() - mondayOffset);
+    const start = toIsoDate(anchorDate);
+    return {
+      start,
+      end: addAgendaDays(start, 6),
+      days: Array.from({ length: 7 }, (_, index) => addAgendaDays(start, index)),
+      label: anchorDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) + " - " + fromIsoDate(addAgendaDays(start, 6)).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }),
+    };
+  }
+  if (view === "month") {
+    const first = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+    first.setDate(first.getDate() - ((first.getDay() + 6) % 7));
+    const start = toIsoDate(first);
+    return {
+      start,
+      end: addAgendaDays(start, 41),
+      days: Array.from({ length: 42 }, (_, index) => addAgendaDays(start, index)),
+      label: fromIsoDate(anchor).toLocaleDateString("pt-BR", { month: "long", year: "numeric" }),
+    };
+  }
+  return { start: anchor, end: anchor, days: [anchor], label: anchor };
+}
+
+function formatAgendaDay(value: string, options: Intl.DateTimeFormatOptions): string {
+  return fromIsoDate(value).toLocaleDateString("pt-BR", options);
+}
+
 function DailyActionsPanel({
   onOpenOrder,
   onToast,
   panel,
+  storageKey,
 }: {
   onOpenOrder: (name: string) => void;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   panel: RolePanel | "unified";
+  storageKey: string;
 }) {
   const [state, setState] = useState<DailyActionsResponse | null>(null);
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [agendaView, setAgendaView] = useState<AgendaView>(() => {
+    try {
+      const stored = window.localStorage.getItem("tecponto.agenda.view." + storageKey);
+      return stored === "week" || stored === "month" ? stored : "list";
+    } catch {
+      return "list";
+    }
+  });
+  const [calendarAnchor, setCalendarAnchor] = useState(() => toIsoDate(new Date()));
+  const [calendarItems, setCalendarItems] = useState<AgendaCalendarEvent[]>([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarRefresh, setCalendarRefresh] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -5589,6 +5673,44 @@ function DailyActionsPanel({
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("tecponto.agenda.view." + storageKey, agendaView);
+    } catch {
+      // Persisting a visual preference must never affect the agenda.
+    }
+  }, [agendaView, storageKey]);
+
+  const calendarRange = useMemo(() => getAgendaRange(calendarAnchor, agendaView), [agendaView, calendarAnchor]);
+
+  useEffect(() => {
+    if (agendaView === "list") {
+      return;
+    }
+    let cancelled = false;
+    setCalendarLoading(true);
+    void dailyActions.calendar(panel, calendarRange.start, calendarRange.end)
+      .then((response) => {
+        if (!cancelled) {
+          setCalendarItems(response.items);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          onToast(error instanceof Error ? error.message : "Falha ao carregar o calendario.", "error");
+          setCalendarItems([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCalendarLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agendaView, calendarRange.end, calendarRange.start, calendarRefresh, onToast, panel]);
+
   const addTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!title.trim()) {
@@ -5600,6 +5722,7 @@ function DailyActionsPanel({
       setTitle("");
       setDueDate("");
       await refresh();
+      setCalendarRefresh((current) => current + 1);
       onToast("Tarefa adicionada para voce.");
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Nao foi possivel criar a tarefa.", "error");
@@ -5612,6 +5735,7 @@ function DailyActionsPanel({
     try {
       await dailyActions.complete(task.name);
       await refresh();
+      setCalendarRefresh((current) => current + 1);
       onToast("Tarefa concluida.");
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Nao foi possivel concluir a tarefa.", "error");
@@ -5644,12 +5768,31 @@ function DailyActionsPanel({
           </div>
           <p className="mt-1 text-sm text-tec-muted">Atrasos, prazos de hoje e programados vêm do estado real; tarefas manuais entram na mesma agenda.</p>
         </div>
-        <Button icon={<RefreshCw size={16} />} onClick={() => void refresh()} variant="secondary">
-          Atualizar
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div aria-label="Visao da agenda" className="inline-flex rounded-control border border-tec-border/20 bg-tec-field/65 p-1" role="group">
+            {([
+              ["list", "Lista", ClipboardCheck],
+              ["week", "Semana", CalendarDays],
+              ["month", "Mes", CalendarClock],
+            ] as const).map(([view, label, Icon]) => (
+              <button
+                className={cx("inline-flex items-center gap-1.5 rounded-control px-3 py-2 text-xs font-bold transition", agendaView === view ? "bg-tec-orange text-tec-graphite" : "text-tec-subtle hover:bg-tec-panel hover:text-white")}
+                key={view}
+                onClick={() => setAgendaView(view)}
+                type="button"
+              >
+                <Icon size={15} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <Button icon={<RefreshCw size={16} />} onClick={() => { void refresh(); setCalendarRefresh((current) => current + 1); }} variant="secondary">
+            Atualizar
+          </Button>
+        </div>
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
+      {agendaView === "list" ? <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
         <section>
           {groupedAgenda.map(({ urgency, groups }) => {
             const meta = urgency === "overdue" ? { label: "Atrasado", dot: "bg-tec-red" } : urgency === "due_today" ? { label: "Vence hoje", dot: "bg-tec-amber" } : { label: "Programado", dot: "bg-tec-success" };
@@ -5694,9 +5837,122 @@ function DailyActionsPanel({
             )) : <p className="rounded-control bg-tec-field/45 px-3 py-4 text-sm text-tec-muted">Sem tarefas manuais.</p>}
           </div>
         </section>
-      </div>
+      </div> : <AgendaCalendarView
+        anchor={calendarAnchor}
+        items={calendarItems}
+        loading={calendarLoading}
+        onChangeAnchor={setCalendarAnchor}
+        onOpenOrder={onOpenOrder}
+        range={calendarRange}
+        view={agendaView}
+      />}
     </Card>
   );
+}
+
+function AgendaCalendarView({
+  anchor,
+  items,
+  loading,
+  onChangeAnchor,
+  onOpenOrder,
+  range,
+  view,
+}: {
+  anchor: string;
+  items: AgendaCalendarEvent[];
+  loading: boolean;
+  onChangeAnchor: (value: string) => void;
+  onOpenOrder: (name: string) => void;
+  range: AgendaRange;
+  view: Exclude<AgendaView, "list">;
+}) {
+  const [selectedDay, setSelectedDay] = useState(anchor);
+  const itemsByDay = useMemo(() => {
+    const result = new Map<string, AgendaCalendarEvent[]>();
+    for (const item of items) {
+      result.set(item.date, [...(result.get(item.date) ?? []), item]);
+    }
+    return result;
+  }, [items]);
+  const anchorMonth = anchor.slice(0, 7);
+  const selectedItems = itemsByDay.get(selectedDay) ?? [];
+  const move = (amount: number) => {
+    const next = view === "week" ? addAgendaDays(anchor, amount * 7) : addAgendaMonths(anchor, amount);
+    setSelectedDay(next);
+    onChangeAnchor(next);
+  };
+
+  useEffect(() => {
+    if (!range.days.includes(selectedDay)) {
+      setSelectedDay(range.days[0]);
+    }
+  }, [range.days, selectedDay]);
+
+  const dayWeight = (total: number) => total >= 5 ? "bg-tec-red" : total >= 3 ? "bg-tec-orange" : total ? "bg-tec-success" : "bg-transparent";
+
+  return (
+    <section className="mt-5" data-testid="agenda-calendar-view">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold capitalize text-white">{range.label}</h3>
+          <p className="mt-1 text-sm text-tec-muted">Entregas prometidas, retiradas e tarefas com data. OS sem prazo continuam na Lista.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button aria-label="Periodo anterior" className="grid h-9 w-9 place-items-center rounded-control border border-tec-border/20 text-tec-subtle transition hover:border-tec-orange/45 hover:text-white" onClick={() => move(-1)} type="button"><ChevronLeft size={18} /></button>
+          <button className="rounded-control border border-tec-border/20 px-3 py-2 text-xs font-bold text-tec-subtle transition hover:border-tec-orange/45 hover:text-white" onClick={() => { const todayValue = toIsoDate(new Date()); setSelectedDay(todayValue); onChangeAnchor(todayValue); }} type="button">Hoje</button>
+          <button aria-label="Proximo periodo" className="grid h-9 w-9 place-items-center rounded-control border border-tec-border/20 text-tec-subtle transition hover:border-tec-orange/45 hover:text-white" onClick={() => move(1)} type="button"><ChevronRight size={18} /></button>
+        </div>
+      </div>
+
+      {loading ? <div className="rounded-card border border-tec-border/20 bg-tec-field/45 px-4 py-10 text-center text-sm text-tec-muted">Carregando agenda...</div> : null}
+      {!loading && view === "week" ? <div className="tp-responsive-scroll pb-2">
+        <div className="grid min-w-[840px] grid-cols-7 gap-3">
+          {range.days.map((day) => {
+            const dayItems = itemsByDay.get(day) ?? [];
+            return <article className="min-h-[230px] rounded-card border border-tec-border/20 bg-tec-panel-strong p-3" key={day}>
+              <div className="mb-3 flex items-start justify-between gap-2 border-b border-tec-border/15 pb-2">
+                <div><p className="text-xs font-bold uppercase text-tec-muted">{formatAgendaDay(day, { weekday: "short" })}</p><p className="mt-1 text-lg font-bold text-white">{formatAgendaDay(day, { day: "2-digit", month: "short" })}</p></div>
+                <span className={cx("mt-1 h-2.5 w-2.5 rounded-full", dayWeight(dayItems.length))} title={dayItems.length + " itens"} />
+              </div>
+              <div className="space-y-2">
+                {dayItems.length ? dayItems.map((item) => <AgendaCalendarItem item={item} key={item.key} onOpenOrder={onOpenOrder} />) : <p className="pt-4 text-xs text-tec-muted">Sem itens datados.</p>}
+              </div>
+            </article>;
+          })}
+        </div>
+      </div> : null}
+
+      {!loading && view === "month" ? <div>
+        <div className="grid grid-cols-7 border-l border-t border-tec-border/20 rounded-card overflow-hidden">
+          {["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"].map((label) => <div className="border-b border-r border-tec-border/20 bg-tec-field/55 px-2 py-2 text-center text-xs font-bold text-tec-muted" key={label}>{label}</div>)}
+          {range.days.map((day) => {
+            const dayItems = itemsByDay.get(day) ?? [];
+            const selected = selectedDay === day;
+            const currentMonth = day.startsWith(anchorMonth);
+            return <button className={cx("relative min-h-[88px] border-b border-r border-tec-border/20 p-2 text-left transition hover:bg-tec-orange/10", selected && "bg-tec-orange/10 ring-1 ring-inset ring-tec-orange/60", !currentMonth && "bg-tec-field/25 text-tec-muted")} key={day} onClick={() => setSelectedDay(day)} type="button">
+              <span className={cx("text-sm font-bold", currentMonth ? "text-white" : "text-tec-muted")}>{formatAgendaDay(day, { day: "2-digit" })}</span>
+              {dayItems.length ? <span className={cx("ml-1 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold text-tec-graphite", dayWeight(dayItems.length))}>{dayItems.length}</span> : null}
+              {dayItems.length ? <span className="absolute bottom-2 left-2 right-2 flex gap-1">{dayItems.slice(0, 4).map((item) => <span className={cx("h-1.5 flex-1 rounded-full", item.kind === "delivery" ? "bg-tec-blue" : item.kind === "pickup" ? "bg-tec-success" : "bg-tec-amber")} key={item.key} />)}</span> : null}
+            </button>;
+          })}
+        </div>
+        <div className="mt-4 rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
+          <div className="mb-3 flex items-center justify-between gap-2"><h4 className="font-bold text-white">{formatAgendaDay(selectedDay, { weekday: "long", day: "2-digit", month: "long" })}</h4><span className="text-xs text-tec-muted">{selectedItems.length} item(ns)</span></div>
+          <div className="grid gap-2 md:grid-cols-2">{selectedItems.length ? selectedItems.map((item) => <AgendaCalendarItem item={item} key={item.key} onOpenOrder={onOpenOrder} />) : <p className="text-sm text-tec-muted">Nenhuma entrega, retirada ou tarefa nesta data.</p>}</div>
+        </div>
+      </div> : null}
+
+      <div className="mt-4 flex flex-wrap gap-3 text-xs text-tec-muted"><span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-tec-blue" />Entrega prometida</span><span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-tec-success" />Retirada</span><span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-tec-amber" />Tarefa manual</span></div>
+    </section>
+  );
+}
+
+function AgendaCalendarItem({ item, onOpenOrder }: { item: AgendaCalendarEvent; onOpenOrder: (name: string) => void }) {
+  const kindLabel = item.kind === "delivery" ? "Entrega" : item.kind === "pickup" ? "Retirada" : "Tarefa";
+  const className = item.kind === "delivery" ? "border-tec-blue/35 bg-tec-blue/10 text-tec-blue" : item.kind === "pickup" ? "border-tec-success/35 bg-tec-success/10 text-tec-success" : "border-tec-amber/35 bg-tec-amber/10 text-tec-amber";
+  const openable = item.reference_doctype === "Service Order" && item.reference_name;
+  return <button className={cx("block w-full rounded-control border px-2.5 py-2 text-left transition hover:brightness-125", className)} onClick={() => openable ? onOpenOrder(item.reference_name as string) : undefined} title={openable ? "Abrir ordem de servico" : item.title} type="button"><span className="block text-[10px] font-bold uppercase opacity-80">{kindLabel}</span><span className="mt-0.5 block truncate text-xs font-bold">{item.title}</span><span className="mt-1 block truncate text-[11px] opacity-80">{item.description}</span></button>;
 }
 
 function AlertLine({

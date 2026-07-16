@@ -95,6 +95,22 @@ export interface DailyActionsResponse {
   count: number;
 }
 
+export interface AgendaCalendarEvent {
+  key: string;
+  date: string;
+  kind: "delivery" | "pickup" | "task";
+  title: string;
+  description: string;
+  reference_doctype: string | null;
+  reference_name: string | null;
+}
+
+export interface AgendaCalendarResponse {
+  items: AgendaCalendarEvent[];
+  start_date: string;
+  end_date: string;
+}
+
 export interface ServiceOrderSummary {
   name: string;
   customer: string | null;

@@ -4,7 +4,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, getdate, now_datetime, today
+from frappe.utils import add_days, get_datetime, getdate, now_datetime, today
 
 from tecponto_app.tecponto.service_order import stage_clock
 
@@ -59,6 +59,62 @@ def list_daily_actions(panel: str | None = None) -> dict[str, Any]:
 
 
 @frappe.whitelist()
+def list_agenda_calendar(panel: str | None = None, start_date: str | None = None, end_date: str | None = None) -> dict[str, Any]:
+	"""Read-only calendar projection of promised deliveries, pickups and dated tasks."""
+	panels = _resolve_panels(panel)
+	start = getdate(start_date) if start_date else getdate(today())
+	end = getdate(end_date) if end_date else start
+	if end < start:
+		frappe.throw(_("Periodo de agenda invalido."), frappe.ValidationError)
+	if (end - start).days > 42:
+		frappe.throw(_("O periodo da agenda pode ter no maximo 42 dias."), frappe.ValidationError)
+
+	events_by_key: dict[str, dict[str, Any]] = {}
+	for resolved_panel in panels:
+		for row in _calendar_service_orders(resolved_panel, start, end):
+			if row.estimated_deadline and row.workflow_state not in stage_clock.TERMINAL_STATES and start <= getdate(row.estimated_deadline) <= end:
+				events_by_key[f"delivery:{row.name}"] = _calendar_event(
+					key=f"delivery:{row.name}",
+					date=row.estimated_deadline,
+					kind="delivery",
+					title=f"Entrega prometida: {row.name}",
+					description=f"{row.customer or 'Cliente nao informado'} - {row.workflow_state or 'Sem etapa'}",
+					reference_doctype="Service Order",
+					reference_name=row.name,
+				)
+			if row.pickup_date and start <= getdate(row.pickup_date) <= end:
+				events_by_key[f"pickup:{row.name}:{getdate(row.pickup_date)}"] = _calendar_event(
+					key=f"pickup:{row.name}:{getdate(row.pickup_date)}",
+					date=getdate(row.pickup_date),
+					kind="pickup",
+					title=f"Retirada: {row.name}",
+					description=row.customer or "Cliente nao informado",
+					reference_doctype="Service Order",
+					reference_name=row.name,
+				)
+
+	for row in frappe.get_all(
+		"Tecponto Task",
+		filters={"owner_user": frappe.session.user, "status": "Aberta", "due_date": ["between", [start, end]]},
+		fields=["name", "title", "due_date", "reference_doctype", "reference_name"],
+		order_by="due_date asc, creation asc",
+		limit_page_length=100,
+	):
+		events_by_key[f"task:{row.name}"] = _calendar_event(
+			key=f"task:{row.name}",
+			date=row.due_date,
+			kind="task",
+			title=row.title,
+			description="Tarefa manual",
+			reference_doctype=row.reference_doctype,
+			reference_name=row.reference_name,
+		)
+
+	items = sorted(events_by_key.values(), key=lambda item: (item["date"], {"delivery": 0, "pickup": 1, "task": 2}[item["kind"]], item["title"]))
+	return {"items": items, "start_date": str(start), "end_date": str(end)}
+
+
+@frappe.whitelist()
 def create_manual_task(title: str, due_date: str | None = None, reference_doctype: str | None = None, reference_name: str | None = None) -> dict[str, Any]:
 	_require_frontend_role()
 	title = (title or "").strip()
@@ -107,6 +163,30 @@ def _derived_actions(panel: str) -> list[dict[str, Any]]:
 	if panel in {"gestor", "diretor"}:
 		return _manager_actions()
 	return []
+
+
+def _calendar_service_orders(panel: str, start: Any, end: Any) -> list[Any]:
+	filters: dict[str, Any] = {}
+	if panel == "atendente":
+		filters["attendant"] = frappe.session.user
+	elif panel == "tecnico":
+		filters["technician"] = frappe.session.user
+	return frappe.get_all(
+		"Service Order",
+		filters=filters,
+		or_filters=[
+			["estimated_deadline", "between", [start, end]],
+			["pickup_date", "between", [start, add_days(end, 1)]],
+		],
+		fields=["name", "customer", "workflow_state", "estimated_deadline", "pickup_date"],
+		order_by="estimated_deadline asc, modified desc",
+		limit_page_length=500,
+	)
+
+
+def _calendar_event(**values: Any) -> dict[str, Any]:
+	values["date"] = str(values["date"])
+	return values
 
 
 def _attendant_actions() -> list[dict[str, Any]]:

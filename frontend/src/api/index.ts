@@ -33,6 +33,8 @@ export type {
   CustomerSearchResponse,
   CustomerSummary,
   DashboardMetrics,
+  AgendaCalendarEvent,
+  AgendaCalendarResponse,
   DailyAction,
   DailyActionsResponse,
   LoggedUser,
