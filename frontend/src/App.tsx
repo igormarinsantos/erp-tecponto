@@ -1776,10 +1776,13 @@ function ServiceOrderFilterBar({
   const resetFilters = () => onChange(DEFAULT_SERVICE_ORDER_FILTERS);
   return (
     <LayeredFilters
-      active={filters.period.mode}
-      filters={DASHBOARD_PERIOD_OPTIONS.map((option) => ({ key: option.value, label: option.label }))}
+      active={filters.status}
+      filters={QUEUE_FILTERS.map((filter) => ({ key: filter.value, label: filter.label }))}
       onClear={resetFilters}
-      onSelect={(mode) => updatePeriodMode(mode as DashboardPeriodMode)}
+      onSelect={(status) => onChange({ ...filters, status: status as QueueFilter })}
+      onSecondarySelect={(mode) => updatePeriodMode(mode as DashboardPeriodMode)}
+      secondaryActive={filters.period.mode}
+      secondaryFilters={DASHBOARD_PERIOD_OPTIONS.map((option) => ({ key: option.value, label: option.label }))}
       primary={<>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0 flex-1 space-y-3">
@@ -1794,27 +1797,6 @@ function ServiceOrderFilterBar({
             />
           </label>
 
-            <div className="flex flex-wrap gap-2">
-            {QUEUE_FILTERS.map((filter) => {
-              const selected = filters.status === filter.value;
-              return (
-                <button
-                  aria-pressed={selected}
-                  className={cx(
-                    "min-h-8 rounded-full border px-4 text-xs font-bold transition",
-                    selected
-                      ? "border-tec-orange bg-tec-orange text-tec-ink shadow-glow"
-                      : "border-tec-border/20 bg-tec-field/60 text-tec-subtle hover:border-tec-orange/50 hover:text-tec-text",
-                  )}
-                  key={filter.value}
-                  onClick={() => onChange({ ...filters, status: filter.value })}
-                  type="button"
-                >
-                  {filter.label}
-                </button>
-              );
-            })}
-            </div>
             <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-tec-muted">
               <span>{resultCount} OS no recorte</span>
             </div>
@@ -5110,13 +5092,14 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
         emptyLabel={status === "error" ? "Falha ao consultar vendas." : "Nenhuma venda neste recorte."}
         headerAction={<Button onClick={() => onNavigate("pos")} variant="primary">Abrir PDV</Button>}
         onPresentationChange={setPresentation}
-        onQuickFilterChange={(nextPeriod) => { setPeriod(nextPeriod); void load(query, nextPeriod); }}
+        onSecondaryFilterChange={(nextPeriod) => { setPeriod(nextPeriod); void load(query, nextPeriod); }}
         onSearch={(event) => { event.preventDefault(); void load(); }}
         placeholder="Buscar número da venda ou cliente"
         presentation={presentation}
         query={query}
-        quickFilters={[{ key: "today", label: "Hoje" }, { key: "7d", label: "Últimos 7 dias" }, { key: "all", label: "Todas" }]}
         rows={filteredRows}
+        secondaryActiveFilter={period}
+        secondaryFilters={[{ key: "today", label: "Hoje" }, { key: "7d", label: "Últimos 7 dias" }, { key: "all", label: "Todas" }]}
         setQuery={setQuery}
         status={status}
         title="Histórico de vendas"
@@ -5242,6 +5225,7 @@ function LookupCard<T>({
   onSearch,
 
 	onQuickFilterChange,
+	onSecondaryFilterChange,
 	onPresentationChange,
 	onSearchFocus,
 	onSearchKeyDown,
@@ -5249,6 +5233,8 @@ function LookupCard<T>({
   placeholder,
   presentation,
   quickFilters,
+	secondaryActiveFilter,
+	secondaryFilters,
   query,
   rows,
   searchSuggestions,
@@ -5266,6 +5252,7 @@ function LookupCard<T>({
 	 onClear?: () => void;
   onSearch: (event: FormEvent<HTMLFormElement>) => void;
 	onQuickFilterChange?: (key: string) => void;
+	onSecondaryFilterChange?: (key: string) => void;
 	onPresentationChange?: (value: ListPresentation) => void;
 	onSearchFocus?: () => void;
 	onSearchKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
@@ -5273,6 +5260,8 @@ function LookupCard<T>({
   placeholder: string;
   presentation?: ListPresentation;
   quickFilters?: QuickFilter[];
+	secondaryActiveFilter?: string;
+	secondaryFilters?: QuickFilter[];
   query: string;
   rows: T[];
   searchSuggestions?: ReactNode;
@@ -5303,7 +5292,7 @@ function LookupCard<T>({
     <Card className="p-4">
       {statBar ? <div className="mb-4">{statBar}</div> : null}
       <div className="mb-4">
-        {quickFilters && onQuickFilterChange ? <LayeredFilters active={activeQuickFilter} filters={quickFilters} onClear={onClear} onSelect={onQuickFilterChange} primary={searchForm}>{advancedFilters}</LayeredFilters> : searchForm}
+        {(quickFilters?.length || secondaryFilters?.length || advancedFilters) ? <LayeredFilters active={activeQuickFilter} filters={quickFilters ?? []} onClear={onClear} onSecondarySelect={onSecondaryFilterChange} onSelect={onQuickFilterChange ?? (() => undefined)} primary={searchForm} secondaryActive={secondaryActiveFilter} secondaryFilters={secondaryFilters}>{advancedFilters}</LayeredFilters> : searchForm}
       </div>
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
