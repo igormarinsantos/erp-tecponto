@@ -107,7 +107,7 @@ def _attendant_actions() -> list[dict[str, Any]]:
 		"Service Order",
 		filters={"attendant": user, "workflow_state": ["in", ["Aguardando aprova\u00e7\u00e3o", "Pronto para retirada", "Reprovado", "Or\u00e7amento expirado"]]},
 		fields=["name", "workflow_state", "customer", "modified", "approval_deadline", "entry_date"],
-		order_by="modified asc",
+		order_by="modified desc",
 		limit_page_length=50,
 	)
 	items = [_service_order_action(row, "atendente") for row in rows]
