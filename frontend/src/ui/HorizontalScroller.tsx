@@ -37,14 +37,29 @@ export function HorizontalScroller({ children, className = "" }: { children: Rea
     };
   }, [children]);
 
-  const sync = (source: HTMLDivElement, target: HTMLDivElement | null) => {
-    if (target && target.scrollLeft !== source.scrollLeft) target.scrollLeft = source.scrollLeft;
-  };
+  useLayoutEffect(() => {
+    const top = topRef.current;
+    const bottom = bottomRef.current;
+    if (!top || !bottom) return;
+
+    const syncTopToBottom = () => {
+      if (bottom.scrollLeft !== top.scrollLeft) bottom.scrollLeft = top.scrollLeft;
+    };
+    const syncBottomToTop = () => {
+      if (top.scrollLeft !== bottom.scrollLeft) top.scrollLeft = bottom.scrollLeft;
+    };
+    top.addEventListener("scroll", syncTopToBottom, { passive: true });
+    bottom.addEventListener("scroll", syncBottomToTop, { passive: true });
+    return () => {
+      top.removeEventListener("scroll", syncTopToBottom);
+      bottom.removeEventListener("scroll", syncBottomToTop);
+    };
+  }, [scrollWidth]);
 
   return (
     <div className={`tp-horizontal-scroll ${className}`}>
-      {scrollWidth ? <div aria-label="Rolagem horizontal superior" className="tp-horizontal-scroll-top" onScroll={(event) => sync(event.currentTarget, bottomRef.current)} ref={topRef}><div style={{ width: scrollWidth }} /></div> : null}
-      <div aria-label="Rolagem horizontal inferior" className="tp-horizontal-scroll-bottom" onScroll={(event) => sync(event.currentTarget, topRef.current)} ref={bottomRef}>
+      {scrollWidth ? <div aria-label="Rolagem horizontal superior" className="tp-horizontal-scroll-top" ref={topRef}><div className="tp-horizontal-scroll-spacer" style={{ width: scrollWidth }} /></div> : null}
+      <div aria-label="Rolagem horizontal inferior" className="tp-horizontal-scroll-bottom" ref={bottomRef}>
         <div ref={contentRef}>{children}</div>
       </div>
     </div>

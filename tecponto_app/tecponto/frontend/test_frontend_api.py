@@ -1152,6 +1152,9 @@ def run_daily_action_checks() -> dict:
 			{"workflow_state": "Pronto para retirada", "stage_entered_at": now_datetime(), "estimated_deadline": add_days(nowdate(), 3)},
 			update_modified=False,
 		)
+		# A promised delivery for today becomes overdue after business hours. A dated
+		# manual task keeps the due-today agenda lane deterministic at any test time.
+		task = create_manual_task("Retornar para cliente da pendencia diaria", str(today()))
 		before = list_daily_actions("atendente")
 		if not any(item["reference_name"] == order_name for item in before["derived"]):
 			raise AssertionError("OS aguardando aprovacao nao apareceu nas pendencias do Atendente.")
@@ -1167,7 +1170,7 @@ def run_daily_action_checks() -> dict:
 			raise AssertionError("Agenda nao retornou as secoes atrasado, vence hoje e programado.")
 		calendar = list_agenda_calendar("atendente", str(add_days(nowdate(), -1)), str(add_days(nowdate(), 7)))
 		calendar_keys = {item["key"] for item in calendar["items"]}
-		if not {f"delivery:{order_name}", f"delivery:{due_today_name}", f"delivery:{scheduled_name}", f"pickup:{due_today_name}:{nowdate()}"}.issubset(calendar_keys):
+		if not {f"delivery:{order_name}", f"delivery:{due_today_name}", f"delivery:{scheduled_name}", f"pickup:{due_today_name}:{nowdate()}", f"task:{task['name']}"}.issubset(calendar_keys):
 			raise AssertionError("Agenda de calendario nao retornou entregas prometidas e retirada do Atendente.")
 
 		frappe.db.set_value("Service Order", order_name, "workflow_state", "Entregue", update_modified=False)
@@ -1175,7 +1178,6 @@ def run_daily_action_checks() -> dict:
 		if any(item["reference_name"] == order_name for item in after["derived"]):
 			raise AssertionError("Pendencia derivada continuou apos a OS ser resolvida.")
 
-		task = create_manual_task("Retornar para cliente da pendencia diaria", str(today()))
 		calendar_with_task = list_agenda_calendar("atendente", str(add_days(nowdate(), -1)), str(add_days(nowdate(), 7)))
 		if f"task:{task['name']}" not in {item["key"] for item in calendar_with_task["items"]}:
 			raise AssertionError("Tarefa manual datada nao apareceu no calendario.")
