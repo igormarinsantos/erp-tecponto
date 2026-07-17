@@ -1796,7 +1796,7 @@ function SignatureStep({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryTile icon={<UserRound size={24} />} label="Cliente" value={customerName || "Cliente"} helper={customerPhone || "Telefone"} />
         <SummaryTile icon={<Smartphone size={24} />} label="Aparelho" value={deviceName || "Aparelho"} helper={device?.capacity ?? deviceForm.capacity} />
         <SummaryTile icon={<Zap size={24} />} label="Defeitos relatados" value={firstSentence(serviceOrder.reported_defect)} helper="Relato automático" tone="orange" />
@@ -1805,7 +1805,7 @@ function SignatureStep({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.08fr_1fr]">
-        <WizardCard>
+        <WizardCard clean>
           <SectionTitle icon={<FileText size={21} />} title="Revisão do check-in" />
           <div className="mt-4 divide-y divide-tec-border/15 rounded-card border border-tec-border/15 bg-tec-field">
             <ReviewRow label="Cliente" value={`${customerName || "Cliente"} • ${customerDocument} • ${customerPhone || "Sem telefone"}`} />
@@ -1820,7 +1820,7 @@ function SignatureStep({
           </div>
         </WizardCard>
 
-        <WizardCard>
+        <WizardCard clean>
           <SectionTitle icon={<PenLine size={21} />} title="Aceite por link seguro" />
           <p className="mt-4 text-sm leading-6 text-tec-subtle">
             Crie a OS agora. Em seguida, o balcão gera um QR/link de uso único para o cliente conferir os dados, capturar a selfie ao vivo, assinar e consentir com a LGPD.
