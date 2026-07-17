@@ -1689,11 +1689,11 @@ function PhotoStep({
       <InfoBanner
         icon={<Camera size={26} />}
         title="Fotos claras e completas reduzem conflitos e agilizam a análise técnica."
-        text="Siga o checklist ao lado para garantir um check-in validado."
+        text="Registre a foto de entrada para validar o check-in e documentar o estado recebido."
       />
 
-      <div className="grid gap-4 lg:grid-cols-[0.9fr_0.78fr_0.9fr]">
-        <WizardCard>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+        <WizardCard className="hidden">
           <SectionTitle icon={<ClipboardList size={21} />} title="Checklist de fotos" />
           <div className="mt-4 space-y-2">
             {photoSlots.map((slot) => (
@@ -1722,7 +1722,7 @@ function PhotoStep({
           </div>
         </WizardCard>
 
-        <WizardCard>
+        <WizardCard clean>
           <SectionTitle icon={<Camera size={21} />} title="Foto de entrada" />
           <p className="mt-4 text-sm leading-6 text-tec-subtle">
             A foto de entrada é obrigatória e será a imagem de referência da OS.
@@ -1750,7 +1750,7 @@ function PhotoStep({
           </div>
         </WizardCard>
 
-        <WizardCard>
+        <WizardCard clean>
           <SectionTitle icon={<BadgeCheck size={21} />} title="Prévia" />
           {photo ? (
             <div className="mt-4">
