@@ -492,7 +492,7 @@ export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, 
         {created ? (
           <CheckinSuccess created={created} onClose={requestClose} onOpenOrder={onOpenOrder} />
         ) : (
-          <div className="overflow-hidden rounded-[18px] border border-tec-border/15 bg-[radial-gradient(circle_at_15%_0%,rgba(254,80,0,0.08),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.012))]">
+          <div className="overflow-hidden rounded-[18px] border border-tec-border/15 bg-tec-panel">
             <div className="border-b border-tec-border/15 px-5 py-5 sm:px-7">
               <WizardStepper step={step} />
             </div>
@@ -603,22 +603,25 @@ export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, 
 }
 
 function WizardStepper({ step }: { step: number }) {
+	const icons = [UserRound, Smartphone, ClipboardCheck, Camera, PenLine];
+
   return (
-    <div className="grid gap-4 md:grid-cols-5">
+    <div className="grid grid-cols-5 gap-2 sm:gap-3">
       {steps.map((label, index) => {
         const done = index < step;
         const active = index === step;
+        const StepIcon = icons[index];
         return (
-          <div className="relative flex min-w-0 items-center gap-3" key={label}>
+          <div className="relative min-w-0 text-center" key={label}>
             {index > 0 ? (
               <span
-                className={`absolute right-[calc(100%+0.75rem)] top-1/2 hidden h-px w-[calc(100%-1.5rem)] -translate-y-1/2 md:block ${
-                  done || active ? "bg-tec-success/70" : "bg-white/12"
+                className={`absolute right-1/2 top-5 z-0 hidden h-px w-full sm:block ${
+                  done ? "bg-tec-success/70" : active ? "bg-tec-orange/70" : "bg-tec-border/50"
                 }`}
               />
             ) : null}
             <span
-              className={`grid h-10 w-10 shrink-0 place-items-center rounded-full border text-sm font-bold ${
+              className={`relative z-10 mx-auto grid h-10 w-10 place-items-center rounded-full border text-sm font-bold ${
                 done
                   ? "border-tec-success bg-tec-success/10 text-tec-success"
                   : active
@@ -626,9 +629,9 @@ function WizardStepper({ step }: { step: number }) {
                     : "border-tec-border/20 bg-tec-field text-tec-muted"
               }`}
             >
-              {done ? <Check size={18} /> : index + 1}
+              {done ? <Check size={18} /> : <StepIcon size={18} />}
             </span>
-            <span className={`min-w-0 text-sm font-semibold ${done ? "text-tec-success" : active ? "text-tec-orange" : "text-tec-muted"}`}>
+            <span className={`mt-2 block min-w-0 truncate text-[11px] font-semibold sm:text-sm ${done ? "text-tec-success" : active ? "text-tec-orange" : "text-tec-muted"}`}>
               {label}
             </span>
           </div>
