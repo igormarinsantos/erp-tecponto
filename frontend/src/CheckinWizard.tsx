@@ -241,7 +241,7 @@ interface CheckinWizardProps {
   onClose: () => void;
   onCreated: (response: CheckinResponse) => void;
   onDirtyChange?: (dirty: boolean) => void;
-  onOpenOrder: (name: string) => void;
+  onOpenOrder: (response: CheckinResponse) => void;
   presentation?: "page";
 }
 
@@ -482,7 +482,7 @@ export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, 
       const response = await checkin.createServiceOrder(payload);
       setCreated(response);
       onCreated(response);
-      setStep(steps.length);
+      onOpenOrder(response);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Falha ao criar a OS.");
     } finally {
@@ -1897,7 +1897,7 @@ function CheckinSuccess({
 }: {
   created: CheckinResponse;
   onClose: () => void;
-  onOpenOrder: (name: string) => void;
+  onOpenOrder: (response: CheckinResponse) => void;
 }) {
   const [acceptance, setAcceptance] = useState<AcceptanceIssueResponse | null>(null);
   const [acceptanceError, setAcceptanceError] = useState<string | null>(null);
@@ -1952,8 +1952,7 @@ function CheckinSuccess({
         <div className="mt-5 flex flex-wrap gap-2">
           <Button
             onClick={() => {
-              onOpenOrder(created.service_order.name);
-              onClose();
+              onOpenOrder(created);
             }}
             variant="primary"
           >

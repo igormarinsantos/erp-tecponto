@@ -195,6 +195,7 @@ const CASHIER_ROUTE = "/tecponto/caixa";
 const CHECKIN_ROUTE = "/tecponto/nova-os";
 const CHECKIN_RETURN_TO_KEY = "tecponto.checkin.return-to";
 const CHECKIN_OPEN_ORDER_KEY = "tecponto.checkin.open-order";
+const CHECKIN_TRACKING_LINK_KEY = "tecponto.checkin.tracking-link";
 const CHECKIN_NAVIGATION_TARGET_KEY = "tecponto.checkin.navigate-to";
 
 function getThemeStorageKey(userName: string) {
@@ -550,10 +551,14 @@ export function App() {
 		window.location.assign("/tecponto");
 	}, [checkinDirty, checkinPage]);
 
-  const openCreatedCheckinOrder = useCallback((name: string) => {
+  const openCreatedCheckinOrder = useCallback((response: CheckinResponse) => {
     try {
       window.sessionStorage.removeItem(CHECKIN_RETURN_TO_KEY);
-      window.sessionStorage.setItem(CHECKIN_OPEN_ORDER_KEY, name);
+      window.sessionStorage.setItem(CHECKIN_OPEN_ORDER_KEY, response.service_order.name);
+      window.sessionStorage.setItem(
+        CHECKIN_TRACKING_LINK_KEY,
+        JSON.stringify({ serviceOrder: response.service_order.name, tracking: response.tracking }),
+      );
     } catch {
       // The shell still opens when storage is unavailable.
     }
@@ -2244,11 +2249,27 @@ function ServiceOrderDetail({
   const [quoteSendOpen, setQuoteSendOpen] = useState(false);
   const [acceptanceType, setAcceptanceType] = useState<"Entrada" | "Retirada" | null>(null);
   const [moveApproval, setMoveApproval] = useState<{ targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
+  const [checkinTracking, setCheckinTracking] = useState<TrackingLinkResponse | null>(null);
   const initialFlowRef = useRef(initialFlow);
 
   useEffect(() => {
     initialFlowRef.current = initialFlow;
   }, [initialFlow]);
+
+  useEffect(() => {
+    try {
+      const stored = window.sessionStorage.getItem(CHECKIN_TRACKING_LINK_KEY);
+      window.sessionStorage.removeItem(CHECKIN_TRACKING_LINK_KEY);
+      if (!stored) {
+        setCheckinTracking(null);
+        return;
+      }
+      const parsed = JSON.parse(stored) as { serviceOrder?: string; tracking?: TrackingLinkResponse };
+      setCheckinTracking(parsed.serviceOrder === name ? parsed.tracking ?? null : null);
+    } catch {
+      setCheckinTracking(null);
+    }
+  }, [name]);
 
   useEffect(() => {
     let mounted = true;
@@ -2344,6 +2365,7 @@ function ServiceOrderDetail({
     <div className="space-y-4">
       <TrackingLinkBanner
         customerName={customerLabel}
+        initialTracking={checkinTracking}
         onToast={onToast}
         phone={detail.customer?.custom_whatsapp || detail.customer?.mobile_no}
         serviceOrder={detail.name}
@@ -2616,17 +2638,23 @@ function TrackingLinkCard({
 
 function TrackingLinkBanner({
   customerName,
+  initialTracking,
   onToast,
   phone,
   serviceOrder,
 }: {
   customerName: string;
+  initialTracking?: TrackingLinkResponse | null;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   phone?: string | null;
   serviceOrder: string;
 }) {
-  const [tracking, setTracking] = useState<TrackingLinkResponse | null>(null);
+  const [tracking, setTracking] = useState<TrackingLinkResponse | null>(initialTracking ?? null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setTracking(initialTracking ?? null);
+  }, [initialTracking, serviceOrder]);
 
   async function generate() {
     setLoading(true);
