@@ -1512,7 +1512,7 @@ function ServiceDataStep({
 
   return (
     <div className="space-y-4">
-      <WizardCard>
+      <WizardCard clean>
         <SectionTitle icon={<ShieldCheck size={21} />} title="Retrabalho em garantia" />
         {warrantyLoading ? (
           <p className="mt-3 text-sm text-tec-muted">Verificando reparos entregues deste cliente/aparelho...</p>
@@ -1558,7 +1558,7 @@ function ServiceDataStep({
         text="Quanto mais detalhe você registrar agora, menos dúvidas no orçamento e mais agilidade no reparo."
       />
 
-      <WizardCard>
+      <WizardCard clean className="p-4">
         <SectionTitle icon={<ClipboardList size={21} />} title="Previsão de entrega" />
         <p className="mt-3 text-sm leading-6 text-tec-muted">
           O motor sugere uma data usando os SLAs internos e dias úteis. Ela é apenas uma previsão: pode ser ajustada ou deixada em branco sem impedir a abertura da OS.
@@ -1581,8 +1581,8 @@ function ServiceDataStep({
       </WizardCard>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-        <WizardCard>
-          <ChipGroup label="Defeito relatado" multiple required>
+        <WizardCard clean>
+          <ChipGroup compact label="Defeito relatado" multiple required>
             {defectOptions.map((defect) => (
               <OptionChip
                 active={selections.defects.includes(defect)}
@@ -1594,7 +1594,7 @@ function ServiceDataStep({
             ))}
           </ChipGroup>
           <div className="mt-4">
-            <ChipGroup label="Acessórios recebidos" multiple>
+            <ChipGroup compact label="Acessórios recebidos" multiple>
               {accessoryOptions.map((accessory) => (
                 <OptionChip
                   active={selections.accessories.includes(accessory)}
@@ -1609,8 +1609,8 @@ function ServiceDataStep({
         </WizardCard>
 
         <div className="space-y-4">
-          <WizardCard>
-            <ChipGroup label="Local do problema" multiple>
+          <WizardCard clean>
+            <ChipGroup compact label="Local do problema" multiple>
               {locationOptions.map((location) => (
                 <OptionChip
                   active={selections.problemLocations.includes(location)}
@@ -1623,8 +1623,8 @@ function ServiceDataStep({
             </ChipGroup>
           </WizardCard>
 
-          <WizardCard>
-            <CheckboxGrid label="Estado físico declarado" required>
+          <WizardCard clean>
+            <CheckboxGrid compact label="Estado físico declarado" required>
               {physicalOptions.map((state) => (
                 <CheckboxOption
                   active={selections.physicalStates.includes(state)}
@@ -1636,7 +1636,7 @@ function ServiceDataStep({
             </CheckboxGrid>
           </WizardCard>
 
-          <WizardCard>
+          <WizardCard clean>
             <SectionTitle icon={<Sparkles size={21} />} title="Resumo gerado automaticamente" />
             <p className="mt-4 whitespace-pre-line text-sm leading-6 text-tec-subtle">
               {generatedSummary || "Selecione defeitos e estado físico para gerar o resumo da OS."}
@@ -2032,11 +2032,13 @@ function ChoicePanel({ children, compact = false, label }: { children: ReactNode
 
 function ChipGroup({
   children,
+  compact = false,
   label,
   multiple,
   required,
 }: {
   children: ReactNode;
+  compact?: boolean;
   label: string;
   multiple?: boolean;
   required?: boolean;
@@ -2048,12 +2050,12 @@ function ChipGroup({
         {required ? <span className="h-1.5 w-1.5 rounded-full bg-tec-orange" /> : null}
         {multiple ? <span className="text-xs font-medium text-tec-muted">Seleção múltipla</span> : null}
       </p>
-      <div className="flex flex-wrap gap-2">{children}</div>
+      <div className={compact ? "flex flex-wrap gap-2 [&>button]:!min-h-9 [&>button]:!px-3 [&>button]:!text-xs" : "flex flex-wrap gap-2"}>{children}</div>
     </div>
   );
 }
 
-function CheckboxGrid({ children, label, required }: { children: ReactNode; label: string; required?: boolean }) {
+function CheckboxGrid({ children, compact = false, label, required }: { children: ReactNode; compact?: boolean; label: string; required?: boolean }) {
   return (
     <div>
       <p className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
@@ -2061,7 +2063,7 @@ function CheckboxGrid({ children, label, required }: { children: ReactNode; labe
         {required ? <span className="h-1.5 w-1.5 rounded-full bg-tec-orange" /> : null}
         <span className="text-xs font-medium text-tec-muted">Seleção múltipla</span>
       </p>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{children}</div>
+      <div className={compact ? "grid gap-2 sm:grid-cols-2 xl:grid-cols-3 [&>button]:!min-h-0 [&>button]:!p-2" : "grid gap-3 sm:grid-cols-2 xl:grid-cols-3"}>{children}</div>
     </div>
   );
 }
