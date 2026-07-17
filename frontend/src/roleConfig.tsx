@@ -133,7 +133,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         items: [
           { id: "overview", icon: Grid2X2, label: "Visão geral", subtitle: "Sua operação técnica" },
           { id: "service-orders", icon: ClipboardList, label: "Minhas OS", subtitle: "Ordens atribuídas" },
-          { id: "parts-stock", icon: PackageSearch, label: "Peças solicitadas", subtitle: "Solicitações e cotações" },
+			{ id: "repair-parts", icon: PackageSearch, label: "Peças solicitadas", subtitle: "Estoque de Reparo" },
         ],
       },
       {

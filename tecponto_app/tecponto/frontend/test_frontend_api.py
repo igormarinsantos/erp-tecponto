@@ -133,6 +133,7 @@ def run_foundation_checks() -> dict:
 		device_search_check = _check_customer_device_search(users["Tecponto Atendente"])
 		statbar_guard = _check_statbar_guard(users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
+		technician_scope_check = run_technician_scope_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
 			users["Tecponto Atendente"],
@@ -168,6 +169,7 @@ def run_foundation_checks() -> dict:
 			"customer_device_search": device_search_check,
 			"statbar_guard": statbar_guard,
 			"sensitive_guard": guard_check,
+			"technician_scope": technician_scope_check,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
 			"cashier_mode_checks": cashier_mode_checks,
@@ -2355,6 +2357,42 @@ def _find_or_create_multi_role_user() -> str:
 	return user.name
 
 
+def _find_or_create_attendant_technician_user() -> str:
+	"""A real multi-role account used to prove the backend keeps the role union."""
+	email = "front-atendente-tecnico@tecponto.local"
+	if frappe.db.exists("User", email):
+		user = frappe.get_doc("User", email)
+	else:
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": "Atendente",
+				"last_name": "Técnico",
+				"enabled": 1,
+				"user_type": "System User",
+				"send_welcome_email": 0,
+			}
+		)
+		user.insert(ignore_permissions=True)
+
+	for frontend_role in FRONTEND_ROLES:
+		frappe.db.delete(
+			"Has Role",
+			{
+				"parenttype": "User",
+				"parent": user.name,
+				"role": frontend_role,
+			},
+		)
+	user.reload()
+	for role in ("Tecponto Atendente", "Tecponto Tecnico"):
+		user.append("roles", {"role": role})
+	user.save(ignore_permissions=True)
+	frappe.db.commit()
+	return user.name
+
+
 def _get_or_create_demo_customer() -> str:
 	customer_name = "Cliente Demo Front 3.1b"
 	existing = frappe.db.get_value("Customer", {"customer_name": customer_name}, "name")
@@ -2666,7 +2704,7 @@ def _check_attendant_navigation_apis(user: str) -> dict:
 		"customers": search_customers(limit=5),
 		"devices": list_customer_devices(limit=5),
 		"trade_evaluations": list_trade_evaluations(limit=5),
-		"stock_items": list_stock_items(limit=5),
+		"stock_items": list_stock_items(limit=5, scope="repair-parts"),
 		"sales": list_sales(limit=5),
 	}
 	leaks = contains_sensitive_field(payload)
@@ -2717,8 +2755,7 @@ def _check_sensitive_guard(user: str) -> dict:
 		"agenda_calendar": list_agenda_calendar("tecnico", str(nowdate()), str(add_days(nowdate(), 7))),
 		"customers": search_customers(limit=5),
 		"devices": list_customer_devices(limit=5),
-		"trade_evaluations": list_trade_evaluations(limit=5),
-		"stock_items": list_stock_items(limit=5),
+		"stock_items": list_stock_items(limit=5, scope="repair-parts"),
 	}
 	leaks = contains_sensitive_field(payload)
 	if leaks:
@@ -2733,13 +2770,92 @@ def _check_sensitive_guard(user: str) -> dict:
 		"list_daily_actions",
 		"list_agenda_calendar",
 		"search_customers",
-			"list_customer_devices",
-			"list_trade_evaluations",
-			"list_stock_items",
-			"list_sales",
+		"list_customer_devices",
+		"list_stock_items",
 		],
 		"leaked_fields": leaks,
 	}
+
+
+def run_technician_scope_checks() -> dict:
+	"""Prove technical-only reads are scoped, while accumulated roles stay additive."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		manager = _find_or_create_user("Tecponto Gestor")
+		own_order = _create_action_request_service_order(attendant)
+		other_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", own_order, "technician", technician, update_modified=False)
+		frappe.db.set_value("Service Order", other_order, "technician", manager, update_modified=False)
+		frappe.db.commit()
+
+		frappe.set_user(technician)
+		orders = list_service_orders(limit=100)
+		order_names = {row["name"] for row in orders["items"]}
+		if own_order not in order_names or other_order in order_names:
+			raise AssertionError("Técnico recebeu OS não atribuída na lista.")
+		if any(row.get("technician") != technician for row in orders["items"]):
+			raise AssertionError("Lista do técnico contém OS atribuída a outra pessoa.")
+
+		expected_total = frappe.db.count("Service Order", {"technician": technician})
+		if orders["count"] != expected_total:
+			raise AssertionError("Contador de OS do técnico ignorou o escopo da atribuição.")
+
+		kanban = get_service_order_kanban(limit_per_column=40)
+		for column in kanban["columns"]:
+			if any(item.get("technician") != technician for item in column["items"]):
+				raise AssertionError("Kanban do técnico contém OS atribuída a outra pessoa.")
+			expected_column_count = frappe.db.count(
+				"Service Order",
+				{"technician": technician, "workflow_state": column["state"]},
+			)
+			if column["count"] != expected_column_count:
+				raise AssertionError("Contador de coluna do Kanban ignorou o escopo técnico.")
+
+		metrics = get_dashboard_metrics()
+		if metrics["service_orders"]["total"] != expected_total or metrics["sales_visible"]:
+			raise AssertionError("Dashboard técnico trouxe métricas globais ou vendas indevidas.")
+		statbar = {item["key"]: item["value"] for item in get_service_order_statbar()["items"]}
+		if statbar["Entrada criada"] != frappe.db.count(
+			"Service Order", {"technician": technician, "workflow_state": "Entrada criada"}
+		):
+			raise AssertionError("StatBar do técnico ignorou a atribuição da OS.")
+
+		blocked_endpoints = {
+			"vendas": lambda: list_sales(limit=1),
+			"statbar_vendas": lambda: get_list_statbar("sales"),
+			"trocas": lambda: list_trade_evaluations(limit=1),
+			"statbar_trocas": lambda: get_list_statbar("trades"),
+			"valor_troca": lambda: set_tradein_approved_value("inexistente", 1),
+			"estoque_comercial": lambda: list_stock_items(limit=1, scope="commercial-products"),
+		}
+		for label, endpoint in blocked_endpoints.items():
+			try:
+				endpoint()
+			except frappe.PermissionError:
+				continue
+			raise AssertionError(f"Técnico exclusivo acessou indevidamente: {label}.")
+
+		mixed_user = _find_or_create_attendant_technician_user()
+		frappe.set_user(mixed_user)
+		if not list_sales(limit=1).get("fields"):
+			raise AssertionError("Conta Atendente+Técnico perdeu o acesso de Atendente.")
+		if list_service_orders(limit=100)["count"] < expected_total:
+			raise AssertionError("Conta Atendente+Técnico recebeu escopo técnico indevido.")
+
+		return {
+			"technician": technician,
+			"own_order": own_order,
+			"other_order_blocked": other_order not in order_names,
+			"scoped_total": expected_total,
+			"sales_visible": metrics["sales_visible"],
+			"blocked_endpoints": sorted(blocked_endpoints),
+			"multi_role_union_preserved": True,
+		}
+	finally:
+		frappe.set_user(previous_user)
 
 
 def _check_statbar_guard(user: str) -> dict:

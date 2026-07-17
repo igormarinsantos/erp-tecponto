@@ -46,11 +46,13 @@ def get_stage_clock(doc: Any, reference_datetime=None) -> dict[str, Any]:
 	}
 
 
-def list_overdue_service_order_names(reference_datetime=None) -> list[str]:
+def list_overdue_service_order_names(reference_datetime=None, filters: dict[str, Any] | None = None) -> list[str]:
 	"""Single source for dashboard/list/agenda consumers; no persisted overdue flag."""
+	filters = dict(filters or {})
+	filters["workflow_state"] = ["not in", list(TERMINAL_STATES)]
 	rows = frappe.get_all(
 		"Service Order",
-		filters={"workflow_state": ["not in", list(TERMINAL_STATES)]},
+		filters=filters,
 		fields=["name", "workflow_state", "stage_entered_at", "estimated_deadline", "entry_date", "modified"],
 		limit_page_length=0,
 	)

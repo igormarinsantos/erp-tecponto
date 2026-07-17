@@ -28,6 +28,7 @@ from tecponto_app.tecponto.service_order.print_formats import (
 from tecponto_app.tecponto.workflow import _get_service_order_transitions, get_service_order_workflow_state_names
 from tecponto_app.tecponto import service_catalog
 from tecponto_app.tecponto import defect_service_mapping
+from tecponto_app.tecponto.permissions import is_restricted_technician, service_order_scope_filters
 from tecponto_app.tecponto.service_order import stage_clock, stage_sla
 
 
@@ -304,6 +305,7 @@ def list_service_orders(
 		from_date=from_date,
 		to_date=to_date,
 	)
+	filters = _with_service_order_scope(filters)
 	items = frappe.get_list(
 		"Service Order",
 		fields=list(SAFE_SERVICE_ORDER_FIELDS),
@@ -326,8 +328,11 @@ def get_service_order_statbar() -> dict[str, Any]:
 	"""Operational workflow counts only; deliberately excludes all financial fields."""
 	_require_frontend_role()
 	states = ["Entrada criada", "Em diagnóstico", "Aguardando aprovação", "Aguardando peça", "Em reparo", "Pronto para retirada"]
-	items = [{"key": "overdue", "label": "Atrasadas", "value": len(stage_clock.list_overdue_service_order_names())}]
-	items.extend({"key": state, "label": state, "value": frappe.db.count("Service Order", {"workflow_state": state})} for state in states)
+	scope = service_order_scope_filters()
+	items = [{"key": "overdue", "label": "Atrasadas", "value": len(stage_clock.list_overdue_service_order_names(filters=scope))}]
+	for state in states:
+		filters = {**scope, "workflow_state": state}
+		items.append({"key": state, "label": state, "value": frappe.db.count("Service Order", filters)})
 	return {"items": items}
 
 
@@ -336,13 +341,27 @@ def get_list_statbar(scope: str) -> dict[str, Any]:
 	"""Safe list summaries. This intentionally never selects stock cost, margins, or profit."""
 	_require_frontend_role()
 	scope = (scope or "").strip()
+	if is_restricted_technician() and scope in {"sales", "trades"}:
+		frappe.throw(_("Este resumo não está disponível para o perfil técnico."), frappe.PermissionError)
 	if scope == "customers":
 		month_start = getdate(today()).replace(day=1)
-		active = frappe.db.sql("""select count(distinct customer) from `tabService Order`
-			where workflow_state not in ('Entregue', 'Cancelado', 'Reprovado', 'Orçamento expirado')""")[0][0]
-		items = [("active", "Com OS em andamento", active), ("all", "Total", frappe.db.count("Customer")), ("new", "Novos no mês", frappe.db.count("Customer", {"creation": [">=", month_start]}))]
+		service_scope = service_order_scope_filters()
+		active_filters = {**service_scope, "workflow_state": ["not in", ["Entregue", "Cancelado", "Reprovado", "Orçamento expirado"]]}
+		active = len(set(frappe.get_all("Service Order", filters=active_filters, pluck="customer", limit_page_length=0)))
+		if service_scope:
+			customer_names = list(set(frappe.get_all("Service Order", filters=service_scope, pluck="customer", limit_page_length=0))) or [""]
+			customer_filters: dict[str, Any] = {"name": ["in", customer_names]}
+			items = [
+				("active", "Com OS em andamento", active),
+				("all", "Total", frappe.db.count("Customer", customer_filters)),
+				("new", "Novos no mês", frappe.db.count("Customer", {**customer_filters, "creation": [">=", month_start]})),
+			]
+		else:
+			items = [("active", "Com OS em andamento", active), ("all", "Total", frappe.db.count("Customer")), ("new", "Novos no mês", frappe.db.count("Customer", {"creation": [">=", month_start]}))]
 	elif scope.startswith("stock:"):
 		stock_scope = scope.split(":", 1)[1]
+		if is_restricted_technician() and stock_scope != "repair-parts":
+			frappe.throw(_("O perfil técnico consulta somente o estoque de Reparo."), frappe.PermissionError)
 		repair = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
 		commercial = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
 		warehouse = repair if stock_scope == "repair-parts" else commercial
@@ -379,6 +398,8 @@ def get_list_statbar(scope: str) -> dict[str, Any]:
 def list_sales(query: str = "", limit: int = 50, period: str = "today") -> dict[str, Any]:
 	"""Counter sales projection. It deliberately contains no inventory cost or profitability data."""
 	_require_frontend_role()
+	if is_restricted_technician():
+		frappe.throw(_("O perfil técnico não consulta vendas."), frappe.PermissionError)
 	limit = max(1, min(int(limit or 50), 100))
 	period = (period or "today").strip()
 	filters: dict[str, Any] = {"docstatus": 1, "is_return": 0}
@@ -423,6 +444,7 @@ def get_service_order_kanban(
 				from_date=from_date,
 				to_date=to_date,
 			)
+			filters = _with_service_order_scope(filters)
 			items = frappe.get_list(
 				"Service Order",
 				fields=list(SAFE_SERVICE_ORDER_FIELDS),
@@ -1126,27 +1148,32 @@ def complete_service_order_pickup(name: str, payload: str | dict[str, Any] | Non
 @frappe.whitelist()
 def get_dashboard_metrics() -> dict[str, Any]:
 	_require_frontend_role()
+	service_scope = service_order_scope_filters()
 	service_orders = {
-		"total": frappe.db.count("Service Order"),
-		"awaiting_approval": frappe.db.count("Service Order", {"workflow_state": "Aguardando aprovação"}),
-		"ready_for_pickup": frappe.db.count("Service Order", {"workflow_state": "Pronto para retirada"}),
-		"waiting_part": frappe.db.count("Service Order", {"workflow_state": "Aguardando peça"}),
-		"new_today": frappe.db.count("Service Order", {"creation": [">=", today()]}),
-		"overdue": _count_overdue_service_orders(),
+		"total": frappe.db.count("Service Order", service_scope),
+		"awaiting_approval": frappe.db.count("Service Order", {**service_scope, "workflow_state": "Aguardando aprovação"}),
+		"ready_for_pickup": frappe.db.count("Service Order", {**service_scope, "workflow_state": "Pronto para retirada"}),
+		"waiting_part": frappe.db.count("Service Order", {**service_scope, "workflow_state": "Aguardando peça"}),
+		"new_today": frappe.db.count("Service Order", {**service_scope, "creation": [">=", today()]}),
+		"overdue": _count_overdue_service_orders(service_scope),
 	}
-	sales_today_total = frappe.db.sql(
-		"""
-		select coalesce(sum(grand_total), 0)
-		from `tabSales Invoice`
-		where docstatus = 1
-			and is_return = 0
-			and posting_date = %(posting_date)s
-		""",
-		{"posting_date": today()},
-	)[0][0]
+	sales_visible = not is_restricted_technician()
+	sales_today_total = 0
+	if sales_visible:
+		sales_today_total = frappe.db.sql(
+			"""
+			select coalesce(sum(grand_total), 0)
+			from `tabSales Invoice`
+			where docstatus = 1
+				and is_return = 0
+				and posting_date = %(posting_date)s
+			""",
+			{"posting_date": today()},
+		)[0][0]
 
 	return {
 		"sales_today_total": float(sales_today_total or 0),
+		"sales_visible": sales_visible,
 		"service_orders": service_orders,
 	}
 
@@ -1297,6 +1324,8 @@ def create_customer_device(payload: str | dict[str, Any] | None = None) -> dict[
 @frappe.whitelist()
 def list_trade_evaluations(query: str = "", limit: int = 12) -> dict[str, Any]:
 	_require_frontend_role()
+	if is_restricted_technician():
+		frappe.throw(_("O perfil técnico não consulta avaliações de troca."), frappe.PermissionError)
 	limit = max(1, min(int(limit or 12), 50))
 	query = (query or "").strip()
 	or_filters = _like_filters(
@@ -1321,6 +1350,8 @@ def list_trade_evaluations(query: str = "", limit: int = 12) -> dict[str, Any]:
 def set_tradein_approved_value(name: str, approved_value: float) -> dict[str, Any]:
 	"""Attempt the normal evaluation save so the trade table guard remains authoritative."""
 	_require_frontend_role()
+	if is_restricted_technician():
+		frappe.throw(_("O perfil técnico não define valores de troca."), frappe.PermissionError)
 	doc = frappe.get_doc("Device Trade Evaluation", (name or "").strip())
 	doc.approved_value = flt(approved_value, 2)
 	# This endpoint exposes only the table-governed value. Validation still runs under
@@ -1413,6 +1444,8 @@ def list_stock_items(query: str = "", limit: int = 12, scope: str = "parts-stock
 	limit = max(1, min(int(limit or 12), 50))
 	query = (query or "").strip()
 	scope = (scope or "parts-stock").strip()
+	if is_restricted_technician() and scope != "repair-parts":
+		frappe.throw(_("O perfil técnico consulta somente o estoque de Reparo."), frappe.PermissionError)
 	repair_warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
 	commercial_warehouse = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
 	if scope == "repair-parts":
@@ -2105,8 +2138,13 @@ def _like_filters(query: str, fields: tuple[str, ...]) -> list[list[str]]:
 	return [[field, "like", f"%{query}%"] for field in fields]
 
 
-def _count_overdue_service_orders() -> int:
-	return len(stage_clock.list_overdue_service_order_names())
+def _count_overdue_service_orders(filters: dict[str, Any] | None = None) -> int:
+	return len(stage_clock.list_overdue_service_order_names(filters=filters))
+
+
+def _with_service_order_scope(filters: dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Apply explicit scope before aggregate queries bypass Frappe's query hook."""
+	return {**(filters or {}), **service_order_scope_filters()}
 
 
 def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple[float, ...] | set[float] | None = None) -> list[str]:

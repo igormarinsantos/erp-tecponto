@@ -510,6 +510,8 @@ export interface PickupPayload {
 
 export interface DashboardMetrics {
   sales_today_total: number;
+	/** False when the backend intentionally withholds sales for a technical-only account. */
+	sales_visible: boolean;
   service_orders: {
     total: number;
     awaiting_approval: number;
