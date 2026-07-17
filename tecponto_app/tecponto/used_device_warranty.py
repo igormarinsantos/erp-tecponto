@@ -7,6 +7,7 @@ from frappe.utils import add_days, flt, getdate, nowdate
 ITEM_GROUP_USED_DEVICES = "Aparelhos Usados"
 WARRANTY_COVERAGE = "Defeito de fábrica"
 DEFAULT_WARRANTY_DAYS = 90
+WARRANTY_LOOKUP_ROLES = {"System Manager", "Tecponto Atendente", "Tecponto Gestor"}
 
 
 def validate_used_device_serials(doc, method=None) -> None:
@@ -52,6 +53,11 @@ def create_used_device_warranties(doc, method=None) -> list[str]:
 
 @frappe.whitelist()
 def consultar_garantia_usado(serial_no: str, reference_date: str | None = None) -> dict:
+	"""Internal counter lookup; knowing an IMEI is never sufficient authorization."""
+	_require_warranty_lookup_role()
+	serial_no = (serial_no or "").strip()
+	if not serial_no:
+		frappe.throw("Informe o Serial/IMEI.", frappe.ValidationError)
 	reference = getdate(reference_date or nowdate())
 	warranty_name = frappe.db.get_value(
 		"Used Device Warranty",
@@ -67,6 +73,7 @@ def consultar_garantia_usado(serial_no: str, reference_date: str | None = None) 
 		}
 
 	warranty = frappe.get_doc("Used Device Warranty", warranty_name)
+	warranty.check_permission("read")
 	expiry = getdate(warranty.warranty_expiry)
 	return {
 		"name": warranty.name,
@@ -80,6 +87,15 @@ def consultar_garantia_usado(serial_no: str, reference_date: str | None = None) 
 		"exists": True,
 		"under_warranty": expiry >= reference,
 	}
+
+
+def _require_warranty_lookup_role() -> None:
+	if frappe.session.user == "Guest":
+		frappe.throw("Faça login para consultar garantias.", frappe.PermissionError)
+	roles = set(frappe.get_roles(frappe.session.user))
+	if frappe.session.user == "Administrator" or roles.intersection(WARRANTY_LOOKUP_ROLES):
+		return
+	frappe.throw("Usuário sem permissão para consultar garantias de aparelhos usados.", frappe.PermissionError)
 
 
 def _upsert_warranty(doc, item, serial_no: str) -> str:

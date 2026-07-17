@@ -95,6 +95,7 @@ from tecponto_app.tecponto.pos import (
 from tecponto_app.tecponto import notify
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD
 from tecponto_app.tecponto.pending import complete_manual_task, create_manual_task, list_agenda_calendar, list_daily_actions
+from tecponto_app.tecponto.used_device_warranty import consultar_garantia_usado
 from tecponto_app.tecponto.service_order.stage_clock import get_stage_clock
 from tecponto_app.tecponto.service_order.stage_sla import add_commercial_business_hours, get_stage_slas
 
@@ -134,6 +135,7 @@ def run_foundation_checks() -> dict:
 		statbar_guard = _check_statbar_guard(users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		technician_scope_check = run_technician_scope_checks()
+		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
 			users["Tecponto Atendente"],
@@ -170,6 +172,7 @@ def run_foundation_checks() -> dict:
 			"statbar_guard": statbar_guard,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
+			"used_device_warranty_lookup": used_device_warranty_lookup,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
 			"cashier_mode_checks": cashier_mode_checks,
@@ -2853,6 +2856,55 @@ def run_technician_scope_checks() -> dict:
 			"sales_visible": metrics["sales_visible"],
 			"blocked_endpoints": sorted(blocked_endpoints),
 			"multi_role_union_preserved": True,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_used_device_warranty_lookup_checks() -> dict:
+	"""The used-device warranty lookup is operational data, never a public IMEI oracle."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		customer = _get_or_create_demo_customer()
+		serial_no = f"TP-UDW-GUARD-{frappe.generate_hash(length=12)}"
+		warranty = frappe.get_doc(
+			{
+				"doctype": "Used Device Warranty",
+				"serial_no": serial_no,
+				"customer": customer,
+				"item_code": _get_demo_item(is_stock_item=1),
+				"sales_invoice": "TEST-USED-WARRANTY",
+				"sale_date": nowdate(),
+				"warranty_days": 90,
+				"warranty_expiry": add_days(nowdate(), 90),
+				"coverage": "Defeito de fábrica",
+			}
+		)
+		warranty.insert(ignore_permissions=True, ignore_links=True)
+		frappe.db.commit()
+
+		frappe.set_user(attendant)
+		allowed = consultar_garantia_usado(serial_no)
+		if not allowed.get("exists") or allowed.get("name") != warranty.name:
+			raise AssertionError("Atendente não consultou a garantia de aparelho usado autorizada.")
+
+		blocked_users = {"technician": technician, "guest": "Guest"}
+		for label, user in blocked_users.items():
+			frappe.set_user(user)
+			try:
+				consultar_garantia_usado(serial_no)
+			except frappe.PermissionError:
+				continue
+			raise AssertionError(f"Consulta de garantia aceitou indevidamente {label}.")
+
+		return {
+			"warranty": warranty.name,
+			"attendant_allowed": True,
+			"technician_blocked": True,
+			"guest_blocked": True,
 		}
 	finally:
 		frappe.set_user(previous_user)
