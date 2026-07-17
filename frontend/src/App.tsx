@@ -195,6 +195,7 @@ const CASHIER_ROUTE = "/tecponto/caixa";
 const CHECKIN_ROUTE = "/tecponto/nova-os";
 const CHECKIN_RETURN_TO_KEY = "tecponto.checkin.return-to";
 const CHECKIN_OPEN_ORDER_KEY = "tecponto.checkin.open-order";
+const CHECKIN_NAVIGATION_TARGET_KEY = "tecponto.checkin.navigate-to";
 
 function getThemeStorageKey(userName: string) {
   return `${THEME_STORAGE_PREFIX}${userName}`;
@@ -324,6 +325,7 @@ export function App() {
   const [pendingPosBarcode, setPendingPosBarcode] = useState<PendingPosBarcode | null>(null);
   const [pendingRetailBarcode, setPendingRetailBarcode] = useState<PendingRetailBarcode | null>(null);
   const [pendingServiceOrderStatus, setPendingServiceOrderStatus] = useState<QueueFilter | null>(null);
+  const [checkinDirty, setCheckinDirty] = useState(false);
   const [serviceOrdersView, setServiceOrdersView] = useState<ServiceOrdersViewMode>(getStoredServiceOrdersView);
   const [theme, setTheme] = useState<AppTheme>("dark");
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -483,6 +485,11 @@ export function App() {
 
   useEffect(() => {
     try {
+			const navigationTarget = window.sessionStorage.getItem(CHECKIN_NAVIGATION_TARGET_KEY);
+			if (navigationTarget && navigationTarget in viewTitles) {
+				window.sessionStorage.removeItem(CHECKIN_NAVIGATION_TARGET_KEY);
+				setActiveView(navigationTarget as NavigationTarget);
+			}
       const orderName = window.sessionStorage.getItem(CHECKIN_OPEN_ORDER_KEY);
       if (!orderName) return;
       window.sessionStorage.removeItem(CHECKIN_OPEN_ORDER_KEY);
@@ -523,6 +530,25 @@ export function App() {
     }
     window.location.assign(returnTo);
   }, []);
+
+	const navigateFromSidebar = useCallback((target: NavigationTarget) => {
+		if (!checkinPage) {
+			setActiveView(target);
+			return;
+		}
+
+		if (checkinDirty && !window.confirm("Existem dados nao salvos no check-in. Deseja sair mesmo assim?")) {
+			return;
+		}
+
+		try {
+			window.sessionStorage.removeItem(CHECKIN_RETURN_TO_KEY);
+			window.sessionStorage.setItem(CHECKIN_NAVIGATION_TARGET_KEY, target);
+		} catch {
+			// The default route remains available if session storage is unavailable.
+		}
+		window.location.assign("/tecponto");
+	}, [checkinDirty, checkinPage]);
 
   const openCreatedCheckinOrder = useCallback((name: string) => {
     try {
@@ -816,7 +842,7 @@ export function App() {
         activeItemId={activeView === "service-order-detail" ? "service-orders" : activeView}
         onLogout={logout}
         onOpenHelp={() => setHelpOpen(true)}
-        onNavigate={setActiveView}
+        onNavigate={navigateFromSidebar}
         sections={panel.nav}
         user={visualUser}
       />
@@ -881,6 +907,7 @@ export function App() {
             <CheckinWizard
               onClose={closeCheckinPage}
               onCreated={handleCheckinCreated}
+				onDirtyChange={setCheckinDirty}
               onOpenOrder={openCreatedCheckinOrder}
               presentation="page"
             />

@@ -239,11 +239,12 @@ const damageMarkers = ["trincada", "arranh", "amassado", "oxidação", "molhado"
 interface CheckinWizardProps {
   onClose: () => void;
   onCreated: (response: CheckinResponse) => void;
+  onDirtyChange?: (dirty: boolean) => void;
   onOpenOrder: (name: string) => void;
   presentation?: "page";
 }
 
-export function CheckinWizard({ onClose, onCreated, onOpenOrder, presentation }: CheckinWizardProps) {
+export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, presentation }: CheckinWizardProps) {
   const [step, setStep] = useState(0);
   const [created, setCreated] = useState<CheckinResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -370,6 +371,25 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, presentation }:
   const photoReady = Boolean(photo?.dataUrl);
   const canContinue = [customerReady, deviceReady, dataReady, photoReady, true][step] ?? false;
   const canGoBack = step > 0 || (step === 0 && customerMicrostep !== "choice") || (step === 1 && deviceMicrostep !== "choice");
+  const hasUnsavedChanges = Boolean(
+    !created && (
+      selectedCustomer || customerQuery.trim() || newCustomer.customer_name.trim() || newCustomer.mobile_no.trim() || newCustomer.custom_cpf.trim() || newCustomer.custom_rg.trim()
+      || selectedDevice || deviceQuery.trim() || newDevice.brand.trim() || newDevice.model.trim() || newDevice.imei_serial.trim()
+      || serviceOrder.reported_defect.trim() || serviceOrder.physical_state.trim() || serviceOrder.accessories_received.trim() || photo
+    ),
+  );
+
+  useEffect(() => {
+    onDirtyChange?.(hasUnsavedChanges);
+    return () => onDirtyChange?.(false);
+  }, [hasUnsavedChanges, onDirtyChange]);
+
+  const requestClose = useCallback(() => {
+    if (hasUnsavedChanges && !window.confirm("Existem dados nao salvos no check-in. Deseja sair mesmo assim?")) {
+      return;
+    }
+    onClose();
+  }, [hasUnsavedChanges, onClose]);
 
   const goBack = useCallback(() => {
     if (step === 0 && customerMicrostep !== "choice") {
@@ -465,12 +485,12 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, presentation }:
               <h1 className="font-display text-2xl font-bold text-white">{created ? "OS criada" : "Nova OS / check-in"}</h1>
             </div>
           </div>
-          <Button icon={<X size={17} />} onClick={onClose}>Cancelar</Button>
+          <Button icon={<X size={17} />} onClick={requestClose}>Cancelar</Button>
         </header>
       ) : null}
       <div>
         {created ? (
-          <CheckinSuccess created={created} onClose={onClose} onOpenOrder={onOpenOrder} />
+          <CheckinSuccess created={created} onClose={requestClose} onOpenOrder={onOpenOrder} />
         ) : (
           <div className="overflow-hidden rounded-[18px] border border-tec-border/15 bg-[radial-gradient(circle_at_15%_0%,rgba(254,80,0,0.08),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.012))]">
             <div className="border-b border-tec-border/15 px-5 py-5 sm:px-7">
