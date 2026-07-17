@@ -273,11 +273,16 @@ def _public_order_summary(order, acceptance_type: str) -> dict:
 		"type": acceptance_type,
 		"customer": frappe.db.get_value("Customer", order.customer, "customer_name") or "Cliente",
 		"device": " ".join(part for part in [device.get("brand"), device.get("model"), device.get("color")] if part) or "Aparelho não informado",
-		"imei": device.get("imei_serial") or "Não informado",
+		"imei_suffix": _imei_suffix(device.get("imei_serial")),
 		"reported_defect": order.get("reported_defect") or "Não informado",
 		"physical_state": order.get("physical_state") or "Não informado",
 		"accessories_received": order.get("accessories_received") or "Nenhum acessório informado",
 	}
+
+
+def _imei_suffix(imei: str | None) -> str:
+	value = (imei or "").strip()
+	return f"•••• {value[-4:]}" if value else "Não informado"
 
 
 def _budget_acceptance_expiry(order, tracking):

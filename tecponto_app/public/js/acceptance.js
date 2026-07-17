@@ -30,7 +30,7 @@
 				<div class="tp-acceptance-field"><b>Tipo de aceite</b>${escape(data.acceptance.type)}</div>
 				<div class="tp-acceptance-field"><b>Cliente</b>${escape(order.customer)}</div>
 				<div class="tp-acceptance-field"><b>Aparelho</b>${escape(order.device)}</div>
-				<div class="tp-acceptance-field"><b>IMEI / Serial</b>${escape(order.imei)}</div>
+				<div class="tp-acceptance-field"><b>IMEI / Serial</b>${escape(order.imei_suffix)}</div>
 				<div class="tp-acceptance-field"><b>Defeito relatado</b>${escape(order.reported_defect)}</div>
 				<div class="tp-acceptance-field"><b>Estado declarado</b>${escape(order.physical_state)}</div>
 				<div class="tp-acceptance-field"><b>Acessórios</b>${escape(order.accessories_received)}</div>

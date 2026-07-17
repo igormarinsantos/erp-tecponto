@@ -1396,9 +1396,13 @@ def run_public_acceptance_checks() -> dict:
 		public = get_public_acceptance(raw_token)
 		if not public.get("valid") or public["service_order"].get("number") != service_order:
 			raise AssertionError("Guest não recebeu a projeção pública read-only esperada.")
-		forbidden_keys = {"services", "parts", "rate", "cost", "valuation_rate", "sales_invoice", "customer_email"}
+		forbidden_keys = {"services", "parts", "rate", "cost", "valuation_rate", "sales_invoice", "customer_email", "imei", "imei_serial"}
 		if forbidden_keys & set(public["service_order"]):
 			raise AssertionError("Projeção pública expôs dado interno da OS.")
+		full_imei = frappe.db.get_value("Customer Device", frappe.db.get_value("Service Order", service_order, "customer_device"), "imei_serial") or ""
+		public_imei = public["service_order"].get("imei_suffix") or ""
+		if full_imei and (full_imei in frappe.as_json(public) or public_imei != f"•••• {full_imei[-4:]}"):
+			raise AssertionError("Projeção pública de aceite expôs o IMEI completo em vez de somente os quatro últimos dígitos.")
 		if frappe.db.get_value("OS Acceptance", acceptance.name, "status") != "Pendente":
 			raise AssertionError("Consulta pública não pode consumir ou alterar um aceite pendente.")
 		camera_image = BytesIO()
@@ -1554,6 +1558,7 @@ def run_public_acceptance_checks() -> dict:
 			"status": "ok",
 			"acceptance": acceptance.name,
 			"guest_read_only": True,
+			"imei_partial_only": bool(public_imei),
 			"selfie_attached_to_service_order": True,
 			"camera_jpeg_only": True,
 			"signature_and_consent_recorded": True,
