@@ -14,9 +14,9 @@ export const checkin = {
       body: { customer: customer ?? "", customer_device: customerDevice ?? "" },
     });
   },
-  getDeliverySuggestion(leadTimeBusinessHours = 0) {
+  getDeliverySuggestion(defects: string[] = [], leadTimeBusinessHours = 0) {
     return rpc<DeliverySuggestion>(`${API}.get_checkin_delivery_suggestion`, {
-      query: { lead_time_business_hours: leadTimeBusinessHours },
+      body: { payload: { defects, lead_time_business_hours: leadTimeBusinessHours } },
     });
   },
 };

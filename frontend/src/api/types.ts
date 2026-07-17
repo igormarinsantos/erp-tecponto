@@ -434,6 +434,7 @@ export interface CheckinPayload {
   };
   service_order: {
     reported_defect: string;
+    defects?: string[];
     physical_state: string;
     accessories_received?: string;
     is_warranty?: boolean;
@@ -475,6 +476,14 @@ export interface DeliverySuggestion {
   stage_business_hours: number;
   service_business_hours: number;
   lead_time_business_hours: number;
+  mapped_services: Array<{
+    name: string;
+    service_name: string;
+    default_labor_price: number;
+    default_duration: number;
+    duration_unit: "Horas" | "Dias úteis";
+  }>;
+  has_estimate: boolean;
 }
 
 export interface TrackingLinkResponse {

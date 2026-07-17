@@ -27,6 +27,7 @@ from tecponto_app.tecponto.frontend.api import (
 	add_catalog_service_to_service_order,
 	create_service_order_checkin,
 	get_checkin_delivery_suggestion,
+	list_defect_service_mappings,
 	list_warranty_candidates,
 	create_customer,
 	list_catalog_references,
@@ -46,6 +47,7 @@ from tecponto_app.tecponto.frontend.api import (
 	save_catalog_reference,
 	save_catalog_service,
 	save_stage_sla,
+	save_defect_service_mapping,
 	submit_stock_transfer,
 )
 from tecponto_app.tecponto.acceptance import complete_public_acceptance, get_public_acceptance, save_public_acceptance_selfie
@@ -148,6 +150,7 @@ def run_foundation_checks() -> dict:
 		quick_stage_checks = run_quick_stage_move_checks()
 		customer_registration_checks = run_customer_registration_checks()
 		service_catalog_checks = run_service_catalog_checks()
+		defect_service_mapping_checks = run_defect_service_mapping_checks()
 		stage_sla_checks = run_stage_sla_checks()
 		stage_clock_checks = run_stage_clock_checks()
 		public_acceptance_checks = run_public_acceptance_checks()
@@ -175,6 +178,7 @@ def run_foundation_checks() -> dict:
 			"quick_stage_checks": quick_stage_checks,
 			"customer_registration_checks": customer_registration_checks,
 			"service_catalog_checks": service_catalog_checks,
+			"defect_service_mapping_checks": defect_service_mapping_checks,
 			"stage_sla_checks": stage_sla_checks,
 			"stage_clock_checks": stage_clock_checks,
 			"public_acceptance_checks": public_acceptance_checks,
@@ -514,6 +518,98 @@ def run_tracking_lifecycle_checks() -> dict:
 		frappe.set_user(previous_user)
 
 
+def run_defect_service_mapping_checks() -> dict:
+	"""Prove defects drive editable service suggestions and never block check-in."""
+	previous_user = frappe.session.user
+	created_mapping = None
+	created_order = None
+	try:
+		ensure_frontend_foundation()
+		manager = _find_or_create_user("Tecponto Gestor")
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(manager)
+		mappings = list_defect_service_mappings(include_inactive=True)["items"]
+		screen_mapping = next((item for item in mappings if item["defect"] == "Tela quebrada" and item["active"]), None)
+		battery_mapping = next((item for item in mappings if item["defect"] == "Bateria descarregando r\u00e1pido" and item["active"]), None)
+		if not screen_mapping or not battery_mapping:
+			raise AssertionError("Semente de mapeamento defeito -> servico nao foi criada.")
+
+		suffix = frappe.generate_hash(length=8).upper()
+		created_mapping = save_defect_service_mapping(
+			{
+				"defect": f"Defeito teste {suffix}",
+				"catalog_service": screen_mapping["catalog_service"],
+				"active": True,
+			}
+		)["item"]["name"]
+		if not created_mapping:
+			raise AssertionError("Gestor nao conseguiu editar/criar o mapeamento.")
+
+		frappe.set_user(attendant)
+		no_defect = get_checkin_delivery_suggestion({"defects": [], "lead_time_business_hours": 0})
+		if no_defect["suggested_delivery_date"] or no_defect["mapped_services"]:
+			raise AssertionError("Previsao foi calculada sem defeito/servico mapeado.")
+		single = get_checkin_delivery_suggestion({"defects": ["Tela quebrada"], "lead_time_business_hours": 0})
+		multiple = get_checkin_delivery_suggestion(
+			{"defects": ["Tela quebrada", "Bateria descarregando r\u00e1pido"], "lead_time_business_hours": 0}
+		)
+		if (
+			not single["suggested_delivery_date"]
+			or [service["name"] for service in single["mapped_services"]] != [screen_mapping["catalog_service"]]
+			or multiple["service_business_hours"] <= single["service_business_hours"]
+		):
+			raise AssertionError("Defeitos mapeados nao sugeriram servicos/prazos distintos.")
+
+		write_blocked = False
+		try:
+			save_defect_service_mapping({"name": created_mapping, "defect": f"Defeito teste {suffix}", "catalog_service": battery_mapping["catalog_service"], "active": True})
+		except frappe.PermissionError:
+			write_blocked = True
+		if not write_blocked:
+			raise AssertionError("Atendente alterou mapeamento defeito -> servico.")
+
+		photo = BytesIO()
+		Image.new("RGB", (24, 24), color=(20, 40, 60)).save(photo, format="JPEG")
+		photo_data = "data:image/jpeg;base64," + b64encode(photo.getvalue()).decode()
+		checkin = create_service_order_checkin(
+			{
+				"customer": {
+					"customer_name": f"Cliente mapa {suffix}",
+					"mobile_no": "11999998888",
+					"custom_whatsapp": "11999998888",
+					"custom_nao_possui_cpf": 1,
+					"custom_rg": f"RG-MAP-{suffix}",
+				},
+				"device": {"brand": "Apple", "model": "iPhone mapa", "imei_serial": f"35{int(suffix, 16) % 10**13:013d}"},
+				"service_order": {
+					"reported_defect": "Tela quebrada e bateria descarregando rapido.",
+					"defects": ["Tela quebrada", "Bateria descarregando r\u00e1pido"],
+					"physical_state": "Sem danos adicionais aparentes.",
+					"estimated_deadline": "",
+				},
+				"entry_photo": {"data_url": photo_data, "filename": f"mapping-{suffix}.jpg"},
+			}
+		)
+		created_order = checkin["service_order"]["name"]
+		services = frappe.get_doc("Service Order", created_order).get("services") or []
+		if {row.catalog_service for row in services} != {screen_mapping["catalog_service"], battery_mapping["catalog_service"]}:
+			raise AssertionError("Check-in nao preencheu o orcamento com os servicos sugeridos.")
+
+		return {
+			"status": "ok",
+			"no_defect_has_no_estimate": True,
+			"mapped_defect_suggests_service": True,
+			"multiple_distinct_defects_sum_durations": True,
+			"catalog_lines_suggested_on_checkin": True,
+			"manager_mapping_editable": True,
+			"attendant_mapping_write_blocked": write_blocked,
+		}
+	finally:
+		if created_mapping and frappe.db.exists("Tecponto Defect Service Mapping", created_mapping):
+			frappe.delete_doc("Tecponto Defect Service Mapping", created_mapping, ignore_permissions=True, force=True)
+		frappe.set_user(previous_user)
+
+
 def run_stage_sla_checks() -> dict:
 	"""Prove SLA defaults, commercial hours, editable suggestion, and non-blocking check-in."""
 	previous_user = frappe.session.user
@@ -535,7 +631,7 @@ def run_stage_sla_checks() -> dict:
 		if monday != datetime(2026, 7, 20, 12, 0):
 			raise AssertionError(f"Cálculo comercial não pulou fim de semana/expediente: {monday!s}")
 
-		before = get_checkin_delivery_suggestion(lead_time_business_hours=9)
+		before = get_checkin_delivery_suggestion({"defects": ["Tela quebrada"], "lead_time_business_hours": 9})
 		updated = save_stage_sla(
 			{
 				"workflow_state": "Entrada criada",
@@ -544,7 +640,7 @@ def run_stage_sla_checks() -> dict:
 				"active": True,
 			}
 		)["item"]
-		after = get_checkin_delivery_suggestion(lead_time_business_hours=9)
+		after = get_checkin_delivery_suggestion({"defects": ["Tela quebrada"], "lead_time_business_hours": 9})
 		if updated["business_hours"] != 10 or after["total_business_hours"] != before["total_business_hours"] + 6:
 			raise AssertionError("Edição do SLA não alterou a sugestão de entrega.")
 
@@ -568,7 +664,7 @@ def run_stage_sla_checks() -> dict:
 					"imei_serial": f"35{int(suffix, 16) % 10**13:013d}",
 				},
 				"service_order": {
-					"reported_defect": "Teste de OS sem prazo prometido.",
+					"reported_defect": "",
 					"physical_state": "Sem danos aparentes.",
 					"estimated_deadline": "",
 				},
@@ -583,6 +679,7 @@ def run_stage_sla_checks() -> dict:
 			"commercial_hours_skip_weekend": str(monday),
 			"sla_edit_changes_suggestion": True,
 			"suggested_date_editable_and_blank_allowed": True,
+			"checkin_without_defect_does_not_block": True,
 		}
 	finally:
 		if original_entry_sla:

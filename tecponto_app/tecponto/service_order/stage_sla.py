@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, get_datetime, getdate
 
-from tecponto_app.tecponto.service_order.deadline import ensure_guarulhos_holiday_list, _get_holiday_dates
+from tecponto_app.tecponto.service_order.deadline import GUARULHOS_HOLIDAY_LIST, _get_holiday_dates
 
 
 STAGE_SLA_DOCTYPE = "Tecponto Stage SLA"
@@ -118,7 +118,9 @@ def _commercial_holiday_dates(holiday_list: str | None = None) -> set:
 		return _get_holiday_dates(holiday_list)
 	cached = getattr(frappe.local, "_tecponto_commercial_holiday_dates", None)
 	if cached is None:
-		cached = _get_holiday_dates(ensure_guarulhos_holiday_list())
+		# The Holiday List is provisioned at migrate time. A delivery estimate is a
+		# read path and must never race another estimate by writing that shared list.
+		cached = _get_holiday_dates(GUARULHOS_HOLIDAY_LIST) if frappe.db.exists("Holiday List", GUARULHOS_HOLIDAY_LIST) else set()
 		frappe.local._tecponto_commercial_holiday_dates = cached
 	return cached
 

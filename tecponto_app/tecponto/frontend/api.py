@@ -27,6 +27,7 @@ from tecponto_app.tecponto.service_order.print_formats import (
 )
 from tecponto_app.tecponto.workflow import _get_service_order_transitions, get_service_order_workflow_state_names
 from tecponto_app.tecponto import service_catalog
+from tecponto_app.tecponto import defect_service_mapping
 from tecponto_app.tecponto.service_order import stage_clock, stage_sla
 
 
@@ -938,16 +939,20 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.accessories_received = (data["service_order"].get("accessories_received") or "").strip()
 	order.is_warranty = cint(data["service_order"].get("is_warranty"))
 	order.original_service_order = (data["service_order"].get("original_service_order") or "").strip() or None
+	selected_defects = _checkin_defects(data["service_order"].get("defects"))
+	suggested_services = defect_service_mapping.resolve_services(selected_defects)
 	# The check-in may deliberately leave the promise empty. When it is absent
 	# altogether, retain the operational suggestion as a helpful default only.
 	if "estimated_deadline" in data["service_order"]:
 		order.estimated_deadline = (data["service_order"].get("estimated_deadline") or "").strip() or None
 	else:
-		suggestion = stage_sla.calculate_suggested_delivery(
+		suggestion = defect_service_mapping.calculate_delivery_suggestion(
+			selected_defects,
 			start_datetime=order.entry_date,
 			lead_time_business_hours=data["service_order"].get("lead_time_business_hours") or 0,
 		)
 		order.estimated_deadline = suggestion["suggested_delivery_date"] or None
+	_append_checkin_service_suggestions(order, suggested_services)
 	order.insert(ignore_permissions=True)
 
 	photo_url = _save_checkin_photo(order.name, data["entry_photo"])
@@ -975,9 +980,33 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 
 
 @frappe.whitelist()
-def get_checkin_delivery_suggestion(lead_time_business_hours: float = 0) -> dict[str, Any]:
+def get_checkin_delivery_suggestion(
+	payload: str | dict[str, Any] | None = None,
+	defects: str | list[str] | tuple[str, ...] | None = None,
+	lead_time_business_hours: float = 0,
+) -> dict[str, Any]:
 	_require_checkin_role()
-	return stage_sla.calculate_suggested_delivery(lead_time_business_hours=lead_time_business_hours)
+	data = _parse_payload(payload)
+	# Keep the transition safe for a browser that still has the previous bundle
+	# cached: it posted defects directly instead of under `payload`.
+	if not data:
+		data = {"defects": defects or [], "lead_time_business_hours": lead_time_business_hours}
+	return defect_service_mapping.calculate_delivery_suggestion(
+		_checkin_defects(data.get("defects")),
+		lead_time_business_hours=data.get("lead_time_business_hours") or 0,
+	)
+
+
+@frappe.whitelist()
+def list_defect_service_mappings(include_inactive: bool = True) -> dict[str, Any]:
+	_require_frontend_role()
+	return defect_service_mapping.list_mappings(include_inactive=bool(cint(include_inactive)))
+
+
+@frappe.whitelist()
+def save_defect_service_mapping(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_service_catalog_editor()
+	return {"item": defect_service_mapping.save_mapping(_parse_payload(payload))}
 
 
 @frappe.whitelist()
@@ -1690,8 +1719,6 @@ def _validate_checkin_payload(data: dict[str, Any]) -> None:
 	if not device.get("existing_name"):
 		_validate_device_payload(device)
 
-	if not (service_order.get("reported_defect") or "").strip():
-		frappe.throw(_("Informe o defeito relatado."), frappe.ValidationError)
 	if not (service_order.get("physical_state") or "").strip():
 		frappe.throw(_("Informe o estado físico declarado."), frappe.ValidationError)
 	if not _is_image_data_url(entry_photo.get("data_url")):
@@ -1759,6 +1786,38 @@ def _get_or_create_checkin_device(data: dict[str, Any], customer_name: str) -> s
 	)
 	device.insert(ignore_permissions=True)
 	return device.name
+
+
+def _checkin_defects(value: str | list[str] | tuple[str, ...] | None) -> list[str]:
+	if isinstance(value, str):
+		try:
+			value = json.loads(value)
+		except (TypeError, ValueError):
+			value = []
+	if not isinstance(value, (list, tuple)):
+		return []
+	return list(dict.fromkeys((item or "").strip() for item in value if isinstance(item, str) and item.strip()))
+
+
+def _append_checkin_service_suggestions(order: Any, services: list[dict[str, Any]]) -> None:
+	"""Pre-populate the editable budget from active, server-resolved catalog rows."""
+	if not services:
+		return
+	from tecponto_app.tecponto.service_order.billing import _get_labor_item
+
+	for service in services:
+		order.append(
+			"services",
+			{
+				"item_code": _get_labor_item(),
+				"catalog_service": service["name"],
+				"description": service["service_name"],
+				"qty": 1,
+				"rate": 0 if order.get("is_warranty") else flt(service["default_labor_price"]),
+				"service_duration": flt(service["default_duration"]),
+				"duration_unit": service["duration_unit"],
+			},
+		)
 
 
 def _save_checkin_photo(service_order: str, photo: dict[str, str]) -> str:

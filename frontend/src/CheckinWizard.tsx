@@ -53,6 +53,7 @@ import {
   type CheckinResponse,
   type CustomerDeviceSummary,
   type CustomerSummary,
+  type DeliverySuggestion,
   type WarrantyCandidate,
 } from "./api";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
@@ -275,6 +276,8 @@ export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, 
   const [warrantyCandidates, setWarrantyCandidates] = useState<WarrantyCandidate[]>([]);
   const [warrantyLoading, setWarrantyLoading] = useState(false);
   const [originalServiceOrder, setOriginalServiceOrder] = useState("");
+  const [deliverySuggestion, setDeliverySuggestion] = useState<DeliverySuggestion | null>(null);
+  const [autoSuggestedDeadline, setAutoSuggestedDeadline] = useState("");
   const [photo, setPhoto] = useState<{ dataUrl: string; filename: string } | null>(null);
 
   const generatedSummary = useMemo(() => buildServiceSummary(serviceSelections), [serviceSelections]);
@@ -309,18 +312,32 @@ export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, 
 
   useEffect(() => {
     if (!open) return;
+    const defects = serviceSelections.defects;
+    if (!defects.length) {
+      setDeliverySuggestion(null);
+      setServiceOrder((current) => current.estimated_deadline === autoSuggestedDeadline
+        ? { ...current, estimated_deadline: "" }
+        : current);
+      setAutoSuggestedDeadline("");
+      return;
+    }
     let cancelled = false;
     const leadTime = Number(serviceOrder.lead_time_business_hours) || 0;
-    checkin.getDeliverySuggestion(leadTime).then((suggestion) => {
-      if (!cancelled) {
-        setServiceOrder((current) => ({
-          ...current,
-          estimated_deadline: current.estimated_deadline || suggestion.suggested_delivery_date,
-        }));
-      }
-    }).catch(() => undefined);
+    checkin.getDeliverySuggestion(defects, leadTime).then((suggestion) => {
+      if (cancelled) return;
+      setDeliverySuggestion(suggestion);
+      setServiceOrder((current) => {
+        if (!suggestion.suggested_delivery_date || (current.estimated_deadline && current.estimated_deadline !== autoSuggestedDeadline)) {
+          return current;
+        }
+        return { ...current, estimated_deadline: suggestion.suggested_delivery_date };
+      });
+      setAutoSuggestedDeadline(suggestion.suggested_delivery_date);
+    }).catch(() => {
+      if (!cancelled) setDeliverySuggestion(null);
+    });
     return () => { cancelled = true; };
-  }, [open, serviceOrder.lead_time_business_hours]);
+  }, [autoSuggestedDeadline, open, serviceOrder.lead_time_business_hours, serviceSelections.defects]);
 
   useEffect(() => {
     const customer = selectedCustomer?.name ?? "";
@@ -367,7 +384,7 @@ export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, 
       ? selectedDevice.imei_serial
       : newDevice.brand.trim() && newDevice.model.trim() && newDevice.imei_serial.trim(),
   );
-  const dataReady = Boolean(serviceSelections.defects.length && serviceSelections.physicalStates.length && serviceOrder.reported_defect.trim());
+  const dataReady = Boolean(serviceSelections.physicalStates.length && serviceOrder.physical_state.trim());
   const photoReady = Boolean(photo?.dataUrl);
   const canContinue = [customerReady, deviceReady, dataReady, photoReady, true][step] ?? false;
   const canGoBack = step > 0 || (step === 0 && customerMicrostep !== "choice") || (step === 1 && deviceMicrostep !== "choice");
@@ -450,6 +467,7 @@ export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, 
         accessories_received: serviceOrder.accessories_received.trim(),
         is_warranty: Boolean(originalServiceOrder),
         original_service_order: originalServiceOrder || undefined,
+        defects: serviceSelections.defects,
         estimated_deadline: serviceOrder.estimated_deadline,
         lead_time_business_hours: Number(serviceOrder.lead_time_business_hours) || 0,
       },
@@ -544,6 +562,7 @@ export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, 
                 ) : null}
                 {step === 2 ? (
                   <ServiceDataStep
+                    deliverySuggestion={deliverySuggestion}
                     generatedSummary={generatedSummary}
                     originalServiceOrder={originalServiceOrder}
                     selections={serviceSelections}
@@ -1496,6 +1515,7 @@ function DeviceStep({
 }
 
 function ServiceDataStep({
+  deliverySuggestion,
   generatedSummary,
   originalServiceOrder,
   selections,
@@ -1506,6 +1526,7 @@ function ServiceDataStep({
   warrantyCandidates,
   warrantyLoading,
 }: {
+  deliverySuggestion: DeliverySuggestion | null;
   generatedSummary: string;
   originalServiceOrder: string;
   selections: ServiceSelections;
@@ -1581,8 +1602,23 @@ function ServiceDataStep({
       <WizardCard clean className="p-4">
         <SectionTitle icon={<ClipboardList size={21} />} title="Previsão de entrega" />
         <p className="mt-3 text-sm leading-6 text-tec-muted">
-          O motor sugere uma data usando os SLAs internos e dias úteis. Ela é apenas uma previsão: pode ser ajustada ou deixada em branco sem impedir a abertura da OS.
+          Ao selecionar um defeito com serviço mapeado, o motor sugere uma data usando os SLAs internos e dias úteis. Ela é apenas uma previsão: pode ser ajustada ou deixada em branco sem impedir a abertura da OS.
         </p>
+        {!selections.defects.length ? (
+          <p className="mt-3 rounded-control border border-tec-border/20 bg-tec-field/55 px-3 py-2 text-sm text-tec-muted">
+            Selecione ao menos um defeito para estimar a entrega. Você ainda pode preencher ou deixar a data em branco.
+          </p>
+        ) : deliverySuggestion?.mapped_services.length ? (
+          <div className="mt-3 rounded-control border border-tec-success/25 bg-tec-success/10 px-3 py-2 text-sm text-tec-subtle">
+            <span className="font-semibold text-tec-success">Sugestão do catálogo:</span>{" "}
+            {deliverySuggestion.mapped_services.map((service) => service.service_name).join(", ")}.{" "}
+            {deliverySuggestion.service_business_hours}h úteis de serviço somados ao fluxo interno.
+          </div>
+        ) : (
+          <p className="mt-3 rounded-control border border-tec-border/20 bg-tec-field/55 px-3 py-2 text-sm text-tec-muted">
+            Os defeitos selecionados ainda não possuem um serviço mapeado. A OS continua podendo ser aberta sem previsão.
+          </p>
+        )}
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <Field
             label="Data prometida ao cliente"
@@ -1602,7 +1638,7 @@ function ServiceDataStep({
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <WizardCard clean>
-          <ChipGroup compact label="Defeito relatado" multiple required>
+          <ChipGroup compact label="Defeito relatado" multiple>
             {defectOptions.map((defect) => (
               <OptionChip
                 active={selections.defects.includes(defect)}
