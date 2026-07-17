@@ -191,13 +191,19 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 		frappe.throw(_("Este aceite já foi concluído ou não está mais disponível."), frappe.ValidationError)
 
 	signature = _decode_signature(signature_data)
-	signature_file = save_file(
-		f"signature-{doc.name}.png",
-		signature["content"],
-		dt="Service Order",
-		dn=doc.service_order,
-		is_private=1,
-	)
+	previous_user = frappe.session.user
+	try:
+		# The token was validated above; this is limited to its signature attachment.
+		frappe.set_user("Administrator")
+		signature_file = save_file(
+			f"signature-{doc.name}.png",
+			signature["content"],
+			dt="Service Order",
+			dn=doc.service_order,
+			is_private=1,
+		)
+	finally:
+		frappe.set_user(previous_user)
 	accepted_on = now_datetime()
 	try:
 		request = frappe.local.request
