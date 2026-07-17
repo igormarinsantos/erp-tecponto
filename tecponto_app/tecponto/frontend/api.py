@@ -2119,10 +2119,12 @@ def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple
 		if isinstance(value, (int, float)):
 			return round(flt(value), 4) in forbidden_amounts
 		if isinstance(value, str):
-			normalized = value.strip().replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
-			if not re.fullmatch(r"-?\d+(\.\d+)?", normalized):
-				return False
-			return round(flt(normalized), 4) in forbidden_amounts
+			candidates = re.findall(r"-?(?:\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)", value)
+			for candidate in candidates:
+				normalized = candidate.replace(".", "").replace(",", ".") if "," in candidate else candidate
+				if round(flt(normalized), 4) in forbidden_amounts:
+					return True
+			return False
 		return False
 
 	def walk(value: Any, path: str = "") -> None:

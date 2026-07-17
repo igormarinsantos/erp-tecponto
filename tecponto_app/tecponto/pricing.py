@@ -37,13 +37,8 @@ def _get_valuation_rate(item_code: str | None, warehouse: str | None = None) -> 
 	return flt(frappe.get_cached_value("Item", item_code, "valuation_rate"))
 
 
-def _throw_price_floor(rate: float, cost: float, item_code: str) -> None:
-	frappe.throw(
-		"Preco abaixo do custo ({0}) exige aprovacao do Gestor. Item: {1}".format(
-			frappe.format_value(cost, {"fieldtype": "Currency"}),
-			item_code,
-		)
-	)
+def _throw_price_floor() -> None:
+	frappe.throw("Este preco fica abaixo do piso comercial permitido e exige aprovacao do Gestor.")
 
 
 def _throw_discount_limit(discount_total: float, discount_limit: float) -> None:
@@ -60,7 +55,7 @@ def validate_price_floor(rate, item_code, warehouse=None) -> None:
 
 	cost = _get_valuation_rate(item_code, warehouse)
 	if cost and flt(rate) < cost and not _user_can_override_pricing():
-		_throw_price_floor(flt(rate), cost, item_code)
+		_throw_price_floor()
 
 
 def validate_discount_limit(discount_total) -> None:

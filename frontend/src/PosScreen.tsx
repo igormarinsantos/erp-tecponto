@@ -336,15 +336,15 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
 		}
     } catch (error) {
       const message = error instanceof Error ? error.message : "Não foi possível finalizar a venda.";
-		if (message.includes("Desconto acima do limite") || message.includes("Preco abaixo do custo") || message.includes("Preço abaixo do custo")) {
+		if (message.includes("Desconto acima do limite") || message.includes("piso comercial")) {
         setCheckoutOpen(false);
-		const isPriceFloor = message.includes("Preco abaixo do custo") || message.includes("Preço abaixo do custo");
+		const isPriceFloor = message.includes("piso comercial");
 		setSaleApproval({
           payload: { sale_payload: { ...requestWithoutKey, idempotency_key: idempotencyKey } },
           referenceName: customer.name,
 			requestType: isPriceFloor ? "pos_price_floor" : "pos_discount",
 			title: isPriceFloor
-				? "Este preço fica abaixo do custo. Deseja solicitar aprovação do Gestor?"
+				? "Este preco nao atende ao piso comercial. Deseja solicitar aprovacao do Gestor?"
 				: "Este desconto ultrapassa seu limite. Deseja solicitar aprovação do Gestor?",
         });
       } else {

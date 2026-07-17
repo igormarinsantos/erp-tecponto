@@ -1913,14 +1913,21 @@ def run_pos_sale_checks() -> dict:
 		}
 		frappe.set_user(attendant)
 		attendant_floor_blocked = False
+		floor_error = ""
 		try:
 			pos_create_sale(
 				{**low_price_payload, "idempotency_key": f"tp-pos-floor-att-{frappe.generate_hash(length=20)}"}
 			)
-		except frappe.ValidationError:
+		except frappe.ValidationError as exc:
 			attendant_floor_blocked = True
+			floor_error = str(exc)
 		if not attendant_floor_blocked:
 			raise AssertionError("Atendente conseguiu vender abaixo do custo.")
+		if "piso comercial" not in floor_error.lower():
+			raise AssertionError("Bloqueio de piso nao retornou a mensagem neutra esperada.")
+		error_leaks = contains_sensitive_field({"message": floor_error}, forbidden_values=set(demo["valuation_rates"]))
+		if error_leaks:
+			raise AssertionError(f"Custo vazou na mensagem de erro do piso de preco: {', '.join(error_leaks)}")
 
 		manager_qty_before = _bin_qty(POS_BARCODE_ITEM, commercial)
 		frappe.set_user(manager)
@@ -1963,6 +1970,7 @@ def run_pos_sale_checks() -> dict:
 			},
 			"price_floor": {
 				"attendant_blocked": attendant_floor_blocked,
+				"error_sanitized": not error_leaks,
 				"manager_sale": manager_result["sale"],
 				"manager_qty": {"before": manager_qty_before, "after": manager_qty_after},
 			},
