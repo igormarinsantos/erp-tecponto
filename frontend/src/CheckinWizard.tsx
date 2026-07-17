@@ -678,6 +678,7 @@ function CustomerStep({
         />
         <div className="grid gap-4 lg:grid-cols-2">
           <MicrostepChoiceCard
+            compact
             icon={<Search size={28} />}
             label="Cliente existente"
             onClick={() => {
@@ -687,6 +688,7 @@ function CustomerStep({
             text="Buscar por nome, telefone, CPF ou RG e vincular a OS ao cadastro já existente."
           />
           <MicrostepChoiceCard
+            compact
             icon={<UserRound size={28} />}
             label="Cliente novo"
             onClick={() => {
@@ -772,7 +774,7 @@ function CustomerStep({
   if (customerMicrostep === "new") {
     return (
       <div className="space-y-4">
-        <WizardCard>
+        <WizardCard clean>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <SectionTitle icon={<UserRound size={21} />} title="Criar cliente novo" />
@@ -785,7 +787,12 @@ function CustomerStep({
               </Button>
             </div>
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <div className="mt-5 rounded-card border border-tec-orange/30 bg-tec-orange/[0.045] p-4">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <p className="text-sm font-bold text-white">Dados essenciais</p>
+              <span className="text-xs font-bold uppercase text-tec-orange">Obrigatorios para abrir a OS</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Field
                 autoComplete="name"
@@ -827,6 +834,9 @@ function CustomerStep({
                 value={newCustomer.custom_cpf}
               />
             )}
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Field
                 autoComplete="email"
@@ -855,8 +865,10 @@ function CustomerStep({
           </div>
         </WizardCard>
 
-        <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1.35fr]">
-          <ChoicePanel label="Tipo de cliente">
+        <WizardCard clean className="p-4">
+          <p className="mb-4 text-sm font-bold text-white">Informacoes complementares</p>
+          <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1.35fr]">
+          <ChoicePanel compact label="Tipo de cliente">
             {customerTypes.map((option) => (
               <OptionCard
                 active={customerMeta.type === option.label}
@@ -872,7 +884,7 @@ function CustomerStep({
               />
             ))}
           </ChoicePanel>
-          <ChoicePanel label="Preferência de contato">
+          <ChoicePanel compact label="Preferência de contato">
             {contactPreferences.map((option) => (
               <OptionCard
                 active={customerMeta.contactPreference === option.label}
@@ -883,7 +895,7 @@ function CustomerStep({
               />
             ))}
           </ChoicePanel>
-          <ChoicePanel label="Origem do atendimento">
+          <ChoicePanel compact label="Origem do atendimento">
             {origins.map((option) => (
               <OptionCard
                 active={customerMeta.origin === option.label}
@@ -894,7 +906,8 @@ function CustomerStep({
               />
             ))}
           </ChoicePanel>
-        </div>
+          </div>
+        </WizardCard>
       </div>
     );
   }
@@ -1940,20 +1953,22 @@ function CheckinSuccess({
   );
 }
 
-function WizardCard({ children, className = "" }: { children: ReactNode; className?: string }) {
+function WizardCard({ children, className = "", clean = false }: { children: ReactNode; className?: string; clean?: boolean }) {
   return (
-    <section className={`rounded-card border border-tec-border/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.014))] p-5 shadow-[0_18px_42px_rgba(0,0,0,0.22)] ${className}`}>
+    <section className={`rounded-card border border-tec-border/15 ${clean ? "bg-tec-panel shadow-none" : "bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.014))] shadow-[0_18px_42px_rgba(0,0,0,0.22)]"} p-5 ${className}`}>
       {children}
     </section>
   );
 }
 
 function MicrostepChoiceCard({
+  compact = false,
   icon,
   label,
   onClick,
   text,
 }: {
+  compact?: boolean;
   icon: ReactNode;
   label: string;
   onClick: () => void;
@@ -1961,16 +1976,16 @@ function MicrostepChoiceCard({
 }) {
   return (
     <button
-      className="group min-h-[190px] rounded-card border border-tec-border/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.014))] p-6 text-left shadow-[0_18px_42px_rgba(0,0,0,0.18)] transition hover:border-tec-orange/55 hover:bg-tec-orange/10"
+      className={`group rounded-card border border-tec-border/15 bg-tec-panel text-left transition hover:border-tec-orange/55 hover:bg-tec-orange/10 ${compact ? "min-h-[136px] p-4" : "min-h-[190px] p-6 shadow-[0_18px_42px_rgba(0,0,0,0.18)]"}`}
       onClick={onClick}
       type="button"
     >
-      <span className="grid h-14 w-14 place-items-center rounded-control bg-tec-orange/14 text-tec-orange transition group-hover:bg-tec-orange group-hover:text-tec-ink">
+      <span className={`${compact ? "h-10 w-10" : "h-14 w-14"} grid place-items-center rounded-control bg-tec-orange/14 text-tec-orange transition group-hover:bg-tec-orange group-hover:text-tec-ink`}>
         {icon}
       </span>
-      <span className="mt-5 block text-2xl font-bold text-white">{label}</span>
-      <span className="mt-3 block max-w-xl text-sm leading-6 text-tec-subtle">{text}</span>
-      <span className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-tec-orange">
+      <span className={`${compact ? "mt-3 text-lg" : "mt-5 text-2xl"} block font-bold text-white`}>{label}</span>
+      <span className={`${compact ? "mt-2 leading-5" : "mt-3 leading-6"} block max-w-xl text-sm text-tec-subtle`}>{text}</span>
+      <span className={`${compact ? "mt-3" : "mt-5"} inline-flex items-center gap-2 text-sm font-bold text-tec-orange`}>
         Continuar
         <ArrowRight size={17} />
       </span>
@@ -1978,7 +1993,18 @@ function MicrostepChoiceCard({
   );
 }
 
-function ChoicePanel({ children, label }: { children: ReactNode; label: string }) {
+function ChoicePanel({ children, compact = false, label }: { children: ReactNode; compact?: boolean; label: string }) {
+  if (compact) {
+    return (
+      <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-tec-muted">{label}</p>
+        <div className="flex flex-wrap gap-2 [&>button]:!min-h-0 [&>button]:!px-3 [&>button]:!py-2 [&>button]:!text-left [&>button>span]:hidden [&>button>svg]:hidden">
+          {children}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <WizardCard className="p-4">
       <p className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
