@@ -1145,6 +1145,7 @@ function DeviceStep({
         />
         <div className="grid gap-4 lg:grid-cols-2">
           <MicrostepChoiceCard
+            compact
             icon={<Search size={28} />}
             label="Aparelho existente"
             onClick={() => {
@@ -1154,6 +1155,7 @@ function DeviceStep({
             text="Buscar por modelo, IMEI ou serial entre os aparelhos já vinculados ao cliente."
           />
           <MicrostepChoiceCard
+            compact
             icon={<Smartphone size={28} />}
             label="Novo aparelho"
             onClick={() => {
@@ -1169,7 +1171,7 @@ function DeviceStep({
 
   if (deviceMicrostep === "existing") {
     return (
-      <WizardCard>
+      <WizardCard clean>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <SectionTitle icon={<Search size={21} />} title="Buscar aparelho existente" />
           <Button icon={<ArrowLeft size={17} />} onClick={() => setDeviceMicrostep("choice")} variant="secondary">
@@ -1238,7 +1240,7 @@ function DeviceStep({
 
   if (deviceMicrostep === "new") {
     return (
-      <WizardCard>
+      <WizardCard clean>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <SectionTitle icon={<Smartphone size={21} />} title="Cadastrar novo aparelho" />
@@ -1252,10 +1254,16 @@ function DeviceStep({
           </div>
         </div>
         <div className="mt-5 space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-card border border-tec-orange/30 bg-tec-orange/[0.045] p-4">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <p className="text-sm font-bold text-white">Identificacao do aparelho</p>
+              <span className="text-xs font-bold uppercase text-tec-orange">IMEI obrigatorio</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Modelo" onChange={(value) => updateDevice({ model: value })} placeholder="Modelo do aparelho" required value={newDevice.model} />
             <Field
               autoComplete="off"
+              highlight
               inputMode="numeric"
               label="IMEI / Serial"
               maxLength={18}
@@ -1264,7 +1272,11 @@ function DeviceStep({
               required
               value={newDevice.imei_serial}
             />
+            </div>
           </div>
+          <div className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4">
+            <p className="mb-4 text-sm font-bold text-white">Caracteristicas do aparelho</p>
+            <div className="space-y-4">
           <ChipGroup label="Tipo de aparelho" required>
             {deviceTypes.map((option) => (
               <OptionChip
@@ -1307,6 +1319,8 @@ function DeviceStep({
               />
             ))}
           </ChipGroup>
+            </div>
+          </div>
           <TextArea
             label="Estado geral do aparelho"
             maxLength={300}
@@ -2261,6 +2275,7 @@ function SelectedBox({ lines, onClear }: { lines: string[]; onClear: () => void 
 
 function Field({
   autoComplete,
+  highlight = false,
   inputMode,
   label,
   maxLength,
@@ -2271,6 +2286,7 @@ function Field({
   value,
 }: {
   autoComplete?: HTMLInputAutoCompleteAttribute;
+  highlight?: boolean;
   inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
   label: string;
   maxLength?: number;
@@ -2289,7 +2305,7 @@ function Field({
       <input
         aria-required={required || undefined}
         autoComplete={autoComplete}
-        className="h-12 w-full rounded-control border border-tec-border/15 bg-tec-field px-4 text-sm text-white outline-none placeholder:text-tec-muted focus:border-tec-orange/70"
+        className={`h-12 w-full rounded-control border bg-tec-field px-4 text-sm text-white outline-none placeholder:text-tec-muted focus:border-tec-orange/70 ${highlight ? "border-tec-orange/55 shadow-[0_0_0_1px_rgba(254,80,0,0.12)]" : "border-tec-border/15"}`}
         inputMode={inputMode}
         maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
