@@ -128,6 +128,7 @@ def run_foundation_checks() -> dict:
 		detail_check = _check_service_order_detail_api(users["Tecponto Atendente"])
 		navigation_check = _check_attendant_navigation_apis(users["Tecponto Atendente"])
 		metrics_check = _check_dashboard_metrics(users["Tecponto Atendente"])
+		device_search_check = _check_customer_device_search(users["Tecponto Atendente"])
 		statbar_guard = _check_statbar_guard(users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
@@ -161,6 +162,7 @@ def run_foundation_checks() -> dict:
 			"service_order_detail_api": detail_check,
 			"navigation_apis": navigation_check,
 			"dashboard_metrics": metrics_check,
+			"customer_device_search": device_search_check,
 			"statbar_guard": statbar_guard,
 			"sensitive_guard": guard_check,
 			"budget_cost_guard": budget_cost_guard,
@@ -2527,6 +2529,25 @@ def _check_service_order_detail_api(user: str) -> dict:
 		)
 
 	return {"user": user, "checked": True, "details": details}
+
+
+def _check_customer_device_search(user: str | None = None) -> dict:
+	"""A check-in search must filter by the selected customer before limiting rows."""
+	user = user or _find_or_create_user("Tecponto Atendente")
+	frappe.set_user(user)
+	customer = _get_or_create_demo_customer()
+	device = _get_or_create_demo_device(customer)
+	items = list_customer_devices(query="359999310000001", customer=customer, limit=8)["items"]
+	if device not in {item["name"] for item in items}:
+		raise AssertionError("Busca de aparelho do cliente nÃ£o retornou o aparelho cadastrado.")
+	if any(item["customer"] != customer for item in items):
+		raise AssertionError("Busca de aparelho retornou dispositivo de outro cliente.")
+
+	wrong_customer = list_customer_devices(query="359999310000001", customer="Customer inexistente", limit=8)["items"]
+	if wrong_customer:
+		raise AssertionError("Filtro de cliente foi ignorado na busca de aparelhos.")
+
+	return {"customer": customer, "device": device, "returned": len(items), "server_filtered": True}
 
 
 def _check_attendant_navigation_apis(user: str) -> dict:

@@ -1206,17 +1206,20 @@ def create_customer(payload: str | dict[str, Any] | None = None) -> dict[str, An
 
 
 @frappe.whitelist()
-def list_customer_devices(query: str = "", limit: int = 12) -> dict[str, Any]:
+def list_customer_devices(query: str = "", limit: int = 12, customer: str = "") -> dict[str, Any]:
 	_require_frontend_role()
 	limit = max(1, min(int(limit or 12), 50))
 	query = (query or "").strip()
+	customer = (customer or "").strip()
 	or_filters = _like_filters(
 		query,
 		("name", "customer", "brand", "model", "imei_serial"),
 	)
+	filters = {"customer": customer} if customer else None
 	items = frappe.get_all(
 		"Customer Device",
 		fields=list(SAFE_DEVICE_FIELDS),
+		filters=filters,
 		or_filters=or_filters,
 		order_by="modified desc",
 		limit_page_length=limit,

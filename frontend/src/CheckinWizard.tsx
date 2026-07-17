@@ -391,11 +391,8 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, presentation }:
 
   const searchDevices = useCallback(async () => {
     setError(null);
-    const response = await balcao.listDevices(deviceQuery, 8);
-    const rows = selectedCustomer
-      ? response.items.filter((device) => device.customer === selectedCustomer.name)
-      : response.items;
-    setDeviceRows(rows);
+    const response = await balcao.listDevices(deviceQuery, 8, selectedCustomer?.name ?? "");
+    setDeviceRows(response.items);
   }, [deviceQuery, selectedCustomer]);
 
   async function submit() {

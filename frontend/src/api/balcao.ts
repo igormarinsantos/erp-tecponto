@@ -43,9 +43,9 @@ export const balcao = {
       body: { payload },
     });
   },
-  listDevices(query = "", limit = 12) {
+  listDevices(query = "", limit = 12, customer = "") {
     return rpc<CustomerDeviceListResponse>(`${API}.list_customer_devices`, {
-      query: { query, limit },
+      query: { query, limit, customer },
     });
   },
   createDevice(payload: CreateCustomerDevicePayload) {
