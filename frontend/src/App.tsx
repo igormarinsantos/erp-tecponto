@@ -192,6 +192,9 @@ const DASHBOARD_PERIOD_OPTIONS: Array<{ label: string; value: DashboardPeriodMod
   { label: "Personalizado", value: "custom" },
 ];
 const CASHIER_ROUTE = "/tecponto/caixa";
+const CHECKIN_ROUTE = "/tecponto/nova-os";
+const CHECKIN_RETURN_TO_KEY = "tecponto.checkin.return-to";
+const CHECKIN_OPEN_ORDER_KEY = "tecponto.checkin.open-order";
 
 function getThemeStorageKey(userName: string) {
   return `${THEME_STORAGE_PREFIX}${userName}`;
@@ -308,9 +311,9 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
 
 export function App() {
 	const cashierMode = window.location.pathname.replace(/\/+$/, "") === CASHIER_ROUTE;
+	const checkinPage = window.location.pathname.replace(/\/+$/, "") === CHECKIN_ROUTE;
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [activeView, setActiveView] = useState<NavigationTarget>("overview");
-  const [checkinOpen, setCheckinOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
 	const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
@@ -478,6 +481,17 @@ export function App() {
     setActiveView("service-order-detail");
   }, []);
 
+  useEffect(() => {
+    try {
+      const orderName = window.sessionStorage.getItem(CHECKIN_OPEN_ORDER_KEY);
+      if (!orderName) return;
+      window.sessionStorage.removeItem(CHECKIN_OPEN_ORDER_KEY);
+      openServiceOrder(orderName);
+    } catch {
+      // Returning to the default screen remains safe when session storage is unavailable.
+    }
+  }, [openServiceOrder]);
+
   const openServiceOrderList = useCallback((status: QueueFilter = "all") => {
     setPendingServiceOrderStatus(status);
     setActiveView("service-orders");
@@ -488,7 +502,36 @@ export function App() {
   }, []);
 
   const startCheckin = useCallback(() => {
-    setCheckinOpen(true);
+    try {
+      window.sessionStorage.setItem(CHECKIN_RETURN_TO_KEY, `${window.location.pathname}${window.location.search}${window.location.hash}`);
+    } catch {
+      // Direct access to the page has a deterministic fallback.
+    }
+    window.location.assign(CHECKIN_ROUTE);
+  }, []);
+
+  const closeCheckinPage = useCallback(() => {
+    let returnTo = "/tecponto";
+    try {
+      const stored = window.sessionStorage.getItem(CHECKIN_RETURN_TO_KEY);
+      window.sessionStorage.removeItem(CHECKIN_RETURN_TO_KEY);
+      if (stored?.startsWith("/tecponto") && stored !== CHECKIN_ROUTE) {
+        returnTo = stored;
+      }
+    } catch {
+      // The safe default is intentional for a direct visit to the route.
+    }
+    window.location.assign(returnTo);
+  }, []);
+
+  const openCreatedCheckinOrder = useCallback((name: string) => {
+    try {
+      window.sessionStorage.removeItem(CHECKIN_RETURN_TO_KEY);
+      window.sessionStorage.setItem(CHECKIN_OPEN_ORDER_KEY, name);
+    } catch {
+      // The shell still opens when storage is unavailable.
+    }
+    window.location.assign("/tecponto");
   }, []);
 
   const toggleNotifications = useCallback(() => {
@@ -815,7 +858,7 @@ export function App() {
 
       <main className="tp-main-shell p-4">
         <section className="tp-content-shell">
-          {activeView !== "pos" ? (
+          {!checkinPage && activeView !== "pos" ? (
             <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
               <div>
                 <h1 className="text-3xl font-bold text-white md:text-4xl">
@@ -834,7 +877,14 @@ export function App() {
             </div>
           ) : null}
 
-          {activeView === "overview" ? (
+          {checkinPage ? (
+            <CheckinWizard
+              onClose={closeCheckinPage}
+              onCreated={handleCheckinCreated}
+              onOpenOrder={openCreatedCheckinOrder}
+              presentation="page"
+            />
+          ) : activeView === "overview" ? (
             <OverviewContent
               actions={panel.actions}
               onNavigate={setActiveView}
@@ -876,12 +926,6 @@ export function App() {
           )}
         </section>
       </main>
-      <CheckinWizard
-        onClose={() => setCheckinOpen(false)}
-        onCreated={handleCheckinCreated}
-        onOpenOrder={openServiceOrder}
-        open={checkinOpen}
-      />
       <NotificationsPanel
         notifications={state.notifications}
         onClose={() => setNotificationsOpen(false)}
@@ -912,7 +956,7 @@ export function App() {
         }}
         onStartCheckin={() => {
           setHelpOpen(false);
-          setCheckinOpen(true);
+          startCheckin();
         }}
         open={helpOpen}
       />

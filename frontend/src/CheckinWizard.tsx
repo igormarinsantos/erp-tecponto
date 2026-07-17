@@ -56,7 +56,7 @@ import {
   type WarrantyCandidate,
 } from "./api";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
-import { Button, Modal } from "./ui";
+import { Button } from "./ui";
 
 const steps = ["Cliente", "Aparelho", "Dados", "Fotos", "Assinatura"];
 const stepDescriptions = [
@@ -237,13 +237,13 @@ const accessoryOptions = [
 const damageMarkers = ["trincada", "arranh", "amassado", "oxidação", "molhado", "dano", "lacre", "quebrada"];
 
 interface CheckinWizardProps {
-  open: boolean;
   onClose: () => void;
   onCreated: (response: CheckinResponse) => void;
   onOpenOrder: (name: string) => void;
+  presentation?: "page";
 }
 
-export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: CheckinWizardProps) {
+export function CheckinWizard({ onClose, onCreated, onOpenOrder, presentation }: CheckinWizardProps) {
   const [step, setStep] = useState(0);
   const [created, setCreated] = useState<CheckinResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -456,7 +456,21 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
   }
 
   return (
-    <Modal className="max-w-[calc(100vw-1.5rem)] xl:max-w-[1480px]" onClose={onClose} open={open} title={created ? "OS criada" : "Nova OS / check-in"}>
+    <div className={presentation === "page" ? "mx-auto max-w-[1480px] space-y-4" : "mx-auto max-w-[1480px]"}>
+      {presentation === "page" ? (
+        <header className="flex flex-col gap-4 rounded-card border border-tec-border/20 bg-tec-panel px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 place-items-center rounded-control bg-tec-orange/15 text-tec-orange">
+              <ClipboardCheck size={22} />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-tec-muted">Atendimento</p>
+              <h1 className="font-display text-2xl font-bold text-white">{created ? "OS criada" : "Nova OS / check-in"}</h1>
+            </div>
+          </div>
+          <Button icon={<X size={17} />} onClick={onClose}>Cancelar</Button>
+        </header>
+      ) : null}
       <div>
         {created ? (
           <CheckinSuccess created={created} onClose={onClose} onOpenOrder={onOpenOrder} />
@@ -567,7 +581,7 @@ export function CheckinWizard({ onClose, onCreated, onOpenOrder, open }: Checkin
           </div>
         )}
       </div>
-    </Modal>
+    </div>
   );
 }
 
