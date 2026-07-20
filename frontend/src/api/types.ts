@@ -300,7 +300,7 @@ export interface PosSalePaymentPayload {
 
 export interface PosSalePayload {
 	 cashier_operator_token?: string;
-  customer: string;
+  customer?: string;
   discount_amount: number;
   idempotency_key: string;
   items: Array<{

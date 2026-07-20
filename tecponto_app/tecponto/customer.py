@@ -10,6 +10,9 @@ CUSTOMER_NO_CPF_FIELD = "custom_nao_possui_cpf"
 
 
 def validate_customer_registration(doc: Any, method: str | None = None) -> None:
+	# Only the server-created PDV counterpart may omit personal registration data.
+	if getattr(doc.flags, "tecponto_consumer_final", False):
+		return
 	if doc.get("customer_type") and doc.get("customer_type") != "Individual":
 		return
 	validate_customer_contact_document(doc)

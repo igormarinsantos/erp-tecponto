@@ -1,5 +1,5 @@
 import type { Ref } from "react";
-import { CreditCard, LockKeyhole, UserRound } from "lucide-react";
+import { CreditCard, LockKeyhole, UserPlus, UserRound } from "lucide-react";
 
 import type { CustomerSummary } from "../api";
 import { Button, Card } from "../ui";
@@ -12,6 +12,7 @@ interface SaleSummaryProps {
   onClearDiscount: () => void;
   onDiscountChange: (value: number) => void;
   onFinalize: () => void;
+  onIdentifyCustomer: () => void;
   onPercentDiscount: (percent: number) => void;
   subtotal: number;
   total: number;
@@ -24,6 +25,7 @@ export function SaleSummary({
   onClearDiscount,
   onDiscountChange,
   onFinalize,
+  onIdentifyCustomer,
   onPercentDiscount,
   subtotal,
   total,
@@ -78,9 +80,14 @@ export function SaleSummary({
         <div className="flex items-center gap-3 rounded-control border border-tec-border/15 bg-tec-field/65 p-3">
           <UserRound className="text-tec-muted" size={18} />
           <div className="min-w-0">
-            <p className="text-xs font-bold text-white">{customer?.customer_name ?? "Cliente não selecionado"}</p>
-            <p className="truncate text-[11px] text-tec-muted">{customer ? customer.mobile_no || customer.custom_whatsapp || customer.name : "F2 para selecionar"}</p>
+            <p className="text-xs font-bold text-white">{customer?.customer_name ?? "Consumidor final"}</p>
+            <p className="truncate text-[11px] text-tec-muted">{customer ? customer.mobile_no || customer.custom_whatsapp || customer.name : "Venda avulsa, sem identificação"}</p>
           </div>
+          {!customer ? (
+            <button className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] font-bold text-tec-orange transition hover:text-tec-orange/80" onClick={onIdentifyCustomer} type="button">
+              <UserPlus size={13} /> Identificar <kbd className="rounded bg-tec-panel px-1 py-0.5 text-[9px] text-tec-muted">F2</kbd>
+            </button>
+          ) : null}
         </div>
         <div className="flex items-center gap-3 rounded-control border border-tec-border/15 bg-tec-field/65 p-3">
           <CreditCard className="text-tec-muted" size={18} />

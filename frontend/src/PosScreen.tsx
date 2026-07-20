@@ -289,26 +289,20 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
     if (!cart.length) {
       return;
     }
-    if (!customer) {
-      onToast("Selecione o cliente antes de finalizar a venda.", "error");
-      setCustomerOpen(true);
-      return;
-    }
-
     if (cashierMode && !cashierOperator?.token) {
       onToast("Identifique o operador pelo cracha ou PIN antes de finalizar.", "error");
       return;
     }
     setCheckoutOpen(true);
-  }, [cart.length, cashierMode, cashierOperator?.token, customer, onToast]);
+  }, [cart.length, cashierMode, cashierOperator?.token, onToast]);
 
   const submitSale = async (payments: PosSalePaymentPayload[]) => {
-    if (!customer || !cart.length || checkoutLoading) {
+    if (!cart.length || checkoutLoading) {
       return;
     }
     const requestWithoutKey = {
 		cashier_operator_token: cashierOperator?.token,
-      customer: customer.name,
+      customer: customer?.name ?? "",
       discount_amount: discount,
       items: cart.map((item) => ({ item_code: item.item_code, qty: item.qty })),
       payments,
@@ -341,7 +335,7 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
 		const isPriceFloor = message.includes("piso comercial");
 		setSaleApproval({
           payload: { sale_payload: { ...requestWithoutKey, idempotency_key: idempotencyKey } },
-          referenceName: customer.name,
+          referenceName: customer?.name ?? "CONSUMIDOR FINAL",
 			requestType: isPriceFloor ? "pos_price_floor" : "pos_discount",
 			title: isPriceFloor
 				? "Este preco nao atende ao piso comercial. Deseja solicitar aprovacao do Gestor?"
@@ -380,7 +374,7 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
           <p className="mt-1 text-sm text-tec-subtle">{cashierMode ? "Bipe os produtos e finalize. Ao concluir, o caixa volta pronto para a proxima venda." : "Venda rápida por código de barras ou busca de produto."}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button icon={<UserRound size={16} />} onClick={() => setCustomerOpen(true)}><kbd className="rounded-[6px] bg-tec-panel px-1.5 py-0.5 text-[10px]">F2</kbd> Cliente</Button>
+          <Button icon={<UserRound size={16} />} onClick={() => setCustomerOpen(true)}><kbd className="rounded-[6px] bg-tec-panel px-1.5 py-0.5 text-[10px]">F2</kbd> Identificar cliente</Button>
           <Button icon={<Percent size={16} />} onClick={() => discountRef.current?.focus()}><kbd className="rounded-[6px] bg-tec-panel px-1.5 py-0.5 text-[10px]">F3</kbd> Desconto</Button>
           <Button icon={<RefreshCw size={17} />} onClick={() => {
             setSearchRefresh((current) => current + 1);
@@ -444,6 +438,7 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
             onClearDiscount={() => setDiscount(0)}
             onDiscountChange={changeDiscount}
             onFinalize={handleFinalize}
+            onIdentifyCustomer={() => setCustomerOpen(true)}
             onPercentDiscount={(percent) => setDiscount(Number((subtotal * percent / 100).toFixed(2)))}
             subtotal={subtotal}
             total={total}
@@ -472,7 +467,7 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
 		title={saleApproval?.title ?? "Esta venda exige aprovação do Gestor."}
       />
       <CheckoutModal
-        customerName={customer?.customer_name ?? customer?.name ?? "Cliente"}
+        customerName={customer?.customer_name ?? customer?.name ?? "Consumidor final (venda avulsa)"}
         loading={checkoutLoading}
         onClose={() => setCheckoutOpen(false)}
         onConfirm={(payments) => void submitSale(payments)}

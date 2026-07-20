@@ -43,6 +43,7 @@ POS_SALE_ROLES = {"Tecponto Atendente", "Tecponto Gestor", "System Manager"}
 INVENTORY_RECEIPT_ROLES = {"Tecponto Gestor", "System Manager"}
 IDEMPOTENCY_DOCTYPE = "Tecponto POS Sale Request"
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,95}$")
+CONSUMER_FINAL_CUSTOMER = "CONSUMIDOR FINAL"
 
 
 @frappe.whitelist()
@@ -434,7 +435,9 @@ def _validate_idempotency_key(value: Any) -> str:
 
 def _normalize_request(data: dict[str, Any], *, cashier_operator: dict[str, str] | None = None) -> dict[str, Any]:
 	customer = str(data.get("customer") or "").strip()
-	if not customer or not frappe.db.exists("Customer", customer):
+	if not customer:
+		customer = _get_or_create_consumer_final_customer()
+	elif not frappe.db.exists("Customer", customer):
 		frappe.throw(_("Selecione um cliente válido para finalizar a venda."), frappe.ValidationError)
 
 	item_totals: dict[tuple[str, str], float] = {}
@@ -479,6 +482,23 @@ def _normalize_request(data: dict[str, Any], *, cashier_operator: dict[str, str]
 			for (mode, installments), amount in sorted(payment_totals.items())
 		],
 	}
+
+
+def _get_or_create_consumer_final_customer() -> str:
+	"""Return the single anonymous counter-sale party, without personal data."""
+	if frappe.db.exists("Customer", CONSUMER_FINAL_CUSTOMER):
+		return CONSUMER_FINAL_CUSTOMER
+
+	customer = frappe.get_doc(
+		{
+			"doctype": "Customer",
+			"customer_name": "Consumidor Final",
+			"customer_type": "Individual",
+		}
+	)
+	customer.flags.tecponto_consumer_final = True
+	customer.insert(ignore_permissions=True, set_name=CONSUMER_FINAL_CUSTOMER)
+	return customer.name
 
 
 def _request_hash(request: dict[str, Any]) -> str:

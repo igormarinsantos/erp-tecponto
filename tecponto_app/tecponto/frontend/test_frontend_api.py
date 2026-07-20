@@ -1126,6 +1126,29 @@ def run_cashier_mode_checks() -> dict:
 		if not other_badge_blocked:
 			raise AssertionError("Atendente conseguiu imprimir o cracha de outro operador.")
 
+		anonymous_qty_before = _bin_qty(POS_BARCODE_ITEM, demo["commercial_warehouse"])
+		anonymous_result = pos_create_sale(
+			{
+				"idempotency_key": f"tp-pos-anonymous-{frappe.generate_hash(length=20)}",
+				"items": [{"item_code": POS_BARCODE_ITEM, "qty": 1}],
+				"discount_amount": 0,
+				"payments": [{"mode_of_payment": "Pix", "amount":  79.90, "installments": 1}],
+			}
+		)
+		frappe.db.commit()
+		if anonymous_result["customer"] != "CONSUMIDOR FINAL":
+			raise AssertionError("Venda avulsa deveria usar somente o cadastro Consumidor Final.")
+		if _bin_qty(POS_BARCODE_ITEM, demo["commercial_warehouse"]) != anonymous_qty_before - 1:
+			raise AssertionError("Venda avulsa deveria baixar uma unidade do Comercial.")
+		anonymous_customer = frappe.db.get_value(
+			"Customer",
+			"CONSUMIDOR FINAL",
+			["customer_name", "mobile_no", "email_id", "custom_cpf", "custom_rg"],
+			as_dict=True,
+		)
+		if not anonymous_customer or any(anonymous_customer.get(field) for field in ("mobile_no", "email_id", "custom_cpf", "custom_rg")):
+			raise AssertionError("Consumidor Final nao pode carregar dados pessoais.")
+
 		frappe.set_user(technician)
 		badge_blocked = False
 		try:
