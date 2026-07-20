@@ -188,12 +188,14 @@ h4 {
 }
 
 .tp-horizontal-scroll-top {
-  height: 8px;
-  margin-bottom: 0.35rem;
-  overflow-x: auto;
+  box-sizing: content-box;
+  height: 10px;
+  margin: 0 0 0.55rem;
+  overflow-x: scroll;
   overflow-y: hidden;
-  border-radius: 999px;
-  background: rgb(var(--tp-border) / 0.12);
+  padding: 2px 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .tp-horizontal-scroll-spacer {
@@ -213,13 +215,15 @@ h4 {
 
 .tp-horizontal-scroll-top::-webkit-scrollbar-thumb,
 .tp-horizontal-scroll-bottom::-webkit-scrollbar-thumb {
+  border: 0;
   background: rgb(var(--tp-border) / 0.6);
   border-radius: 999px;
 }
 
 .tp-horizontal-scroll-top::-webkit-scrollbar-track,
 .tp-horizontal-scroll-bottom::-webkit-scrollbar-track {
-  background: rgb(var(--tp-bg));
+  background: rgb(var(--tp-border) / 0.12);
+  border-radius: 999px;
 }
 
 @media (max-width: 767px) {
