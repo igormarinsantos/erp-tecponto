@@ -15,6 +15,7 @@ from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry impor
 	get_available_qty_to_reserve,
 )
 
+from tecponto_app.tecponto.customer import CUSTOMER_NO_CPF_FIELD
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
 	get_dashboard_metrics,
@@ -2790,8 +2791,20 @@ def run_technician_scope_checks() -> dict:
 		manager = _find_or_create_user("Tecponto Gestor")
 		own_order = _create_action_request_service_order(attendant)
 		other_order = _create_action_request_service_order(attendant)
-		frappe.db.set_value("Service Order", own_order, "technician", technician, update_modified=False)
-		frappe.db.set_value("Service Order", other_order, "technician", manager, update_modified=False)
+		own_customer, own_device, own_label, own_imei = _create_technician_scope_customer_device("próprio")
+		other_customer, other_device, other_label, other_imei = _create_technician_scope_customer_device("alheio")
+		frappe.db.set_value(
+			"Service Order",
+			own_order,
+			{"technician": technician, "customer": own_customer, "customer_device": own_device},
+			update_modified=False,
+		)
+		frappe.db.set_value(
+			"Service Order",
+			other_order,
+			{"technician": manager, "customer": other_customer, "customer_device": other_device},
+			update_modified=False,
+		)
 		frappe.db.commit()
 
 		frappe.set_user(technician)
@@ -2826,6 +2839,31 @@ def run_technician_scope_checks() -> dict:
 		):
 			raise AssertionError("StatBar do técnico ignorou a atribuição da OS.")
 
+		customer_results = search_customers(query=own_label, limit=20)
+		customer_names = {item["name"] for item in customer_results["items"]}
+		if own_customer not in customer_names or other_customer in customer_names:
+			raise AssertionError("Busca de clientes do técnico ignorou a carteira de suas OS.")
+		if {"custom_cpf", "custom_rg", "email_id"}.intersection(customer_results["fields"]):
+			raise AssertionError("Busca de clientes do técnico devolveu campos fiscais ou e-mail.")
+		if any(
+			item.get(field)
+			for item in customer_results["items"]
+			for field in ("custom_cpf", "custom_rg", "email_id")
+		):
+			raise AssertionError("Busca de clientes do técnico devolveu valores fiscais ou e-mail.")
+
+		own_devices = list_customer_devices(query=own_imei, customer=own_customer, limit=20)["items"]
+		if own_device not in {item["name"] for item in own_devices}:
+			raise AssertionError("Técnico não encontrou aparelho vinculado à sua própria OS.")
+		if list_customer_devices(query=other_imei, customer=other_customer, limit=20)["items"]:
+			raise AssertionError("Técnico encontrou aparelho vinculado à OS de outra pessoa.")
+		if list_customer_devices(query=other_imei, limit=20)["items"]:
+			raise AssertionError("Busca global de aparelhos do técnico encontrou dispositivo alheio.")
+
+		detail = get_service_order_detail(own_order)
+		if any(detail["customer"].get(field) for field in ("custom_cpf", "custom_rg", "email_id")):
+			raise AssertionError("Detalhe de OS do técnico devolveu dados fiscais ou e-mail do cliente.")
+
 		blocked_endpoints = {
 			"vendas": lambda: list_sales(limit=1),
 			"statbar_vendas": lambda: get_list_statbar("sales"),
@@ -2855,10 +2893,45 @@ def run_technician_scope_checks() -> dict:
 			"scoped_total": expected_total,
 			"sales_visible": metrics["sales_visible"],
 			"blocked_endpoints": sorted(blocked_endpoints),
+			"customer_device_scope": True,
+			"fiscal_data_withheld": True,
 			"multi_role_union_preserved": True,
 		}
 	finally:
 		frappe.set_user(previous_user)
+
+
+def _create_technician_scope_customer_device(label: str) -> tuple[str, str, str, str]:
+	"""Create isolated customer/device data for the technical privacy regression test."""
+	token = frappe.generate_hash(length=10).upper()
+	customer_label = f"Cliente Escopo Técnico {label} {token}"
+	customer = frappe.get_doc(
+		{
+			"doctype": "Customer",
+			"customer_name": customer_label,
+			"customer_type": "Individual",
+			"mobile_no": "11999990000",
+			"custom_whatsapp": "11999990000",
+			"custom_cpf": "",
+			"custom_rg": f"RG-{token}",
+			CUSTOMER_NO_CPF_FIELD: 1,
+			"email_id": f"{token.lower()}@privado.tecponto.local",
+		}
+	)
+	customer.insert(ignore_permissions=True)
+	imei = f"359{frappe.generate_hash(length=12).upper()}"
+	device = frappe.get_doc(
+		{
+			"doctype": "Customer Device",
+			"customer": customer.name,
+			"brand": "Tecponto",
+			"model": f"Teste escopo {label}",
+			"imei_serial": imei,
+			"registration_date": nowdate(),
+		}
+	)
+	device.insert(ignore_permissions=True)
+	return customer.name, device.name, customer_label, imei
 
 
 def run_used_device_warranty_lookup_checks() -> dict:

@@ -120,6 +120,13 @@ SAFE_CUSTOMER_FIELDS = (
 	"email_id",
 	"modified",
 )
+SAFE_TECHNICIAN_CUSTOMER_FIELDS = (
+	"name",
+	"customer_name",
+	"mobile_no",
+	"custom_whatsapp",
+	"modified",
+)
 SAFE_DEVICE_FIELDS = (
 	"name",
 	"customer",
@@ -547,7 +554,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"attendant": doc.get("attendant"),
 		"technician": doc.get("technician"),
 		"priority": doc.get("priority"),
-		"customer": _get_customer_detail(doc.get("customer")),
+		"customer": _get_customer_detail(doc.get("customer"), include_fiscal=not is_restricted_technician()),
 		"device": _get_device_detail(doc.get("customer_device")),
 		"reported_defect": doc.get("reported_defect"),
 		"physical_state": doc.get("physical_state"),
@@ -1218,21 +1225,29 @@ def search_customers(query: str = "", limit: int = 12) -> dict[str, Any]:
 	_require_frontend_role()
 	limit = max(1, min(int(limit or 12), 50))
 	query = (query or "").strip()
-	or_filters = _like_filters(
-		query,
-		("name", "customer_name", "mobile_no", "custom_whatsapp", "custom_cpf", "custom_rg", "email_id"),
+	restricted_technician = is_restricted_technician()
+	allowed_customers = _technician_customer_names() if restricted_technician else None
+	if restricted_technician and not allowed_customers:
+		return {"items": [], "count": 0, "fields": list(SAFE_TECHNICIAN_CUSTOMER_FIELDS)}
+	fields = SAFE_TECHNICIAN_CUSTOMER_FIELDS if restricted_technician else SAFE_CUSTOMER_FIELDS
+	search_fields = (
+		("name", "customer_name", "mobile_no", "custom_whatsapp")
+		if restricted_technician
+		else ("name", "customer_name", "mobile_no", "custom_whatsapp", "custom_cpf", "custom_rg", "email_id")
 	)
+	or_filters = _like_filters(query, search_fields)
 	items = frappe.get_all(
 		"Customer",
-		fields=list(SAFE_CUSTOMER_FIELDS),
+		fields=list(fields),
+		filters={"name": ["in", allowed_customers]} if allowed_customers is not None else None,
 		or_filters=or_filters,
 		order_by="modified desc",
 		limit_page_length=limit,
 	)
 	return {
-		"items": [_serialize_customer(item) for item in items],
+		"items": [_serialize_customer(item, include_fiscal=not restricted_technician) for item in items],
 		"count": len(items),
-		"fields": list(SAFE_CUSTOMER_FIELDS),
+		"fields": list(fields),
 	}
 
 
@@ -1267,11 +1282,22 @@ def list_customer_devices(query: str = "", limit: int = 12, customer: str = "") 
 	limit = max(1, min(int(limit or 12), 50))
 	query = (query or "").strip()
 	customer = (customer or "").strip()
+	allowed_customers = _technician_customer_names() if is_restricted_technician() else None
+	if allowed_customers is not None and customer and customer not in allowed_customers:
+		return {"items": [], "count": 0, "fields": list(SAFE_DEVICE_FIELDS)}
+	if allowed_customers is not None and not allowed_customers:
+		return {"items": [], "count": 0, "fields": list(SAFE_DEVICE_FIELDS)}
 	or_filters = _like_filters(
 		query,
 		("name", "customer", "brand", "model", "imei_serial"),
 	)
-	filters = {"customer": customer} if customer else None
+	filters = (
+		{"customer": customer}
+		if customer
+		else {"customer": ["in", allowed_customers]}
+		if allowed_customers is not None
+		else None
+	)
 	items = frappe.get_all(
 		"Customer Device",
 		fields=list(SAFE_DEVICE_FIELDS),
@@ -1584,16 +1610,16 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 	}
 
 
-def _serialize_customer(item: dict[str, Any]) -> dict[str, Any]:
+def _serialize_customer(item: dict[str, Any], include_fiscal: bool = True) -> dict[str, Any]:
 	return {
 		"name": item.get("name"),
 		"customer_name": item.get("customer_name"),
 		"mobile_no": item.get("mobile_no"),
 		"custom_whatsapp": item.get("custom_whatsapp"),
-		"custom_cpf": item.get("custom_cpf"),
-		"custom_rg": item.get("custom_rg"),
-		CUSTOMER_NO_CPF_FIELD: bool(item.get(CUSTOMER_NO_CPF_FIELD)),
-		"email_id": item.get("email_id"),
+		"custom_cpf": item.get("custom_cpf") if include_fiscal else None,
+		"custom_rg": item.get("custom_rg") if include_fiscal else None,
+		CUSTOMER_NO_CPF_FIELD: bool(item.get(CUSTOMER_NO_CPF_FIELD)) if include_fiscal else False,
+		"email_id": item.get("email_id") if include_fiscal else None,
 		"modified": str(item.get("modified") or ""),
 	}
 
@@ -1925,16 +1951,38 @@ def _serialize_part_row(row: Any) -> dict[str, Any]:
 	}
 
 
-def _get_customer_detail(customer: str | None) -> dict[str, Any] | None:
+def _get_customer_detail(customer: str | None, include_fiscal: bool = True) -> dict[str, Any] | None:
 	if not customer:
 		return None
+	fields = ["name", "customer_name", "mobile_no", "custom_whatsapp"]
+	if include_fiscal:
+		fields.extend(["custom_cpf", "custom_rg", CUSTOMER_NO_CPF_FIELD, "email_id"])
 	item = frappe.db.get_value(
 		"Customer",
 		customer,
-		["name", "customer_name", "mobile_no", "custom_whatsapp", "custom_cpf", "custom_rg", CUSTOMER_NO_CPF_FIELD, "email_id"],
+		fields,
 		as_dict=True,
 	)
-	return dict(item) if item else {"name": customer, "customer_name": customer}
+	if not item:
+		return {"name": customer, "customer_name": customer}
+	result = dict(item)
+	if not include_fiscal:
+		result.update({"custom_cpf": None, "custom_rg": None, CUSTOMER_NO_CPF_FIELD: False, "email_id": None})
+	return result
+
+
+def _technician_customer_names() -> list[str] | None:
+	"""Return a technical-only user's customer portfolio, or None for broader roles."""
+	service_scope = service_order_scope_filters()
+	if not service_scope:
+		return None
+	return sorted(
+		{
+			customer
+			for customer in frappe.get_all("Service Order", filters=service_scope, pluck="customer", limit_page_length=0)
+			if customer
+		}
+	)
 
 
 def _customer_label(customer: str | None) -> str:
