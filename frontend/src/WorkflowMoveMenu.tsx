@@ -32,13 +32,13 @@ export function WorkflowMoveMenu({
     <div className={cx("relative", className)} ref={ref}>
       <button
         aria-expanded={open}
-        className="inline-flex min-h-8 items-center gap-1.5 rounded-control border border-tec-border/20 bg-tec-field px-2.5 text-xs font-bold text-tec-subtle transition hover:border-tec-orange/55 hover:text-white disabled:opacity-55"
+        className="inline-flex min-h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control border border-tec-border/20 bg-tec-field px-2.5 text-xs font-bold text-tec-subtle transition hover:border-tec-orange/55 hover:text-white disabled:opacity-55"
         disabled={busy}
         onClick={(event) => { event.stopPropagation(); setOpen((value) => !value); }}
         type="button"
       >
         {busy ? <LoaderCircle className="animate-spin" size={14} /> : <MoveRight size={14} />}
-        Mover para
+        Mover
         <ChevronDown size={14} />
       </button>
       {open ? (
