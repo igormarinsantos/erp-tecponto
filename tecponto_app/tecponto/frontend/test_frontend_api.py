@@ -47,6 +47,10 @@ from tecponto_app.tecponto.frontend.api import (
 	set_tradein_approved_value,
 	list_product_categories,
 	save_product_category,
+	create_product_with_variants,
+	list_product_variant_attributes,
+	list_variant_products,
+	save_product_variant_attribute,
 	save_catalog_reference,
 	save_catalog_service,
 	save_stage_sla,
@@ -67,6 +71,7 @@ from tecponto_app.tecponto.tracking import (
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.product_categories import ensure_product_category_foundation
+from tecponto_app.tecponto.product_variants import ensure_product_variant_attributes
 from tecponto_app.tecponto.requests import (
 	approve_request,
 	create_request,
@@ -158,6 +163,7 @@ def run_foundation_checks() -> dict:
 		customer_registration_checks = run_customer_registration_checks()
 		service_catalog_checks = run_service_catalog_checks()
 		product_category_checks = run_product_category_checks()
+		product_variant_checks = run_product_variant_checks()
 		defect_service_mapping_checks = run_defect_service_mapping_checks()
 		stage_sla_checks = run_stage_sla_checks()
 		stage_clock_checks = run_stage_clock_checks()
@@ -189,6 +195,7 @@ def run_foundation_checks() -> dict:
 			"customer_registration_checks": customer_registration_checks,
 			"service_catalog_checks": service_catalog_checks,
 			"product_category_checks": product_category_checks,
+			"product_variant_checks": product_variant_checks,
 			"defect_service_mapping_checks": defect_service_mapping_checks,
 			"stage_sla_checks": stage_sla_checks,
 			"stage_clock_checks": stage_clock_checks,
@@ -1107,6 +1114,91 @@ def _find_category(items: list[dict], name: str) -> dict:
 		if found:
 			return found
 	return {}
+
+
+def run_product_variant_checks() -> dict:
+	"""Prove native variants keep barcode lookup and stock strictly per child SKU."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		ensure_product_variant_attributes()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		frappe.set_user(manager)
+
+		attribute = save_product_variant_attribute("Cor", [{"value": "Verde TP", "abbreviation": "VTP"}])["item"]
+		if not any(row["value"] == "Verde TP" for row in attribute["values"]):
+			raise AssertionError("Gestor não conseguiu manter um valor de Item Attribute nativo.")
+
+		suffix = frappe.generate_hash(length=7).upper()
+		template_code = f"TPV-CAPA-{suffix}"
+		payload = {
+			"template_code": template_code,
+			"template_name": f"Capa teste {suffix}",
+			"item_group": "Capas",
+			"stock_uom": "Nos",
+			"attributes": [{"name": "Cor"}, {"name": "Modelo compatível"}],
+			"variants": [
+				{"attributes": {"Cor": "Preto", "Modelo compatível": "iPhone 13"}, "sku": f"{template_code}-PT-IP13", "gtin": f"TPV{suffix}01", "price": 49.90},
+				{"attributes": {"Cor": "Azul", "Modelo compatível": "iPhone 13"}, "sku": f"{template_code}-AZ-IP13", "gtin": f"TPV{suffix}02", "price": 49.90},
+				{"attributes": {"Cor": "Preto", "Modelo compatível": "iPhone 14"}, "sku": f"{template_code}-PT-IP14", "gtin": f"TPV{suffix}03", "price": 54.90},
+				{"attributes": {"Cor": "Azul", "Modelo compatível": "iPhone 14"}, "sku": f"{template_code}-AZ-IP14", "gtin": f"TPV{suffix}04", "price": 54.90},
+			],
+		}
+		created = create_product_with_variants(payload)
+		if created["template"]["item_code"] != template_code or len(created["variants"]) != 4:
+			raise AssertionError("Produto pai ou combinações nativas não foram criados.")
+		if frappe.get_doc("Item", template_code).is_stock_item:
+			raise AssertionError("Produto pai de variações não pode manter estoque.")
+
+		target = created["variants"][0]
+		other = created["variants"][1]
+		pos_receive_retail_stock({"item_code": target["item_code"], "qty": 3, "incoming_rate": 12})
+		pos_receive_retail_stock({"item_code": other["item_code"], "qty": 4, "incoming_rate": 12})
+		lookup = pos_lookup_retail_barcode(target["gtin"])
+		if lookup.get("item", {}).get("item_code") != target["item_code"]:
+			raise AssertionError("Bipe não resolveu a variação exata do código de barras.")
+
+		commercial_warehouse = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
+		before_target = flt(frappe.db.get_value("Bin", {"item_code": target["item_code"], "warehouse": commercial_warehouse}, "actual_qty"), 3)
+		before_other = flt(frappe.db.get_value("Bin", {"item_code": other["item_code"], "warehouse": commercial_warehouse}, "actual_qty"), 3)
+		sale = pos_create_sale(
+			{
+				"idempotency_key": f"tpv-sale-{suffix}",
+				"discount_amount": 0,
+				"items": [{"item_code": target["item_code"], "qty": 1}],
+				"payments": [{"mode_of_payment": "Pix", "amount": target["price"]}],
+			}
+		)
+		after_target = flt(frappe.db.get_value("Bin", {"item_code": target["item_code"], "warehouse": commercial_warehouse}, "actual_qty"), 3)
+		after_other = flt(frappe.db.get_value("Bin", {"item_code": other["item_code"], "warehouse": commercial_warehouse}, "actual_qty"), 3)
+		if after_target != before_target - 1 or after_other != before_other:
+			raise AssertionError("Venda de uma variação alterou estoque de SKU incorreto.")
+
+		visible = list_variant_products()
+		leaks = contains_sensitive_field({"attributes": list_product_variant_attributes(), "products": visible})
+		if leaks:
+			raise AssertionError(f"Produto com variação vazou campo sensível: {', '.join(leaks)}")
+		frappe.set_user(attendant)
+		blocked = False
+		try:
+			create_product_with_variants({})
+		except frappe.PermissionError:
+			blocked = True
+		if not blocked:
+			raise AssertionError("Atendente não pode cadastrar produto com variações.")
+		return {
+			"template": template_code,
+			"variants": len(created["variants"]),
+			"barcode_resolves_exact_sku": lookup["item"]["item_code"],
+			"sale": sale["sale"],
+			"target_stock": [before_target, after_target],
+			"other_stock": [before_other, after_other],
+			"attendant_blocked": blocked,
+			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
 
 
 def run_quick_stage_move_checks() -> dict:

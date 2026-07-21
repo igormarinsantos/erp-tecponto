@@ -6,6 +6,7 @@ import {
   BadgeInfo,
   Barcode,
   Box,
+	Boxes,
   CalendarDays,
   CalendarClock,
   ChevronDown,
@@ -86,6 +87,7 @@ import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
 import { LoginScreen, type LoginReason } from "./LoginScreen";
 import { PosScreen } from "./PosScreen";
 import { RetailProductModal } from "./RetailProductModal";
+import { VariantProductModal } from "./VariantProductModal";
 import { ProductCategoryScreen } from "./ProductCategoryScreen";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
@@ -1832,7 +1834,7 @@ function NavigationContent({
   }
 
   if (activeView === "parts-stock" || activeView === "repair-parts" || activeView === "commercial-products" || activeView === "used-devices") {
-    return <StockLookup canReceiveStock={canReceiveStock} initialBarcode={initialRetailBarcode} onInitialBarcodeHandled={onInitialRetailBarcodeHandled} onToast={onToast} scope={activeView} />;
+    return <StockLookup canManageVariantProducts={canEditProductCategories} canReceiveStock={canReceiveStock} initialBarcode={initialRetailBarcode} onInitialBarcodeHandled={onInitialRetailBarcodeHandled} onToast={onToast} scope={activeView} />;
   }
 
   if (activeView === "pos") {
@@ -4872,12 +4874,14 @@ function TradeEvaluationDetailModal({
 }
 
 function StockLookup({
+	canManageVariantProducts,
   canReceiveStock,
   initialBarcode,
   onInitialBarcodeHandled,
   onToast,
   scope,
 }: {
+	canManageVariantProducts: boolean;
   canReceiveStock: boolean;
   initialBarcode: PendingRetailBarcode | null;
   onInitialBarcodeHandled: () => void;
@@ -4912,6 +4916,7 @@ function StockLookup({
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [registrationOpen, setRegistrationOpen] = useState(false);
+	const [variantRegistrationOpen, setVariantRegistrationOpen] = useState(false);
   const [registrationBarcode, setRegistrationBarcode] = useState<string | null>(null);
 
   const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
@@ -5075,10 +5080,13 @@ function StockLookup({
             <h2 className="text-lg font-bold text-white">Cadastro e entrada por código</h2>
             <p className="mt-1 text-sm text-tec-subtle">Escaneie a embalagem; produto conhecido não cria cadastro duplicado.</p>
           </div>
-          <Button icon={<Plus size={16} />} onClick={() => {
-            setRegistrationBarcode(null);
-            setRegistrationOpen(true);
-          }} variant="primary">Cadastrar produto</Button>
+		  <div className="flex flex-wrap gap-2">
+			{canManageVariantProducts ? <Button icon={<Boxes size={16} />} onClick={() => setVariantRegistrationOpen(true)}>Produto com variações</Button> : null}
+			<Button icon={<Plus size={16} />} onClick={() => {
+			  setRegistrationBarcode(null);
+			  setRegistrationOpen(true);
+			}} variant="primary">Cadastrar produto</Button>
+		  </div>
         </div>
       ) : null}
       <LookupCard
@@ -5116,6 +5124,7 @@ function StockLookup({
           open={registrationOpen}
         />
       ) : null}
+		{isCommercialCatalog && canManageVariantProducts ? <VariantProductModal onClose={() => setVariantRegistrationOpen(false)} onCreated={(message) => { onToast(message); void search(""); }} open={variantRegistrationOpen} /> : null}
 		<Modal
 			onClose={() => setTransferItem(null)}
 			open={Boolean(transferItem)}

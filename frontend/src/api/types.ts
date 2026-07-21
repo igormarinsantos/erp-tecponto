@@ -38,6 +38,50 @@ export interface ProductCategorySavePayload {
   active: boolean;
 }
 
+export interface ProductVariantAttributeValue {
+  abbreviation: string;
+  value: string;
+}
+
+export interface ProductVariantAttribute {
+  disabled: boolean;
+  name: string;
+  values: ProductVariantAttributeValue[];
+}
+
+export interface ProductVariantSummary {
+  attributes: Record<string, string>;
+  available_qty: number;
+  gtin: string | null;
+  item_code: string;
+  item_name: string;
+  price: number;
+  sku: string;
+}
+
+export interface ProductVariantTemplate {
+  attributes: string[];
+  disabled: boolean;
+  item_code: string;
+  item_group: string;
+  item_name: string;
+  variants?: ProductVariantSummary[];
+}
+
+export interface ProductVariantCreatePayload {
+  attributes: Array<{ name: string }>;
+  item_group: string;
+  stock_uom?: string;
+  template_code: string;
+  template_name: string;
+  variants: Array<{
+    attributes: Record<string, string>;
+    gtin: string;
+    price: number;
+    sku: string;
+  }>;
+}
+
 export interface LoggedUser {
   name: string;
   full_name: string;

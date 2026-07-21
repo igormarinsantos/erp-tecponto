@@ -2232,6 +2232,7 @@ def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple
 	walk(payload)
 	return sorted(found)
 from tecponto_app.tecponto import product_categories
+from tecponto_app.tecponto import product_variants
 
 
 def _require_product_category_editor() -> None:
@@ -2267,3 +2268,31 @@ def save_product_category(
 			original_name=original_name,
 		)
 	}
+
+
+@frappe.whitelist()
+def list_product_variant_attributes() -> dict[str, Any]:
+	_require_frontend_role()
+	return {"items": product_variants.list_product_variant_attributes()}
+
+
+@frappe.whitelist()
+def save_product_variant_attribute(name: str, values: str | list[dict[str, Any]] | None = None, disabled: int | bool = 0) -> dict[str, Any]:
+	_require_product_category_editor()
+	parsed_values = frappe.parse_json(values) if isinstance(values, str) else values
+	return {"item": product_variants.save_product_variant_attribute(name, parsed_values or [], bool(cint(disabled)))}
+
+
+@frappe.whitelist()
+def create_product_with_variants(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_product_category_editor()
+	data = frappe.parse_json(payload) if isinstance(payload, str) else payload
+	if not isinstance(data, dict):
+		frappe.throw(_("Dados do produto com variações não informados."), frappe.ValidationError)
+	return product_variants.create_product_with_variants(data)
+
+
+@frappe.whitelist()
+def list_variant_products(limit: int = 50) -> dict[str, Any]:
+	_require_frontend_role()
+	return {"items": product_variants.list_variant_products(limit)}

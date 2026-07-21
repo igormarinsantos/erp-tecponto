@@ -7,6 +7,7 @@ export { notifications } from "./notifications";
 export { dailyActions } from "./dailyActions";
 export { serviceCatalog } from "./serviceCatalog";
 export { productCategories } from "./productCategories";
+export { productVariants } from "./productVariants";
 export type { ApprovalRequest } from "./requests";
 export { serviceOrders, type ServiceOrderQueryParams } from "./serviceOrders";
 export type {
@@ -73,6 +74,10 @@ export type {
   ProductCategoryNode,
   ProductCategorySavePayload,
   ProductCategoryTreeResponse,
+  ProductVariantAttribute,
+  ProductVariantCreatePayload,
+  ProductVariantSummary,
+  ProductVariantTemplate,
   RetailBarcodeLookupResponse,
   RetailBarcodeSource,
   RetailItemGroupResponse,
