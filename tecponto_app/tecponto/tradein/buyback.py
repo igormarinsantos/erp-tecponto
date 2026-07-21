@@ -43,7 +43,10 @@ def registrar_entrada_usado(doc, pay_customer: bool = True) -> str | None:
 		_pagar_cliente(doc)
 
 	doc.db_set("created_item", item_code, update_modified=False)
+	item_group = frappe.db.get_value("Item", item_code, "item_group")
+	doc.db_set("trade_category", item_group, update_modified=False)
 	doc.created_item = item_code
+	doc.trade_category = item_group
 	return item_code
 
 

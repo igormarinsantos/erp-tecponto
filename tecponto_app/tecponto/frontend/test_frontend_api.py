@@ -168,6 +168,7 @@ def run_foundation_checks() -> dict:
 		product_category_checks = run_product_category_checks()
 		product_variant_checks = run_product_variant_checks()
 		marketplace_listing_checks = run_marketplace_listing_checks()
+		marketplace_reporting_checks = run_marketplace_reporting_checks()
 		defect_service_mapping_checks = run_defect_service_mapping_checks()
 		stage_sla_checks = run_stage_sla_checks()
 		stage_clock_checks = run_stage_clock_checks()
@@ -201,6 +202,7 @@ def run_foundation_checks() -> dict:
 			"product_category_checks": product_category_checks,
 			"product_variant_checks": product_variant_checks,
 			"marketplace_listing_checks": marketplace_listing_checks,
+			"marketplace_reporting_checks": marketplace_reporting_checks,
 			"defect_service_mapping_checks": defect_service_mapping_checks,
 			"stage_sla_checks": stage_sla_checks,
 			"stage_clock_checks": stage_clock_checks,
@@ -1249,6 +1251,71 @@ def run_marketplace_listing_checks() -> dict:
 		if not blocked or leaks:
 			raise AssertionError("Permissão ou guard de custo falhou no catálogo marketplace.")
 		return {"variant": variant["item_code"], "listing_cover": listing["images"][0]["image"], "used_item": used_item, "unique_stock_before_sale": unique_before["available_qty"], "used_sale": sale["sale"], "removed_after_sale": removed, "attendant_blocked": blocked, "leaked_fields": leaks}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_marketplace_reporting_checks() -> dict:
+	"""Operational documents retain their native category dimension for future reports."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		ensure_product_category_foundation()
+		manager = _find_or_create_user("Tecponto Gestor")
+		frappe.set_user(manager)
+		suffix = frappe.generate_hash(length=7).upper()
+		variant = create_product_with_variants(
+			{
+				"template_code": f"TPR-CAPA-{suffix}",
+				"template_name": f"Capa relatório {suffix}",
+				"item_group": "Capas",
+				"attributes": [{"name": "Cor"}],
+				"variants": [{"attributes": {"Cor": "Preto"}, "sku": f"TPR-CAPA-{suffix}-PT", "gtin": f"TPR{suffix}01", "price": 39.90}],
+			}
+		)["variants"][0]
+		pos_receive_retail_stock({"item_code": variant["item_code"], "qty": 2, "incoming_rate": 10})
+		parent_filtered = list_stock_items(scope="commercial-products", category="Acessórios", limit=50)
+		if variant["item_code"] not in {row["item_code"] for row in parent_filtered["items"]}:
+			raise AssertionError("Filtro pela categoria pai não retornou a subcategoria Capas.")
+		sale = pos_create_sale(
+			{
+				"idempotency_key": f"reporting-sale-{suffix}",
+				"items": [{"item_code": variant["item_code"], "qty": 1}],
+				"payments": [{"mode_of_payment": "Pix", "amount": 39.90}],
+			}
+		)
+		sale_category = frappe.db.get_value("Sales Invoice Item", {"parent": sale["sale"], "item_code": variant["item_code"]}, "item_group")
+		if sale_category != "Capas":
+			raise AssertionError("Venda não preservou a categoria nativa do Item na linha da nota.")
+
+		service = frappe.db.get_value("Tecponto Service", {"service_name": "Troca de tela", "device_type": "Celular", "active": 1}, ["name", "category"], as_dict=True)
+		order_name = _create_action_request_service_order(manager)
+		order_detail = add_catalog_service_to_service_order(order_name, service.name, {})
+		service_category = order_detail["services"][-1].get("service_category")
+		if service_category != service.category:
+			raise AssertionError("OS não preservou a categoria do serviço do catálogo.")
+
+		customer = _get_or_create_demo_customer()
+		imei = f"358{frappe.generate_hash(length=12).upper()}"[:15]
+		frappe.set_user("Administrator")
+		trade = frappe.get_doc({"doctype": "Device Trade Evaluation", "customer": customer, "device_type": "iPhone", "model": f"Usado relatório {suffix}", "capacity": "128GB", "imei": imei, "approved_value": 250, "destination": "Venda", "workflow_state": "Comprado"})
+		trade.insert(ignore_permissions=True)
+		if trade.trade_category != "Aparelhos Usados" or frappe.db.get_value("Item", trade.created_item, "item_group") != trade.trade_category:
+			raise AssertionError("Troca não manteve a categoria do Item único criado no trade-in.")
+
+		frappe.set_user(manager)
+		payload = {"stock": parent_filtered, "service": order_detail["services"][-1], "trade": {"category": trade.trade_category, "item": trade.created_item}}
+		leaks = contains_sensitive_field(payload, forbidden_values=[BUDGET_COST_GUARD_VALUATION])
+		if leaks:
+			raise AssertionError("Categorias de relatório expuseram dados sensíveis.")
+		return {
+			"parent_category": "Acessórios",
+			"child_category": "Capas",
+			"sale_category": sale_category,
+			"service_category": service_category,
+			"trade_category": trade.trade_category,
+			"leaked_fields": leaks,
+		}
 	finally:
 		frappe.set_user(previous_user)
 

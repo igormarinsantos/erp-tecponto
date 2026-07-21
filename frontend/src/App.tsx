@@ -39,6 +39,7 @@ import {
 import {
   balcao,
 	 catalogListings,
+  productCategories,
   dailyActions,
   getBoot,
   logout,
@@ -75,6 +76,7 @@ import {
   type TrackingLinkResponse,
   type StockItemSummary,
 	 type CommercialCatalogItem,
+	 type ProductCategoryNode,
   type TecpontoNotification,
   type TecpontoTask,
   type TradeEvaluationSummary,
@@ -4923,6 +4925,8 @@ function StockLookup({
   const [registrationBarcode, setRegistrationBarcode] = useState<string | null>(null);
 	const [listingEntries, setListingEntries] = useState<CommercialCatalogItem[]>([]);
 	const [listingItem, setListingItem] = useState<CommercialCatalogItem | null>(null);
+	const [categoryFilter, setCategoryFilter] = useState("");
+	const [categoryOptions, setCategoryOptions] = useState<Array<{ name: string; label: string }>>([]);
 
   const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
   const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation(`tecponto.stock.${scope}.presentation`));
@@ -4940,13 +4944,13 @@ function StockLookup({
   const search = useCallback(async (nextQuery: string) => {
     setStatus("loading");
     try {
-      const response = await balcao.listStockItems(nextQuery, 12, scope);
+      const response = await balcao.listStockItems(nextQuery, 12, scope, categoryFilter);
       setRows(response.items);
       setStatus("ready");
     } catch {
       setStatus("error");
     }
-  }, [scope]);
+  }, [categoryFilter, scope]);
 
   useEffect(() => {
     void search("");
@@ -4956,6 +4960,13 @@ function StockLookup({
 		} else {
 			setListingEntries([]);
 		}
+		void productCategories.list().then((result) => {
+			const flatten = (nodes: ProductCategoryNode[], depth = 0): Array<{ name: string; label: string }> => nodes.flatMap((node) => [
+				{ name: node.name, label: `${"— ".repeat(depth)}${node.name}` },
+				...flatten(node.children, depth + 1),
+			]);
+			setCategoryOptions(flatten(result.items));
+		}).catch(() => setCategoryOptions([]));
   }, [search]);
 
   useEffect(() => {
@@ -5125,8 +5136,8 @@ function StockLookup({
         tableMinWidthClassName="min-w-[940px]"
         title={scopeCopy.title}
         activeQuickFilter={quickFilter}
-        advancedFilters={<label className="block text-xs font-bold text-tec-subtle">Controle do item<select className="tp-input mt-1 w-full" onChange={(event) => setAdvancedFilter(event.target.value)} value={advancedFilter}><option value="all">Todos os itens</option><option value="with_barcode">Com código de barras</option><option value="without_barcode">Sem código de barras</option><option value="serialized">Controlados por IMEI/serial</option></select></label>}
-        onClear={() => { setQuickFilter("available"); setAdvancedFilter("all"); }}
+        advancedFilters={<div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold text-tec-subtle">Controle do item<select className="tp-input mt-1 w-full" onChange={(event) => setAdvancedFilter(event.target.value)} value={advancedFilter}><option value="all">Todos os itens</option><option value="with_barcode">Com código de barras</option><option value="without_barcode">Sem código de barras</option><option value="serialized">Controlados por IMEI/serial</option></select></label><label className="block text-xs font-bold text-tec-subtle">Categoria<select className="tp-input mt-1 w-full" onChange={(event) => setCategoryFilter(event.target.value)} value={categoryFilter}><option value="">Todas as categorias</option>{categoryOptions.map((category) => <option key={category.name} value={category.name}>{category.label}</option>)}</select></label></div>}
+        onClear={() => { setQuickFilter("available"); setAdvancedFilter("all"); setCategoryFilter(""); }}
         onPresentationChange={setPresentation}
         onQuickFilterChange={setQuickFilter}
         presentation={presentation}

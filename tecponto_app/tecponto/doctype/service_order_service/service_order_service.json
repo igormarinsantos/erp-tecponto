@@ -9,6 +9,7 @@
  "field_order": [
   "item_code",
   "catalog_service",
+  "service_category",
   "description",
   "qty",
   "rate",
@@ -30,6 +31,13 @@
    "fieldtype": "Link",
    "label": "Serviço do catálogo",
    "options": "Tecponto Service",
+   "read_only": 1
+  },
+  {
+   "fieldname": "service_category",
+   "fieldtype": "Link",
+   "label": "Categoria de serviço",
+   "options": "Tecponto Service Category",
    "read_only": 1
   },
   {

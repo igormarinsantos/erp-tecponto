@@ -650,6 +650,7 @@ def _resolve_sale_items(raw_items: list[dict[str, Any]], warehouse: str) -> tupl
 			{
 				"item_code": item.name,
 				"item_name": item.item_name,
+				"item_group": item.item_group,
 				"qty": qty,
 				"uom": item.stock_uom,
 				"rate": rate,
@@ -771,6 +772,7 @@ def _create_sales_invoice(
 			{
 				"item_code": item["item_code"],
 				"item_name": item["item_name"],
+				"item_group": item["item_group"],
 				"qty": item["qty"],
 				"uom": item["uom"],
 				"stock_uom": item["uom"],

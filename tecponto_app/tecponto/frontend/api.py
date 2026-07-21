@@ -827,7 +827,7 @@ def add_catalog_service_to_service_order(name: str, catalog_service: str, payloa
 	catalog = frappe.db.get_value(
 		"Tecponto Service",
 		(catalog_service or "").strip(),
-		["name", "service_name", "default_labor_price", "default_duration", "duration_unit", "active"],
+		["name", "service_name", "category", "default_labor_price", "default_duration", "duration_unit", "active"],
 		as_dict=True,
 	)
 	if not catalog or not catalog.active:
@@ -857,6 +857,7 @@ def add_catalog_service_to_service_order(name: str, catalog_service: str, payloa
 		{
 			"item_code": _get_labor_item(),
 			"catalog_service": catalog.name,
+			"service_category": catalog.category,
 			"description": (data.get("description") or catalog.service_name).strip(),
 			"qty": qty,
 			"rate": rate,
@@ -1465,7 +1466,7 @@ def _submit_operational_transfer(doc) -> dict[str, Any]:
 
 
 @frappe.whitelist()
-def list_stock_items(query: str = "", limit: int = 12, scope: str = "parts-stock") -> dict[str, Any]:
+def list_stock_items(query: str = "", limit: int = 12, scope: str = "parts-stock", category: str = "") -> dict[str, Any]:
 	_require_frontend_role()
 	limit = max(1, min(int(limit or 12), 50))
 	query = (query or "").strip()
@@ -1486,6 +1487,18 @@ def list_stock_items(query: str = "", limit: int = 12, scope: str = "parts-stock
 	else:
 		stock_groups = tuple(get_commercial_item_groups()) or ("",)
 		warehouse = None
+	category = (category or "").strip()
+	if category:
+		if not frappe.db.exists("Item Group", category):
+			frappe.throw(_("Categoria de produto inválida."), frappe.ValidationError)
+		category_groups = set(_descendant_item_groups(category))
+		stock_groups = tuple(group for group in stock_groups if group in category_groups)
+		if not stock_groups:
+			return {
+				"items": [],
+				"count": 0,
+				"fields": ["item_code", "item_name", "item_group", "has_serial_no", "barcode", "is_commercial_item", "warehouse", "available_qty"],
+			}
 	conditions = [
 		"item.disabled = 0",
 		"item.is_stock_item = 1",
@@ -1869,7 +1882,8 @@ def _append_checkin_service_suggestions(order: Any, services: list[dict[str, Any
 			"services",
 			{
 				"item_code": _get_labor_item(),
-				"catalog_service": service["name"],
+			"catalog_service": service["name"],
+			"service_category": service.get("category"),
 				"description": service["service_name"],
 				"qty": 1,
 				"rate": 0 if order.get("is_warranty") else flt(service["default_labor_price"]),
@@ -1930,6 +1944,7 @@ def _serialize_service_row(row: Any) -> dict[str, Any]:
 		"unit_price": unit_price,
 		"amount": flt(qty * unit_price),
 		"catalog_service": row.get("catalog_service"),
+		"service_category": row.get("service_category"),
 		"service_duration": flt(row.get("service_duration") or 0),
 		"duration_unit": row.get("duration_unit") or "Horas",
 		"technician": row.get("technician"),

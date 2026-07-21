@@ -63,9 +63,9 @@ export const balcao = {
 			body: { name, approved_value: approvedValue },
 		});
 	},
-  listStockItems(query = "", limit = 12, scope = "parts-stock") {
+  listStockItems(query = "", limit = 12, scope = "parts-stock", category = "") {
     return rpc<StockItemListResponse>(`${API}.list_stock_items`, {
-      query: { query, limit, scope },
+      query: { query, limit, scope, category },
     });
   },
 	createStockTransfer(itemCode: string, qty: number, sourceWarehouse: string, targetWarehouse: string) {

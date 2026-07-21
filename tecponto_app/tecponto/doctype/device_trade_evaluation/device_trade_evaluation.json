@@ -32,6 +32,7 @@
   "destination",
   "workflow_state",
   "created_item",
+  "trade_category",
   "canibalization_section",
   "harvest_parts"
  ],
@@ -179,6 +180,13 @@
    "fieldtype": "Link",
    "label": "Item criado",
    "options": "Item",
+   "read_only": 1
+  },
+  {
+   "fieldname": "trade_category",
+   "fieldtype": "Link",
+   "label": "Categoria para relatório",
+   "options": "Item Group",
    "read_only": 1
   },
   {
