@@ -86,6 +86,7 @@ import { DeviceRegistrationModal } from "./DeviceRegistrationModal";
 import { LoginScreen, type LoginReason } from "./LoginScreen";
 import { PosScreen } from "./PosScreen";
 import { RetailProductModal } from "./RetailProductModal";
+import { ProductCategoryScreen } from "./ProductCategoryScreen";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
@@ -292,6 +293,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   "commercial-products": {
     title: "Produtos",
     subtitle: "Disponibilidade exclusiva do estoque Comercial.",
+  },
+  "product-categories": {
+    title: "Categorias de produtos",
+    subtitle: "Hierarquia comercial e disponibilidade para venda online.",
   },
   "used-devices": {
     title: "Aparelhos usados",
@@ -935,6 +940,7 @@ export function App() {
               initialRetailBarcode={pendingRetailBarcode}
               canReceiveStock={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "System Manager")}
               canEditServiceCatalog={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
+              canEditProductCategories={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
               onInitialPosBarcodeHandled={() => setPendingPosBarcode(null)}
               onInitialRetailBarcodeHandled={() => setPendingRetailBarcode(null)}
               initialServiceOrderStatus={pendingServiceOrderStatus}
@@ -1638,6 +1644,7 @@ function NavigationContent({
   initialServiceOrderStatus,
   canReceiveStock,
   canEditServiceCatalog,
+  canEditProductCategories,
   onInitialPosBarcodeHandled,
   onInitialRetailBarcodeHandled,
   onInitialServiceOrderStatusHandled,
@@ -1657,6 +1664,7 @@ function NavigationContent({
   activeView: NavigationTarget;
   canReceiveStock: boolean;
   canEditServiceCatalog: boolean;
+  canEditProductCategories: boolean;
   initialPosBarcode: PendingPosBarcode | null;
   initialRetailBarcode: PendingRetailBarcode | null;
   initialServiceOrderStatus: QueueFilter | null;
@@ -1813,6 +1821,10 @@ function NavigationContent({
 
   if (activeView === "services") {
     return <ServiceCatalogScreen canEdit={canEditServiceCatalog} onToast={onToast} />;
+  }
+
+  if (activeView === "product-categories") {
+    return <ProductCategoryScreen canEdit={canEditProductCategories} onToast={onToast} />;
   }
 
   if (activeView === "trade-ins") {

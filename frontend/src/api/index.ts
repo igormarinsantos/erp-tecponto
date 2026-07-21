@@ -6,6 +6,7 @@ export { approvalRequests } from "./requests";
 export { notifications } from "./notifications";
 export { dailyActions } from "./dailyActions";
 export { serviceCatalog } from "./serviceCatalog";
+export { productCategories } from "./productCategories";
 export type { ApprovalRequest } from "./requests";
 export { serviceOrders, type ServiceOrderQueryParams } from "./serviceOrders";
 export type {
@@ -69,6 +70,9 @@ export type {
   PosSalePayload,
   PosSalePaymentPayload,
   PosSaleResponse,
+  ProductCategoryNode,
+  ProductCategorySavePayload,
+  ProductCategoryTreeResponse,
   RetailBarcodeLookupResponse,
   RetailBarcodeSource,
   RetailItemGroupResponse,

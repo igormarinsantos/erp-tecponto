@@ -363,6 +363,7 @@ after_migrate = [
 	"tecponto_app.tecponto.tracking.ensure_tracking_lifecycle",
 	"tecponto_app.tecponto.service_catalog.ensure_service_catalog",
 	"tecponto_app.tecponto.defect_service_mapping.ensure_defect_service_mappings",
+	"tecponto_app.tecponto.product_categories.ensure_product_category_foundation",
 	"tecponto_app.tecponto.service_order.stage_sla.ensure_stage_slas",
 	"tecponto_app.tecponto.branding.ensure_branding_assets",
 ]

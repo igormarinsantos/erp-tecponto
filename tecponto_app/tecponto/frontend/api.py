@@ -2231,3 +2231,39 @@ def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple
 
 	walk(payload)
 	return sorted(found)
+from tecponto_app.tecponto import product_categories
+
+
+def _require_product_category_editor() -> None:
+	_require_frontend_role()
+	product_categories.require_category_editor()
+
+
+@frappe.whitelist()
+def list_product_categories() -> dict[str, Any]:
+	"""Native Item Group hierarchy, projected without stock cost or margin data."""
+	_require_frontend_role()
+	return {"items": product_categories.category_tree()}
+
+
+@frappe.whitelist()
+def save_product_category(
+	name: str,
+	parent: str,
+	is_group: int | bool = 0,
+	sell_online: int | bool = 0,
+	active: int | bool = 1,
+	original_name: str | None = None,
+) -> dict[str, Any]:
+	"""Create, rename, move or inactivate an Item Group after role validation."""
+	_require_product_category_editor()
+	return {
+		"item": product_categories.save_category(
+			name=name,
+			parent=parent,
+			is_group=bool(cint(is_group)),
+			sell_online=bool(cint(sell_online)),
+			active=bool(cint(active)),
+			original_name=original_name,
+		)
+	}

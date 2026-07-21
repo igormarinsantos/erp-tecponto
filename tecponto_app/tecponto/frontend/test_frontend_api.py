@@ -45,6 +45,8 @@ from tecponto_app.tecponto.frontend.api import (
 	search_customers,
 	search_pos_items,
 	set_tradein_approved_value,
+	list_product_categories,
+	save_product_category,
 	save_catalog_reference,
 	save_catalog_service,
 	save_stage_sla,
@@ -64,6 +66,7 @@ from tecponto_app.tecponto.tracking import (
 	start_public_tracking_budget_acceptance,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
+from tecponto_app.tecponto.product_categories import ensure_product_category_foundation
 from tecponto_app.tecponto.requests import (
 	approve_request,
 	create_request,
@@ -154,6 +157,7 @@ def run_foundation_checks() -> dict:
 		quick_stage_checks = run_quick_stage_move_checks()
 		customer_registration_checks = run_customer_registration_checks()
 		service_catalog_checks = run_service_catalog_checks()
+		product_category_checks = run_product_category_checks()
 		defect_service_mapping_checks = run_defect_service_mapping_checks()
 		stage_sla_checks = run_stage_sla_checks()
 		stage_clock_checks = run_stage_clock_checks()
@@ -184,6 +188,7 @@ def run_foundation_checks() -> dict:
 			"quick_stage_checks": quick_stage_checks,
 			"customer_registration_checks": customer_registration_checks,
 			"service_catalog_checks": service_catalog_checks,
+			"product_category_checks": product_category_checks,
 			"defect_service_mapping_checks": defect_service_mapping_checks,
 			"stage_sla_checks": stage_sla_checks,
 			"stage_clock_checks": stage_clock_checks,
@@ -1009,6 +1014,99 @@ def run_customer_registration_checks() -> dict:
 		}
 	finally:
 		frappe.set_user(previous_user)
+
+
+def run_product_category_checks() -> dict:
+	"""Prove native Item Group categories are editable only by management roles."""
+	previous_user = frappe.session.user
+	try:
+		ensure_product_category_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		director = _find_or_create_user("Tecponto Diretor")
+		frappe.set_user(attendant)
+		initial_tree = list_product_categories()
+		if _find_category(initial_tree["items"], "Peças de Reparo").get("sell_online"):
+			raise AssertionError("Peças de Reparo não pode ser vendável online.")
+
+		blocked = False
+		try:
+			save_product_category(
+				name="TP Categoria Bloqueada",
+				parent="Acessórios",
+				is_group=0,
+				sell_online=1,
+				active=1,
+			)
+		except frappe.PermissionError:
+			blocked = True
+		if not blocked:
+			raise AssertionError("Atendente não pode editar categorias de produto.")
+
+		frappe.set_user(manager)
+		test_category_name = "TP Marketplace Categoria"
+		created = save_product_category(
+			name=test_category_name,
+			original_name=test_category_name if frappe.db.exists("Item Group", test_category_name) else None,
+			parent="Acessórios",
+			is_group=0,
+			sell_online=1,
+			active=1,
+		)["item"]
+		moved = save_product_category(
+			name=test_category_name,
+			original_name=test_category_name,
+			parent="Produtos de Varejo",
+			is_group=0,
+			sell_online=1,
+			active=1,
+		)["item"]
+		inactive = save_product_category(
+			name=test_category_name,
+			original_name=test_category_name,
+			parent="Produtos de Varejo",
+			is_group=0,
+			sell_online=1,
+			active=0,
+		)["item"]
+		if created.get("parent") != "Acessórios" or moved.get("parent") != "Produtos de Varejo" or inactive.get("active"):
+			raise AssertionError("Criar, mover ou inativar categoria não refletiu na árvore nativa.")
+		frappe.set_user(director)
+		director_edit = save_product_category(
+			name=test_category_name,
+			original_name=test_category_name,
+			parent="Produtos de Varejo",
+			is_group=0,
+			sell_online=1,
+			active=0,
+		)["item"]
+		if director_edit.get("active"):
+			raise AssertionError("Diretor não conseguiu editar categoria de produto.")
+		final_tree = list_product_categories()
+		leaks = contains_sensitive_field(final_tree)
+		if leaks:
+			raise AssertionError(f"Árvore de categorias vazou campo sensível: {', '.join(leaks)}")
+		return {
+			"created": created["name"],
+			"moved_parent": moved["parent"],
+			"inactive": not inactive["active"],
+			"director_allowed": director_edit["name"] == test_category_name,
+			"attendant_blocked": blocked,
+			"repair_parts_online": _find_category(final_tree["items"], "Peças de Reparo").get("sell_online"),
+			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _find_category(items: list[dict], name: str) -> dict:
+	for item in items:
+		if item.get("name") == name:
+			return item
+		found = _find_category(item.get("children") or [], name)
+		if found:
+			return found
+	return {}
 
 
 def run_quick_stage_move_checks() -> dict:

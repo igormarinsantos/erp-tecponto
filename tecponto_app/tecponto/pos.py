@@ -113,7 +113,14 @@ def get_commercial_item_groups() -> list[str]:
 
 
 def get_retail_item_groups() -> list[str]:
-	return _descendant_item_groups((RETAIL_ITEM_GROUP_ROOT,))
+	groups = _descendant_item_groups((RETAIL_ITEM_GROUP_ROOT,))
+	if not groups:
+		return []
+	meta = frappe.get_meta("Item Group")
+	filters = {"name": ["in", groups], "is_group": 0}
+	if meta.has_field("custom_tecponto_category_active"):
+		filters["custom_tecponto_category_active"] = 1
+	return frappe.get_all("Item Group", filters=filters, pluck="name", order_by="name asc")
 
 
 def _descendant_item_groups(roots: tuple[str, ...]) -> list[str]:

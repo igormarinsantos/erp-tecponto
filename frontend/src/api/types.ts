@@ -10,10 +10,33 @@ export type NavigationTarget =
   | "parts-stock"
   | "repair-parts"
   | "commercial-products"
+  | "product-categories"
   | "used-devices"
   | "pos"
   | "sales"
   | "approval-requests";
+
+export interface ProductCategoryNode {
+  name: string;
+  parent: string;
+  is_group: boolean;
+  active: boolean;
+  sell_online: boolean;
+  children: ProductCategoryNode[];
+}
+
+export interface ProductCategoryTreeResponse {
+  items: ProductCategoryNode[];
+}
+
+export interface ProductCategorySavePayload {
+  name: string;
+  original_name?: string;
+  parent: string;
+  is_group: boolean;
+  sell_online: boolean;
+  active: boolean;
+}
 
 export interface LoggedUser {
   name: string;
