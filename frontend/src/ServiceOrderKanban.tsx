@@ -479,10 +479,14 @@ function KanbanCard({
         <CardLine icon={<Clock3 size={14} />} text={formatDate(item.modified)} />
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <BadgeStatus status={item.workflow_state} />
-		{item.stage_clock?.is_overdue ? <span className="text-xs font-bold text-red-400">Atrasada</span> : null}
-        <WorkflowMoveMenu actions={item.workflow_transitions} busy={moving} className="ml-auto shrink-0" onSelect={(action) => onQuickMove(item, action.next_state)} />
+      <div className="mt-3 space-y-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <BadgeStatus status={item.workflow_state} />
+          {item.stage_clock?.is_overdue ? <span className="truncate text-xs font-bold text-red-400">Atrasada</span> : null}
+        </div>
+        <div className="flex justify-end">
+          <WorkflowMoveMenu actions={item.workflow_transitions} busy={moving} onSelect={(action) => onQuickMove(item, action.next_state)} />
+        </div>
       </div>
     </article>
   );
