@@ -10,6 +10,7 @@ import {
   Gauge,
   Grid2X2,
   Handshake,
+  Link2,
   MessageCircle,
   PackageSearch,
   Search,
@@ -23,7 +24,7 @@ import {
 } from "lucide-react";
 
 import type { DashboardMetrics, NavigationTarget, RolePanel } from "./api";
-import type { NavSection } from "./ui";
+import type { NavItem, NavSection } from "./ui";
 
 export interface MetricDefinition {
   icon: LucideIcon;
@@ -83,7 +84,9 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         label: "Reparo",
         items: [
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Criar, buscar e acompanhar" },
-          { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque de reparo" },
+          { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque e solicitações", children: [
+            { id: "repair-parts", icon: Boxes, label: "Estoque de reparo", subtitle: "Disponibilidade" },
+          ] },
         ],
       },
       {
@@ -91,8 +94,10 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         items: [
           { id: "pos", icon: ShoppingCart, label: "PDV / Lançar venda", subtitle: "Venda rápida no balcão" },
           { id: "sales", icon: CreditCard, label: "Vendas", subtitle: "Histórico do balcão" },
-          { id: "commercial-products", icon: Boxes, label: "Produtos", subtitle: "Estoque comercial" },
-          { id: "product-categories", icon: Grid2X2, label: "Categorias", subtitle: "Estrutura comercial" },
+          { id: "commercial-products", icon: Boxes, label: "Produtos", subtitle: "Catálogo e variações", children: [
+            { id: "commercial-products", icon: Boxes, label: "Catálogo", subtitle: "Estoque comercial" },
+            { id: "product-categories", icon: Grid2X2, label: "Categorias", subtitle: "Hierarquia comercial" },
+          ] },
         ],
       },
       {
@@ -107,7 +112,10 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         items: [
           { id: "customers", icon: Users, label: "Clientes", subtitle: "Base e histórico" },
           { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Cadastro e histórico" },
-          { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo de mão de obra" },
+          { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e regras", children: [
+            { id: "services", icon: Wrench, label: "Catálogo de serviços", subtitle: "Mão de obra" },
+            { id: "defect-service-mapping", icon: Link2, label: "Mapeamento defeito→serviço", subtitle: "Sugestões no check-in" },
+          ] },
         ],
       },
     ],
@@ -255,7 +263,7 @@ const panelLabels: Record<RolePanel, string> = {
 };
 
 const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
-  overview: "Inicio",
+  overview: "Início",
   "service-orders": "Reparo",
   "repair-parts": "Reparo",
   "parts-stock": "Reparo",
@@ -268,7 +276,58 @@ const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
   customers: "Cadastros",
   devices: "Cadastros",
   services: "Cadastros",
+  "defect-service-mapping": "Cadastros",
 };
+
+function withSubmenus(nav: NavSection[]): NavSection[] {
+  const byPillar = new Map<string, NavItem[]>();
+  for (const section of nav) {
+    for (const item of section.items.flatMap((source) => source.children?.length ? source.children : [source])) {
+      const pillar = pillarForTarget[item.id] ?? section.label;
+      byPillar.set(pillar, [...(byPillar.get(pillar) ?? []), item]);
+    }
+  }
+  const preferredOrder = ["Início", "Reparo", "Venda", "Troca", "Cadastros"];
+  return [...byPillar.entries()]
+    .sort(([left], [right]) => (preferredOrder.indexOf(left) + preferredOrder.length + 1) % (preferredOrder.length + 1) - (preferredOrder.indexOf(right) + preferredOrder.length + 1) % (preferredOrder.length + 1))
+    .map(([label, flatItems]) => {
+    const consumed = new Set<NavigationTarget>();
+    const grouped: NavItem[] = [];
+    const take = (targets: NavigationTarget[]) => flatItems.filter((item) => targets.includes(item.id));
+    const addGroup = (target: NavigationTarget, icon: LucideIcon, label: string, subtitle: string, targets: NavigationTarget[], extras: NavItem[] = []) => {
+      const sourceChildren = take(targets);
+      if (!sourceChildren.length) return;
+      const children = [...sourceChildren, ...extras.filter((item) => !flatItems.some((source) => source.id === item.id && source.label === item.label))];
+      targets.forEach((item) => consumed.add(item));
+      grouped.push({ id: target, icon, label, subtitle, children });
+    };
+    for (const item of flatItems) {
+      if (consumed.has(item.id)) continue;
+      if (item.id === "repair-parts") {
+        addGroup("repair-parts", PackageSearch, "Peças", "Estoque de reparo", ["repair-parts"]);
+        continue;
+      }
+      if (item.id === "parts-stock") {
+        consumed.add("parts-stock");
+        continue;
+      }
+      if (["commercial-products", "product-categories"].includes(item.id)) {
+        addGroup("commercial-products", Boxes, "Produtos", "Catálogo e variações", ["commercial-products", "product-categories"]);
+        continue;
+      }
+      if (item.id === "services") {
+        consumed.add("services");
+        grouped.push({ id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e regras", children: [
+          { id: "services", icon: Wrench, label: "Catálogo de serviços", subtitle: "Mão de obra" },
+          { id: "defect-service-mapping", icon: Link2, label: "Mapeamento defeito→serviço", subtitle: "Sugestões no check-in" },
+        ] });
+        continue;
+      }
+      grouped.push(item);
+    }
+    return { label, items: grouped };
+  });
+}
 
 function unifiedNavigation(panels: RolePanel[]): NavSection[] {
   const sections = new Map<string, NavSection>();
@@ -287,7 +346,7 @@ function unifiedNavigation(panels: RolePanel[]): NavSection[] {
     }
   }
 
-  const preferredOrder = ["Inicio", "Reparo", "Venda", "Troca", "Cadastros"];
+  const preferredOrder = ["Início", "Reparo", "Venda", "Troca", "Cadastros"];
   return [...sections.values()].sort((left, right) => {
     const leftIndex = preferredOrder.indexOf(left.label);
     const rightIndex = preferredOrder.indexOf(right.label);
@@ -307,7 +366,7 @@ function uniqueByLabel<T extends { label: string }>(items: T[]): T[] {
 /** Display-only union: authorization remains entirely server-side. */
 export function getUnifiedPanelDefinition(panels: RolePanel[], fullName: string): PanelDefinition {
   const resolvedPanels = panelOrder.filter((panel) => panels.includes(panel));
-  if (resolvedPanels.length === 1) return panelDefinitions[resolvedPanels[0]];
+  if (resolvedPanels.length === 1) return { ...panelDefinitions[resolvedPanels[0]], nav: withSubmenus(panelDefinitions[resolvedPanels[0]].nav) };
   if (!resolvedPanels.length) return panelDefinitions.sem_papel;
 
   const definitions = resolvedPanels.map((panel) => panelDefinitions[panel]);
@@ -318,7 +377,7 @@ export function getUnifiedPanelDefinition(panels: RolePanel[], fullName: string)
     title: `Ola, ${firstName}!`,
     subtitle: `Visao unificada: ${labels.join(" + ")}.`,
     tableTitle: "Operacao unificada",
-    nav: unifiedNavigation(resolvedPanels),
+    nav: withSubmenus(unifiedNavigation(resolvedPanels)),
     metrics: uniqueByLabel(definitions.flatMap((definition) => definition.metrics)),
     actions: uniqueByLabel(definitions.flatMap((definition) => definition.actions)),
   };

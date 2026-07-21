@@ -8,7 +8,7 @@ export type { TableColumn } from "./DataTable";
 export { HorizontalScroller } from "./HorizontalScroller";
 export { Modal } from "./Modal";
 export { Sidebar } from "./Sidebar";
-export type { NavSection } from "./Sidebar";
+export type { NavItem, NavSection } from "./Sidebar";
 export { getStoredListPresentation, LayeredFilters, ListGridToggle } from "./ListControls";
 export type { ListPresentation, QuickFilter } from "./ListControls";
 export { StatBar } from "./StatBar";
