@@ -4,9 +4,11 @@ import {
   Banknote,
   CheckCircle2,
   Clock3,
+  Globe2,
   PackageCheck,
   PackageSearch,
   PackageX,
+  PowerOff,
   SearchCheck,
   ShoppingBag,
   ShoppingCart,
@@ -60,6 +62,12 @@ export function getStatBarVisual(scope: string, key: string): Visual {
       active: visual(Wrench, "green"),
       all: visual(Tags, "blue"),
       categories: visual(Archive, "orange"),
+    },
+    "product-categories": {
+      active: visual(Tags, "green"),
+      online: visual(Globe2, "blue"),
+      internal: visual(PackageSearch, "amber"),
+      inactive: visual(PowerOff, "orange"),
     },
   };
   return maps[scope]?.[key] ?? visual(Archive, "blue");

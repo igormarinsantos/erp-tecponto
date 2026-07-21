@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Edit3, FolderTree, Globe2, Plus, Power, PowerOff } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, Edit3, FolderTree, Globe2, PackageCheck, Plus, Power, PowerOff, Search, Shapes } from "lucide-react";
 
 import { productCategories, type ProductCategoryNode } from "./api";
-import { Button, Card, Modal } from "./ui";
+import { Button, Card, getStatBarVisual, getStoredListPresentation, LayeredFilters, ListGridToggle, Modal, StatBar, type ListPresentation } from "./ui";
 
 type ToastTone = "success" | "error";
 type CategoryDraft = {
@@ -27,6 +27,10 @@ export function ProductCategoryScreen({ canEdit, onToast }: { canEdit: boolean; 
   const [loading, setLoading] = useState(true);
   const [openNodes, setOpenNodes] = useState<Set<string>>(new Set(["Produtos de Varejo", "Acessórios", "Aparelhos", "Peças de Reparo"]));
   const [draft, setDraft] = useState<CategoryDraft | null>(null);
+  const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.product-categories.presentation"));
+  const [query, setQuery] = useState("");
+  const [quickFilter, setQuickFilter] = useState("active");
+  const [visibleCount, setVisibleCount] = useState(20);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,7 +46,30 @@ export function ProductCategoryScreen({ canEdit, onToast }: { canEdit: boolean; 
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    window.localStorage.setItem("tecponto.product-categories.presentation", presentation);
+  }, [presentation]);
+
   const parents = useMemo(() => flatten(items).filter((item) => item.is_group && item.active), [items]);
+  const allItems = useMemo(() => flatten(items), [items]);
+  const filteredItems = useMemo(() => allItems.filter((item) => {
+    const normalizedQuery = query.trim().toLocaleLowerCase("pt-BR");
+    const textMatches = !normalizedQuery || `${item.name} ${item.parent ?? ""}`.toLocaleLowerCase("pt-BR").includes(normalizedQuery);
+    const quickMatches = quickFilter === "all"
+      || (quickFilter === "active" && item.active)
+      || (quickFilter === "online" && item.sell_online)
+      || (quickFilter === "internal" && !item.sell_online)
+      || (quickFilter === "inactive" && !item.active);
+    return textMatches && quickMatches;
+  }), [allItems, query, quickFilter]);
+  const filteredTree = useMemo(() => filterTree(items, new Set(filteredItems.map((item) => item.name))), [items, filteredItems]);
+  const statItems = useMemo(() => [
+    { key: "active", label: "Ativas", value: allItems.filter((item) => item.active).length, icon: <PackageCheck size={19} />, tone: "green" as const },
+    { key: "online", label: "Vendáveis online", value: allItems.filter((item) => item.sell_online && item.active).length, icon: <Globe2 size={19} />, tone: "blue" as const },
+    { key: "internal", label: "Uso interno", value: allItems.filter((item) => !item.sell_online && item.active).length, icon: <Archive size={19} />, tone: "amber" as const },
+    { key: "inactive", label: "Inativas", value: allItems.filter((item) => !item.active).length, icon: <PowerOff size={19} />, tone: "orange" as const },
+  ], [allItems]);
+  const visibleGridItems = filteredItems.slice(0, visibleCount);
   const openEditor = (item?: ProductCategoryNode) => setDraft(item ? {
     name: item.name,
     original_name: item.name,
@@ -66,6 +93,7 @@ export function ProductCategoryScreen({ canEdit, onToast }: { canEdit: boolean; 
 
   return (
     <div className="space-y-4">
+      <StatBar items={statItems.map((item) => ({ ...item, ...getStatBarVisual("product-categories", item.key) }))} onSelect={(key) => { setQuickFilter(key); setVisibleCount(20); }} />
       <Card className="p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -77,9 +105,19 @@ export function ProductCategoryScreen({ canEdit, onToast }: { canEdit: boolean; 
         </div>
       </Card>
 
+      <Card className="p-4">
+        <LayeredFilters active={quickFilter} filters={[{ key: "active", label: "Ativas" }, { key: "online", label: "Vendáveis online" }, { key: "internal", label: "Uso interno" }, { key: "inactive", label: "Inativas" }, { key: "all", label: "Todas" }]} onClear={() => { setQuery(""); setQuickFilter("active"); setVisibleCount(20); }} onSelect={(key) => { setQuickFilter(key); setVisibleCount(20); }} primary={<label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-tec-muted" size={17} /><input className="tp-input w-full pl-10" onChange={(event) => { setQuery(event.target.value); setVisibleCount(20); }} placeholder="Buscar categoria ou categoria pai" value={query} /></label>}>
+          <p className="text-xs text-tec-muted">A árvore é nativa do ERPNext. Criar, mover ou inativar não altera itens, estoque, preço ou custo.</p>
+        </LayeredFilters>
+      </Card>
+
       <Card className="overflow-hidden">
-        <div className="border-b border-tec-border/15 px-5 py-4"><h2 className="font-bold text-white">Árvore de categorias</h2><p className="mt-1 text-xs text-tec-muted">Criar, mover ou inativar não altera itens, estoque, preço ou custo.</p></div>
-        {loading ? <p className="p-5 text-sm text-tec-muted">Carregando categorias...</p> : <div className="p-3">{items.map((item) => <CategoryRow canEdit={canEdit} depth={0} item={item} key={item.name} onEdit={openEditor} onToggle={(name) => setOpenNodes((current) => { const next = new Set(current); if (next.has(name)) next.delete(name); else next.add(name); return next; })} openNodes={openNodes} />)}</div>}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-tec-border/15 px-5 py-4"><div><h2 className="font-bold text-white">Categorias</h2><p className="mt-1 text-xs text-tec-muted">{filteredItems.length} categoria{filteredItems.length === 1 ? "" : "s"} encontrada{filteredItems.length === 1 ? "" : "s"}</p></div><ListGridToggle onChange={setPresentation} value={presentation} /></div>
+        {loading ? <p className="p-5 text-sm text-tec-muted">Carregando categorias...</p> : null}
+        {!loading && filteredItems.length === 0 ? <p className="p-5 text-sm text-tec-muted">Nenhuma categoria encontrada com estes filtros.</p> : null}
+        {!loading && filteredItems.length > 0 && presentation === "list" ? <div className="p-3">{filteredTree.map((item) => <CategoryRow canEdit={canEdit} depth={0} item={item} key={item.name} onEdit={openEditor} onToggle={(name) => setOpenNodes((current) => { const next = new Set(current); if (next.has(name)) next.delete(name); else next.add(name); return next; })} openNodes={openNodes} />)}</div> : null}
+        {!loading && filteredItems.length > 0 && presentation === "grid" ? <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">{visibleGridItems.map((item) => <CategoryCard canEdit={canEdit} item={item} key={item.name} onEdit={openEditor} />)}</div> : null}
+        {!loading && presentation === "grid" && filteredItems.length > visibleCount ? <div className="border-t border-tec-border/15 p-4 text-center"><Button onClick={() => setVisibleCount((count) => count + 20)}>Mostrar mais (+{Math.min(20, filteredItems.length - visibleCount)})</Button></div> : null}
       </Card>
 
       <Modal onClose={() => setDraft(null)} open={Boolean(draft)} title={draft?.original_name ? "Editar categoria" : "Nova categoria"}>
@@ -87,6 +125,10 @@ export function ProductCategoryScreen({ canEdit, onToast }: { canEdit: boolean; 
       </Modal>
     </div>
   );
+}
+
+function CategoryCard({ canEdit, item, onEdit }: { canEdit: boolean; item: ProductCategoryNode; onEdit: (item: ProductCategoryNode) => void }) {
+  return <div className="flex min-h-40 flex-col rounded-card border border-tec-border/15 bg-tec-field/45 p-4"><div className="flex items-start justify-between gap-3"><span className="grid h-10 w-10 place-items-center rounded-control bg-tec-orange/10 text-tec-orange"><Shapes size={20} /></span>{canEdit && item.name !== "All Item Groups" ? <Button icon={<Edit3 size={15} />} onClick={() => onEdit(item)} title={`Editar ${item.name}`}>Editar</Button> : null}</div><strong className={item.active ? "mt-4 text-sm text-white" : "mt-4 text-sm text-tec-muted line-through"}>{item.name}</strong><p className="mt-1 text-xs text-tec-muted">{item.parent || "Raiz do catálogo"}</p><div className="mt-auto flex flex-wrap gap-2 pt-4">{item.is_group ? <span className="rounded-full bg-tec-panel px-2 py-1 text-[10px] font-bold text-tec-subtle">GRUPO</span> : null}{item.sell_online ? <span className="inline-flex items-center gap-1 rounded-full bg-tec-success/10 px-2 py-1 text-[10px] font-bold text-tec-success"><Globe2 size={12} /> Online</span> : <span className="rounded-full bg-tec-panel px-2 py-1 text-[10px] font-bold text-tec-muted">Interno</span>}</div></div>;
 }
 
 function CategoryRow({ canEdit, depth, item, onEdit, onToggle, openNodes }: { canEdit: boolean; depth: number; item: ProductCategoryNode; onEdit: (item: ProductCategoryNode) => void; onToggle: (name: string) => void; openNodes: Set<string> }) {
@@ -111,4 +153,10 @@ function CategoryEditor({ draft, onChange, onClose, onSave, parents }: { draft: 
 }
 
 function flatten(items: ProductCategoryNode[]): ProductCategoryNode[] { return items.flatMap((item) => [item, ...flatten(item.children)]); }
+function filterTree(items: ProductCategoryNode[], matchedNames: Set<string>): ProductCategoryNode[] {
+  return items.flatMap((item) => {
+    const children = filterTree(item.children, matchedNames);
+    return matchedNames.has(item.name) || children.length ? [{ ...item, children }] : [];
+  });
+}
 function isChildOf(candidate: ProductCategoryNode, ancestor: string | undefined, all: ProductCategoryNode[]): boolean { if (!ancestor) return false; const map = new Map(flatten(all).map((item) => [item.name, item])); let current = candidate; while (current.parent && map.has(current.parent)) { if (current.parent === ancestor) return true; current = map.get(current.parent)!; } return false; }
