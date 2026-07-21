@@ -5,7 +5,8 @@ export type NavigationTarget =
   | "service-order-detail"
   | "customers"
   | "devices"
-	| "services"
+  | "services"
+  | "defect-service-mapping"
   | "trade-ins"
   | "parts-stock"
   | "repair-parts"
@@ -23,6 +24,15 @@ export interface ProductCategoryNode {
   active: boolean;
   sell_online: boolean;
   children: ProductCategoryNode[];
+}
+
+export interface DefectServiceMapping {
+  name: string;
+  defect: string;
+  catalog_service: string;
+  catalog_service_label: string;
+  active: boolean;
+  modified: string;
 }
 
 export interface ProductCategoryTreeResponse {

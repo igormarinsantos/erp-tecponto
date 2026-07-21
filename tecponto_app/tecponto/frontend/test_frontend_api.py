@@ -571,6 +571,10 @@ def run_defect_service_mapping_checks() -> dict:
 			raise AssertionError("Gestor nao conseguiu editar/criar o mapeamento.")
 
 		frappe.set_user(attendant)
+		attendant_mappings = list_defect_service_mappings(include_inactive=True)["items"]
+		attendant_leaks = contains_sensitive_field(attendant_mappings)
+		if attendant_leaks:
+			raise AssertionError(f"Consulta de mapeamentos vazou campo sensível: {', '.join(attendant_leaks)}")
 		no_defect = get_checkin_delivery_suggestion({"defects": [], "lead_time_business_hours": 0})
 		if no_defect["suggested_delivery_date"] or no_defect["mapped_services"]:
 			raise AssertionError("Previsao foi calculada sem defeito/servico mapeado.")
@@ -628,6 +632,8 @@ def run_defect_service_mapping_checks() -> dict:
 			"catalog_lines_suggested_on_checkin": True,
 			"manager_mapping_editable": True,
 			"attendant_mapping_write_blocked": write_blocked,
+			"attendant_mapping_consultation": bool(attendant_mappings),
+			"leaked_fields": attendant_leaks,
 		}
 	finally:
 		if created_mapping and frappe.db.exists("Tecponto Defect Service Mapping", created_mapping):

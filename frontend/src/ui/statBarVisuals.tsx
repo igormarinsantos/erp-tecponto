@@ -69,6 +69,11 @@ export function getStatBarVisual(scope: string, key: string): Visual {
       internal: visual(PackageSearch, "amber"),
       inactive: visual(PowerOff, "orange"),
     },
+    "defect-service-mapping": {
+      active: visual(CheckCircle2, "green"),
+      inactive: visual(PowerOff, "orange"),
+      services: visual(Wrench, "blue"),
+    },
   };
   return maps[scope]?.[key] ?? visual(Archive, "blue");
 }

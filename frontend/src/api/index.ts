@@ -6,6 +6,7 @@ export { approvalRequests } from "./requests";
 export { notifications } from "./notifications";
 export { dailyActions } from "./dailyActions";
 export { serviceCatalog } from "./serviceCatalog";
+export { defectServiceMappings } from "./defectServiceMappings";
 export { productCategories } from "./productCategories";
 export { productVariants } from "./productVariants";
 export { catalogListings } from "./catalogListings";
@@ -64,6 +65,7 @@ export type {
 	ServiceCatalogService,
 	ServiceCatalogServiceResponse,
 	ServiceCatalogServicesResponse,
+	DefectServiceMapping,
   PickupPayload,
   PosItemSearchResponse,
   PosItemSummary,
