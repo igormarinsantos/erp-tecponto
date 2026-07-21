@@ -1,0 +1,17 @@
+{
+ "actions": [],
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["image", "caption"],
+ "fields": [
+  {"fieldname":"image","fieldtype":"Attach Image","label":"Foto","in_list_view":1,"reqd":1},
+  {"fieldname":"caption","fieldtype":"Data","label":"Legenda","in_list_view":1}
+ ],
+ "istable": 1,
+ "module": "Tecponto",
+ "name": "Tecponto Listing Image",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

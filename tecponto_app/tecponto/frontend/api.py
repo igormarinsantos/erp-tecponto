@@ -2233,6 +2233,7 @@ def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple
 	return sorted(found)
 from tecponto_app.tecponto import product_categories
 from tecponto_app.tecponto import product_variants
+from tecponto_app.tecponto import listing_metadata
 
 
 def _require_product_category_editor() -> None:
@@ -2296,3 +2297,19 @@ def create_product_with_variants(payload: str | dict[str, Any] | None = None) ->
 def list_variant_products(limit: int = 50) -> dict[str, Any]:
 	_require_frontend_role()
 	return {"items": product_variants.list_variant_products(limit)}
+
+
+@frappe.whitelist()
+def list_commercial_catalog(kind: str = "all", limit: int = 100) -> dict[str, Any]:
+	"""Public-sale catalogue only; never serializes cost, margin or valuation."""
+	_require_frontend_role()
+	return {"items": listing_metadata.list_commercial_catalog(kind, limit)}
+
+
+@frappe.whitelist()
+def save_listing_metadata(item_code: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	_require_product_category_editor()
+	data = frappe.parse_json(payload) if isinstance(payload, str) else payload
+	if not isinstance(data, dict):
+		frappe.throw(_("Dados de anúncio não informados."), frappe.ValidationError)
+	return {"item": listing_metadata.save_listing_metadata(item_code, data)}

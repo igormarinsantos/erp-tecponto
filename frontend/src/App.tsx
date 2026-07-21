@@ -38,6 +38,7 @@ import {
 
 import {
   balcao,
+	 catalogListings,
   dailyActions,
   getBoot,
   logout,
@@ -73,6 +74,7 @@ import {
 	type SaleSummary,
   type TrackingLinkResponse,
   type StockItemSummary,
+	 type CommercialCatalogItem,
   type TecpontoNotification,
   type TecpontoTask,
   type TradeEvaluationSummary,
@@ -88,6 +90,7 @@ import { LoginScreen, type LoginReason } from "./LoginScreen";
 import { PosScreen } from "./PosScreen";
 import { RetailProductModal } from "./RetailProductModal";
 import { VariantProductModal } from "./VariantProductModal";
+import { ListingMetadataModal } from "./ListingMetadataModal";
 import { ProductCategoryScreen } from "./ProductCategoryScreen";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
@@ -4918,6 +4921,8 @@ function StockLookup({
   const [registrationOpen, setRegistrationOpen] = useState(false);
 	const [variantRegistrationOpen, setVariantRegistrationOpen] = useState(false);
   const [registrationBarcode, setRegistrationBarcode] = useState<string | null>(null);
+	const [listingEntries, setListingEntries] = useState<CommercialCatalogItem[]>([]);
+	const [listingItem, setListingItem] = useState<CommercialCatalogItem | null>(null);
 
   const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
   const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation(`tecponto.stock.${scope}.presentation`));
@@ -4946,6 +4951,11 @@ function StockLookup({
   useEffect(() => {
     void search("");
     void balcao.getListStatBar(`stock:${scope}`).then((result) => setStatItems(result.items)).catch(() => setStatItems([]));
+		if (scope === "commercial-products" || scope === "used-devices") {
+			void catalogListings.list(scope === "used-devices" ? "unique" : "shelf").then((result) => setListingEntries(result.items)).catch(() => setListingEntries([]));
+		} else {
+			setListingEntries([]);
+		}
   }, [search]);
 
   useEffect(() => {
@@ -5059,6 +5069,15 @@ function StockLookup({
           </Button>
         ),
       },
+		...(scope === "commercial-products" || scope === "used-devices" ? [{
+			key: "listing",
+			label: "Catálogo",
+			render: (row: StockItemSummary) => {
+				const listing = listingEntries.find((entry) => entry.item_code === row.item_code);
+				if (!listing) return <span className="text-xs text-tec-muted">Sem dados de anúncio</span>;
+				return <div className="flex flex-wrap items-center gap-2"><span className="text-xs text-tec-subtle">{listing.catalog_kind === "unique" ? `Único • IMEI ••••${listing.serial_suffix ?? "----"}` : "Prateleira • variação"}</span>{canManageVariantProducts ? <Button onClick={() => setListingItem(listing)}>Anúncio</Button> : null}</div>;
+			},
+		}] : []),
 		...(canTransfer ? [{
 			key: "transfer",
 			label: "Transferir",
@@ -5069,7 +5088,7 @@ function StockLookup({
 			),
 		}] : []),
     ],
-	[busyItem, canTransfer, generateBarcode, isCommercialCatalog, scope],
+	[busyItem, canManageVariantProducts, canTransfer, generateBarcode, isCommercialCatalog, listingEntries, scope],
   );
 
   return (
@@ -5089,6 +5108,7 @@ function StockLookup({
 		  </div>
         </div>
       ) : null}
+		{scope === "commercial-products" || scope === "used-devices" ? <div className="rounded-control border border-tec-border/15 bg-tec-field/35 px-4 py-3 text-sm text-tec-subtle"><strong className="text-white">{scope === "used-devices" ? "Itens únicos do trade-in" : "Prateleira com variações"}</strong><span className="ml-2">{scope === "used-devices" ? "Cada aparelho usa o Item serializado já criado no trade-in; estoque unitário no Comercial." : "Cada linha é uma variação nativa, com SKU, GTIN e estoque próprios."}</span></div> : null}
       <LookupCard
         columns={columns}
         emptyLabel={status === "error" ? "Falha ao consultar estoque." : "Nenhum item encontrado."}
@@ -5125,6 +5145,7 @@ function StockLookup({
         />
       ) : null}
 		{isCommercialCatalog && canManageVariantProducts ? <VariantProductModal onClose={() => setVariantRegistrationOpen(false)} onCreated={(message) => { onToast(message); void search(""); }} open={variantRegistrationOpen} /> : null}
+		<ListingMetadataModal item={listingItem} onClose={() => setListingItem(null)} onSaved={(item) => { setListingEntries((current) => current.map((entry) => entry.item_code === item.item_code ? item : entry)); onToast("Dados de anúncio atualizados."); }} open={Boolean(listingItem)} />
 		<Modal
 			onClose={() => setTransferItem(null)}
 			open={Boolean(transferItem)}

@@ -82,6 +82,47 @@ export interface ProductVariantCreatePayload {
   }>;
 }
 
+export interface ListingImage {
+  image: string;
+  caption: string;
+}
+
+export interface CommercialCatalogItem {
+  item_code: string;
+  item_name: string;
+  catalog_kind: "shelf" | "unique" | null;
+  variant_of: string | null;
+  sku: string;
+  gtin: string | null;
+  public_price: number;
+  available_qty: number | null;
+  serial_suffix: string | null;
+  online_sellable: boolean;
+  listing_title: string;
+  listing_description: string;
+  condition: string;
+  grade: string;
+  weight_per_unit: number;
+  package_length_cm: number;
+  package_width_cm: number;
+  package_height_cm: number;
+  images: ListingImage[];
+}
+
+export interface ListingMetadataPayload {
+  online_sellable: boolean;
+  listing_title: string;
+  listing_description: string;
+  condition: string;
+  grade: string;
+  public_price: number;
+  weight_per_unit: number;
+  package_length_cm: number;
+  package_width_cm: number;
+  package_height_cm: number;
+  images: ListingImage[];
+}
+
 export interface LoggedUser {
   name: string;
   full_name: string;

@@ -51,6 +51,8 @@ from tecponto_app.tecponto.frontend.api import (
 	list_product_variant_attributes,
 	list_variant_products,
 	save_product_variant_attribute,
+	list_commercial_catalog,
+	save_listing_metadata,
 	save_catalog_reference,
 	save_catalog_service,
 	save_stage_sla,
@@ -72,6 +74,7 @@ from tecponto_app.tecponto.tracking import (
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.product_categories import ensure_product_category_foundation
 from tecponto_app.tecponto.product_variants import ensure_product_variant_attributes
+from tecponto_app.tecponto.listing_metadata import ensure_listing_metadata_fields
 from tecponto_app.tecponto.requests import (
 	approve_request,
 	create_request,
@@ -164,6 +167,7 @@ def run_foundation_checks() -> dict:
 		service_catalog_checks = run_service_catalog_checks()
 		product_category_checks = run_product_category_checks()
 		product_variant_checks = run_product_variant_checks()
+		marketplace_listing_checks = run_marketplace_listing_checks()
 		defect_service_mapping_checks = run_defect_service_mapping_checks()
 		stage_sla_checks = run_stage_sla_checks()
 		stage_clock_checks = run_stage_clock_checks()
@@ -196,6 +200,7 @@ def run_foundation_checks() -> dict:
 			"service_catalog_checks": service_catalog_checks,
 			"product_category_checks": product_category_checks,
 			"product_variant_checks": product_variant_checks,
+			"marketplace_listing_checks": marketplace_listing_checks,
 			"defect_service_mapping_checks": defect_service_mapping_checks,
 			"stage_sla_checks": stage_sla_checks,
 			"stage_clock_checks": stage_clock_checks,
@@ -1197,6 +1202,53 @@ def run_product_variant_checks() -> dict:
 			"attendant_blocked": blocked,
 			"leaked_fields": leaks,
 		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_marketplace_listing_checks() -> dict:
+	"""Marketplace data lives on native Item children; used trade-ins stay unique serial Items."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		ensure_product_variant_attributes()
+		ensure_listing_metadata_fields()
+		manager = _find_or_create_user("Tecponto Gestor")
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(manager)
+		suffix = frappe.generate_hash(length=7).upper()
+		variant = create_product_with_variants({"template_code": f"TPM-CAPA-{suffix}", "template_name": f"Capa marketplace {suffix}", "item_group": "Capas", "attributes": [{"name": "Cor"}], "variants": [{"attributes": {"Cor": "Preto"}, "sku": f"TPM-CAPA-{suffix}-PT", "gtin": f"TPM{suffix}01", "price": 59.90}]})["variants"][0]
+		listing = save_listing_metadata(variant["item_code"], {"online_sellable": 1, "listing_title": f"Capa premium {suffix}", "listing_description": "Descrição pública do anúncio, sem dados internos.", "condition": "Novo", "grade": "A", "public_price": 59.90, "weight_per_unit": 0.12, "package_length_cm": 18, "package_width_cm": 10, "package_height_cm": 2, "images": [{"image": "/files/tecponto-listing-cover.png", "caption": "Capa"}, {"image": "/files/tecponto-listing-side.png", "caption": "Lateral"}]})["item"]
+		if not listing["online_sellable"] or listing["images"][0]["image"] != "/files/tecponto-listing-cover.png":
+			raise AssertionError("Dados ordenados de anúncio não foram persistidos.")
+		customer = _get_or_create_demo_customer()
+		imei = f"356{frappe.generate_hash(length=12).upper()}"[:15]
+		frappe.set_user("Administrator")
+		tradein = frappe.get_doc({"doctype": "Device Trade Evaluation", "customer": customer, "device_type": "iPhone", "model": "iPhone usado marketplace", "capacity": "128GB", "imei": imei, "approved_value": 300, "destination": "Venda", "workflow_state": "Comprado"})
+		tradein.insert(ignore_permissions=True)
+		used_item = tradein.created_item
+		if not used_item:
+			raise AssertionError("Trade-in não criou Item único serializado.")
+		frappe.set_user(manager)
+		save_listing_metadata(used_item, {"online_sellable": 1, "listing_title": "iPhone usado revisado", "listing_description": "Aparelho usado, revisado e pronto para venda.", "condition": "Usado", "grade": "B", "public_price": 499.90, "weight_per_unit": 0.24, "package_length_cm": 19, "package_width_cm": 11, "package_height_cm": 4, "images": [{"image": "/files/tecponto-used-cover.png", "caption": "Frente"}]})
+		unique_before = next((item for item in list_commercial_catalog("unique")["items"] if item["item_code"] == used_item), None)
+		if not unique_before or unique_before["available_qty"] != 1 or unique_before["serial_suffix"] != imei[-4:]:
+			raise AssertionError("Trade-in não apareceu como único com estoque 1.")
+		frappe.set_user("Administrator")
+		sale = pos_create_sale({"idempotency_key": f"marketplace-used-{suffix}", "items": [{"item_code": used_item, "qty": 1, "serial_no": imei}], "payments": [{"mode_of_payment": "Pix", "amount": 499.90}]})
+		frappe.set_user(manager)
+		removed = not any(item["item_code"] == used_item for item in list_commercial_catalog("unique")["items"])
+		if not removed or not any(item["item_code"] == variant["item_code"] for item in list_commercial_catalog("shelf")["items"]):
+			raise AssertionError("Catálogo não separou variação de prateleira e usado único vendido.")
+		frappe.set_user(attendant)
+		blocked = False
+		try: save_listing_metadata(variant["item_code"], {"online_sellable": 0})
+		except frappe.PermissionError: blocked = True
+		payload = {"listing": listing, "shelf": list_commercial_catalog("shelf")["items"]}
+		leaks = contains_sensitive_field(payload, forbidden_values=[BUDGET_COST_GUARD_VALUATION])
+		if not blocked or leaks:
+			raise AssertionError("Permissão ou guard de custo falhou no catálogo marketplace.")
+		return {"variant": variant["item_code"], "listing_cover": listing["images"][0]["image"], "used_item": used_item, "unique_stock_before_sale": unique_before["available_qty"], "used_sale": sale["sale"], "removed_after_sale": removed, "attendant_blocked": blocked, "leaked_fields": leaks}
 	finally:
 		frappe.set_user(previous_user)
 
@@ -2658,7 +2710,7 @@ def _get_or_create_demo_device(customer: str) -> str:
 def _get_demo_item(is_stock_item: int) -> str:
 	item = frappe.db.get_value(
 		"Item",
-		{"disabled": 0, "is_stock_item": is_stock_item},
+		{"disabled": 0, "is_stock_item": is_stock_item, "has_serial_no": 0},
 		"name",
 	)
 	if not item:

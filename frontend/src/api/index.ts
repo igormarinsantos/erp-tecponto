@@ -8,6 +8,7 @@ export { dailyActions } from "./dailyActions";
 export { serviceCatalog } from "./serviceCatalog";
 export { productCategories } from "./productCategories";
 export { productVariants } from "./productVariants";
+export { catalogListings } from "./catalogListings";
 export type { ApprovalRequest } from "./requests";
 export { serviceOrders, type ServiceOrderQueryParams } from "./serviceOrders";
 export type {
@@ -78,6 +79,9 @@ export type {
   ProductVariantCreatePayload,
   ProductVariantSummary,
   ProductVariantTemplate,
+	CommercialCatalogItem,
+	ListingImage,
+	ListingMetadataPayload,
   RetailBarcodeLookupResponse,
   RetailBarcodeSource,
   RetailItemGroupResponse,
