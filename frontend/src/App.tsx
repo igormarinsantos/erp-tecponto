@@ -435,6 +435,20 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const onHelpShortcut = (event: KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const isEditing = Boolean(target?.closest("input, textarea, select, [contenteditable='true']"));
+      if (event.key !== "F1" && (event.key !== "?" || isEditing || event.ctrlKey || event.metaKey || event.altKey)) {
+        return;
+      }
+      event.preventDefault();
+      setHelpOpen(true);
+    };
+    window.addEventListener("keydown", onHelpShortcut);
+    return () => window.removeEventListener("keydown", onHelpShortcut);
+  }, []);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem(SERVICE_ORDERS_VIEW_KEY, serviceOrdersView);
     } catch {

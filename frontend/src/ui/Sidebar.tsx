@@ -106,18 +106,6 @@ export function Sidebar({
       </nav>
 
       <div className="mt-auto shrink-0 space-y-3 pt-3">
-        <button
-          className="flex min-h-[48px] w-full items-center gap-3 rounded-control border border-tec-border/20 bg-tec-panel px-4 text-left text-sm font-semibold text-tec-subtle transition hover:bg-tec-field hover:text-white"
-          onClick={onOpenHelp}
-          title="Abrir ajuda rápida"
-          type="button"
-        >
-          <HelpCircle size={18} />
-          <span>
-            <span className="block">Ajuda rápida</span>
-            <span className="mt-0.5 block text-[10px] font-medium text-tec-muted">Atalhos, guias e suporte</span>
-          </span>
-        </button>
         {profileOpen ? (
           <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-2 shadow-panel">
             <button
