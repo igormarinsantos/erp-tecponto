@@ -162,7 +162,7 @@ interface TecpontoContextMenuState {
   x: number;
   y: number;
 }
-type QueueFilter = "all" | "Aguardando aprovação" | "Entrada criada" | "Em diagnóstico" | "Aguardando peça" | "Em reparo" | "Pronto para retirada" | "Entregue" | "Reprovado";
+type QueueFilter = "all" | "Aguardando aprovação" | "Entrada criada" | "Em diagnóstico" | "Aguardando peça" | "Em reparo" | "Teste final" | "Pronto para retirada" | "Entregue" | "Reprovado";
 type DashboardPeriodMode = "7d" | "14d" | "custom";
 
 interface DashboardPeriodFilter {
@@ -984,7 +984,11 @@ export function App() {
     }
     : state.boot.user;
   const panel = getUnifiedPanelDefinition(rolePanels, state.boot.user.full_name);
-  const currentView = activeView === "overview" ? null : viewTitles[activeView];
+  const currentView = activeView === "overview"
+    ? null
+    : activeView === "service-order-detail" && !state.metrics.sales_visible
+      ? { title: "Detalhe da OS", subtitle: "Diagnóstico, execução e workflow da sua bancada." }
+      : viewTitles[activeView];
 
   if (cashierMode) {
     return (
@@ -1096,6 +1100,7 @@ export function App() {
               canReceiveStock={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "System Manager")}
               canEditServiceCatalog={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
               canEditProductCategories={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
+			  isRestrictedTechnician={!state.metrics.sales_visible}
               onInitialPosBarcodeHandled={() => setPendingPosBarcode(null)}
               onInitialRetailBarcodeHandled={() => setPendingRetailBarcode(null)}
               initialServiceOrderStatus={pendingServiceOrderStatus}
@@ -1909,6 +1914,7 @@ function NavigationContent({
   canReceiveStock,
   canEditServiceCatalog,
   canEditProductCategories,
+	 isRestrictedTechnician,
   onInitialPosBarcodeHandled,
   onInitialRetailBarcodeHandled,
   onInitialServiceOrderStatusHandled,
@@ -1930,6 +1936,7 @@ function NavigationContent({
   canReceiveStock: boolean;
   canEditServiceCatalog: boolean;
   canEditProductCategories: boolean;
+	 isRestrictedTechnician: boolean;
   initialPosBarcode: PendingPosBarcode | null;
   initialRetailBarcode: PendingRetailBarcode | null;
   initialServiceOrderStatus: QueueFilter | null;
@@ -2008,6 +2015,7 @@ function NavigationContent({
     return selectedOrderName ? (
       <ServiceOrderDetail
         initialFlow={initialOrderFlow}
+		isRestrictedTechnician={isRestrictedTechnician}
         name={selectedOrderName}
         onBack={() => onNavigate("service-orders")}
         onInitialFlowHandled={onInitialOrderFlowHandled}
@@ -2032,7 +2040,7 @@ function NavigationContent({
         <section className="min-w-0 space-y-4">
           <StatBar
             items={serviceOrderStats.map((item) => ({ ...item, ...getStatBarVisual("service_orders", item.key) }))}
-            onSelect={(status) => setServiceOrderFilters((current) => ({ ...current, status: status as QueueFilter }))}
+            onSelect={(status) => setServiceOrderFilters((current) => ({ ...current, status: status === "total" ? "all" : status as QueueFilter }))}
           />
           {serviceOrderListState.status === "error" ? (
             <Card className="p-4 text-sm font-semibold text-tec-red">{serviceOrderListState.message}</Card>
@@ -2060,7 +2068,10 @@ function NavigationContent({
           )}
         </section>
         <ActionPanel
-          actions={[
+          actions={isRestrictedTechnician ? [
+            { icon: ClipboardCheck, label: "Minhas OS", detail: "Fila técnica", target: "service-orders" },
+            { icon: Boxes, label: "Peças de reparo", detail: "Consultar disponibilidade", target: "repair-parts" },
+          ] : [
             { icon: Wrench, label: "Nova OS", detail: "Check-in do balcão", opensCheckin: true },
             { icon: SearchIcon, label: "Buscar cliente", detail: "Localizar cadastro", target: "customers" },
             { icon: Smartphone, label: "Aparelhos", detail: "Buscar IMEI", target: "devices" },
@@ -2520,12 +2531,14 @@ function nextActionForOrder(order: ServiceOrderSummary): {
 
 function ServiceOrderDetail({
   initialFlow,
+	isRestrictedTechnician,
   name,
   onBack,
   onInitialFlowHandled,
   onToast,
 }: {
   initialFlow: ServiceOrderFlow | null;
+	 isRestrictedTechnician: boolean;
   name: string;
   onBack: () => void;
   onInitialFlowHandled: () => void;
@@ -2654,6 +2667,26 @@ function ServiceOrderDetail({
       onToast(caught instanceof Error ? caught.message : "Não foi possível atualizar a OS.", "error");
     }
   }
+
+	if (isRestrictedTechnician || detail.technical_view) {
+		return (
+			<TechnicalServiceOrderDetail
+				detail={detail}
+				onBack={onBack}
+				onMove={handleSimpleWorkflowMove}
+				onSaveDiagnosis={async (problemFound) => {
+					try {
+						const updated = await serviceOrders.saveDiagnosis(detail.name, problemFound);
+						setState({ status: "ready", detail: updated });
+						onToast("Diagnóstico salvo na OS.");
+					} catch (caught) {
+						onToast(caught instanceof Error ? caught.message : "Não foi possível salvar o diagnóstico.", "error");
+						throw caught;
+					}
+				}}
+			/>
+		);
+	}
 
   return (
     <div className="space-y-4">
@@ -3031,16 +3064,186 @@ function TrackingLinkBanner({
   );
 }
 
+function TechnicalServiceOrderDetail({
+  detail,
+  onBack,
+  onMove,
+  onSaveDiagnosis,
+}: {
+  detail: ServiceOrderDetailResponse;
+  onBack: () => void;
+  onMove: (nextState: string) => Promise<void>;
+  onSaveDiagnosis: (problemFound: string) => Promise<void>;
+}) {
+  const [diagnosis, setDiagnosis] = useState(detail.diagnosis.problem_found ?? "");
+  const [savingDiagnosis, setSavingDiagnosis] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const deviceLabel =
+    [detail.device?.brand, detail.device?.model, detail.device?.color].filter(Boolean).join(" ") ||
+    detail.device?.name ||
+    "Aparelho não vinculado";
+
+  useEffect(() => {
+    setDiagnosis(detail.diagnosis.problem_found ?? "");
+  }, [detail.diagnosis.problem_found, detail.name]);
+
+  async function saveDiagnosis() {
+    setSavingDiagnosis(true);
+    try {
+      await onSaveDiagnosis(diagnosis);
+    } finally {
+      setSavingDiagnosis(false);
+    }
+  }
+
+  async function move(action: ServiceOrderWorkflowAction) {
+    setMoving(true);
+    try {
+      await onMove(action.next_state);
+    } finally {
+      setMoving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <ServiceOrderHero
+        detail={detail}
+        onBack={onBack}
+        onOpenActions={() => undefined}
+        onOpenBudgetEditor={() => undefined}
+        showActionsMenu={false}
+        showBudgetAction={false}
+      />
+
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <IdentityCard
+              icon={<UserRound size={20} />}
+              lines={[["Cliente", detail.customer?.customer_name ?? detail.customer?.name ?? "Não informado"], ["Atendente", detail.attendant ?? "Não definido"]]}
+              title="Atendimento atribuído"
+            />
+            <IdentityCard
+              icon={<Smartphone size={20} />}
+              lines={[
+                ["Aparelho", deviceLabel],
+                ["IMEI / Serial", detail.device?.imei_serial ?? "Não informado"],
+                ["Estado declarado", detail.physical_state ?? "Não informado"],
+              ]}
+              title="Aparelho"
+            />
+          </div>
+
+          <Card className="p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-bold text-white">Diagnóstico técnico</h3>
+                <p className="mt-1 text-sm text-tec-muted">Registre o problema encontrado para manter a execução rastreável.</p>
+              </div>
+              {detail.diagnosis.diagnosis_date ? <span className="rounded-full bg-tec-success/10 px-3 py-1 text-xs font-bold text-tec-success">Registrado em {formatDate(detail.diagnosis.diagnosis_date)}</span> : null}
+            </div>
+            <textarea
+              className="mt-4 min-h-32 w-full rounded-control border border-tec-border/20 bg-tec-field p-3 text-sm font-medium text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70"
+              onChange={(event) => setDiagnosis(event.target.value)}
+              placeholder="Descreva o defeito encontrado, causa provável e orientação técnica."
+              value={diagnosis}
+            />
+            <div className="mt-3 flex justify-end">
+              <Button disabled={!diagnosis.trim() || savingDiagnosis} icon={<FileText size={17} />} onClick={() => void saveDiagnosis()} variant="primary">
+                {savingDiagnosis ? "Salvando..." : "Salvar diagnóstico"}
+              </Button>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-bold text-white">Execução do reparo</h3>
+                <p className="mt-1 text-sm text-tec-muted">Serviços, peças e resultado técnico desta OS.</p>
+              </div>
+              <span className="rounded-full bg-tec-field px-3 py-1 text-xs font-bold text-tec-subtle">{detail.parts.length} peça(s)</span>
+            </div>
+
+            <TechnicalLineList lines={detail.services} title="Serviços" type="service" />
+            <div className="mt-4">
+              <TechnicalLineList lines={detail.parts} title="Peças aplicadas" type="part" />
+            </div>
+          </Card>
+
+          <TimelineCard events={detail.timeline} />
+        </div>
+
+        <aside className="space-y-4">
+          <Card className="p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-tec-muted">Etapa atual</p>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <BadgeStatus status={detail.workflow_state} />
+              <WorkflowMoveMenu
+                actions={detail.workflow_transitions}
+                busy={moving}
+                onSelect={(action) => void move(action)}
+                status={detail.workflow_state}
+                variant="status"
+              />
+            </div>
+            <p className="mt-4 text-sm text-tec-subtle">As transições disponíveis vêm do workflow do motor e só afetam esta OS atribuída.</p>
+          </Card>
+          <ServiceOrderAttendanceCard detail={detail} />
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function TechnicalLineList({
+  lines,
+  title,
+  type,
+}: {
+  lines: ServiceOrderBudgetLine[];
+  title: string;
+  type: "service" | "part";
+}) {
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between">
+        <h4 className="text-sm font-bold text-white">{title}</h4>
+        <span className="rounded-full bg-tec-field px-2 py-1 text-xs font-semibold text-tec-muted">{lines.length}</span>
+      </div>
+      <div className="overflow-hidden rounded-card border border-tec-border/15">
+        {lines.length ? lines.map((line, index) => (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-tec-border/15 bg-tec-field/40 px-3 py-3 text-sm last:border-0" key={`${line.item_code ?? title}-${index}`}>
+            <div className="min-w-0">
+              <p className="truncate font-semibold text-white">{line.description || line.item_code || "Item sem descrição"}</p>
+              <p className="mt-1 text-xs text-tec-muted">
+                {line.item_code ?? "Sem item"} · Qtd. {line.qty.toLocaleString("pt-BR")}
+                {type === "service" && line.service_duration ? ` · ${line.service_duration} ${(line.duration_unit ?? "Horas").toLowerCase()}` : ""}
+                {type === "part" && line.outcome ? ` · ${line.outcome}` : ""}
+              </p>
+            </div>
+            {type === "service" && line.unit_price !== undefined ? <span className="shrink-0 text-sm font-bold text-tec-subtle">MO {formatCurrency(line.unit_price)}</span> : null}
+          </div>
+        )) : <p className="bg-tec-field/35 px-3 py-4 text-sm text-tec-muted">Nenhuma linha registrada.</p>}
+      </div>
+    </section>
+  );
+}
+
 function ServiceOrderHero({
   detail,
   onBack,
   onOpenActions,
   onOpenBudgetEditor,
+	showBudgetAction = true,
+	showActionsMenu = true,
 }: {
   detail: ServiceOrderDetailResponse;
   onBack: () => void;
   onOpenActions: () => void;
   onOpenBudgetEditor: (type: BudgetLineType) => void;
+	showBudgetAction?: boolean;
+	showActionsMenu?: boolean;
 }) {
   return (
     <Card className="overflow-hidden p-0">
@@ -3070,22 +3273,26 @@ function ServiceOrderHero({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-            <Button
-              icon={<Plus size={17} />}
-              onClick={() => onOpenBudgetEditor("service")}
-              variant="primary"
-            >
-              Cadastrar orçamento
-            </Button>
-            <PrintPrimaryLink links={detail.print_links} />
-            <button
-              className="grid h-10 w-10 place-items-center rounded-control border border-tec-border/15 bg-tec-field text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
-              onClick={onOpenActions}
-              title="Ações da OS"
-              type="button"
-            >
-              <MoreHorizontal size={18} />
-            </button>
+            {showBudgetAction ? (
+              <Button
+                icon={<Plus size={17} />}
+                onClick={() => onOpenBudgetEditor("service")}
+                variant="primary"
+              >
+                Cadastrar orçamento
+              </Button>
+            ) : null}
+            {detail.print_links.length ? <PrintPrimaryLink links={detail.print_links} /> : null}
+            {showActionsMenu ? (
+              <button
+                className="grid h-10 w-10 place-items-center rounded-control border border-tec-border/15 bg-tec-field text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
+                onClick={onOpenActions}
+                title="Ações da OS"
+                type="button"
+              >
+                <MoreHorizontal size={18} />
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -3101,7 +3308,7 @@ function WorkflowStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
   const subtitles = serviceOrderStepSubtitles(detail, activeIndex);
 
   return (
-    <div className="grid gap-2 p-4 md:grid-cols-6">
+    <div className="grid gap-2 p-4 xl:grid-cols-6">
       {SERVICE_ORDER_STEPS.map((step, index) => {
         const done = index < activeIndex;
         const active = index === activeIndex;
@@ -3471,8 +3678,8 @@ function BudgetLines({
                 </p>
               </div>
               <span className="text-tec-subtle">Qtd. {line.qty.toLocaleString("pt-BR")}</span>
-              <span className="text-tec-subtle">{formatCurrency(line.unit_price)}</span>
-              <span className="font-semibold text-white">{formatCurrency(line.amount)}</span>
+              <span className="text-tec-subtle">{formatCurrency(line.unit_price ?? 0)}</span>
+              <span className="font-semibold text-white">{formatCurrency(line.amount ?? 0)}</span>
             </div>
           ))
         ) : (
@@ -4148,19 +4355,21 @@ function TimelineCard({
   onOpenHistory,
 }: {
   events: ServiceOrderTimelineEvent[];
-  onOpenHistory: () => void;
+  onOpenHistory?: () => void;
 }) {
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-xl font-bold text-white">Histórico da OS</h3>
-        <button
-          className="text-sm font-bold text-tec-orange transition hover:text-tec-digital-orange"
-          onClick={onOpenHistory}
-          type="button"
-        >
-          Ver todos os eventos
-        </button>
+        {onOpenHistory ? (
+          <button
+            className="text-sm font-bold text-tec-orange transition hover:text-tec-digital-orange"
+            onClick={onOpenHistory}
+            type="button"
+          >
+            Ver todos os eventos
+          </button>
+        ) : null}
       </div>
       <div className="mt-5 space-y-0">
         {events.map((event, index) => (

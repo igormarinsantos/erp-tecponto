@@ -3,6 +3,7 @@ import {
   Archive,
   Banknote,
   CheckCircle2,
+  ClipboardCheck,
   Clock3,
   Globe2,
   ListPlus,
@@ -32,12 +33,14 @@ function visual(Icon: LucideIcon, tone: NonNullable<StatBarItem["tone"]>): Visua
 export function getStatBarVisual(scope: string, key: string): Visual {
   const maps: Record<string, Record<string, Visual>> = {
     service_orders: {
+      total: visual(ClipboardCheck, "orange"),
 	  overdue: visual(AlertTriangle, "orange"),
       "Entrada criada": visual(Archive, "blue"),
       "Em diagnóstico": visual(SearchCheck, "blue"),
       "Aguardando aprovação": visual(Clock3, "amber"),
       "Aguardando peça": visual(PackageSearch, "blue"),
       "Em reparo": visual(Wrench, "orange"),
+      "Teste final": visual(CheckCircle2, "green"),
       "Pronto para retirada": visual(ShoppingBag, "green"),
     },
     customers: {

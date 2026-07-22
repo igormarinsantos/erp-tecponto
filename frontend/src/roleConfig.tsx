@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  AlertTriangle,
   BarChart3,
   Bell,
   Boxes,
@@ -14,6 +15,7 @@ import {
   MessageCircle,
   PackageSearch,
   Search,
+  SearchCheck,
   ShoppingCart,
   Smartphone,
   Star,
@@ -162,7 +164,10 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
     ],
     metrics: [
       { icon: ClipboardList, label: "Minhas OS", tone: "orange", value: (metrics) => metrics.service_orders.total, detail: "Atribuídas a você" },
+      { icon: SearchCheck, label: "Em diagnóstico", tone: "blue", value: (metrics) => metrics.service_orders.in_diagnosis, detail: "Na bancada" },
       { icon: PackageSearch, label: "Aguardando peça", tone: "purple", value: (metrics) => metrics.service_orders.waiting_part, detail: "Solicitações abertas" },
+      { icon: ClipboardCheck, label: "Prontas para teste", tone: "green", value: (metrics) => metrics.service_orders.ready_for_test, detail: "Validação final" },
+      { icon: AlertTriangle, label: "Atrasadas", tone: "red", value: (metrics) => metrics.service_orders.overdue, detail: "Pedem atenção" },
     ],
     actions: [
       { icon: ClipboardList, label: "Minhas OS", detail: "Fila da bancada", target: "service-orders" },

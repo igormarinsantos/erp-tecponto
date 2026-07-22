@@ -77,6 +77,11 @@ export const serviceOrders = {
       body: { name, target_state: targetState },
     });
   },
+  saveDiagnosis(name: string, problemFound: string) {
+    return rpc<ServiceOrderDetailResponse>(`${API}.save_technical_diagnosis`, {
+      body: { name, problem_found: problemFound },
+    });
+  },
   decideBudget(name: string, payload: BudgetDecisionPayload) {
     return rpc<ServiceOrderDetailResponse>(`${API}.decide_service_order_budget`, {
       body: { name, payload },

@@ -334,6 +334,7 @@ export interface ServiceOrderDetailResponse {
   attendant: string | null;
   technician: string | null;
   priority: string | null;
+  technical_view: boolean;
   customer: ServiceOrderCustomerDetail | null;
   device: ServiceOrderDeviceDetail | null;
   reported_defect: string | null;
@@ -381,8 +382,8 @@ export interface ServiceOrderBudgetLine {
   item_code: string | null;
   description: string | null;
   qty: number;
-  unit_price: number;
-  amount: number;
+  unit_price?: number;
+  amount?: number;
   catalog_service?: string | null;
   service_duration?: number;
   duration_unit?: "Horas" | "Dias úteis";
@@ -650,9 +651,11 @@ export interface DashboardMetrics {
 	sales_visible: boolean;
   service_orders: {
     total: number;
+    in_diagnosis: number;
     awaiting_approval: number;
     ready_for_pickup: number;
     waiting_part: number;
+    ready_for_test: number;
     new_today: number;
     overdue: number;
   };

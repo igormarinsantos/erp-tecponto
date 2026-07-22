@@ -334,9 +334,17 @@ def list_service_orders(
 def get_service_order_statbar() -> dict[str, Any]:
 	"""Operational workflow counts only; deliberately excludes all financial fields."""
 	_require_frontend_role()
-	states = ["Entrada criada", "Em diagnóstico", "Aguardando aprovação", "Aguardando peça", "Em reparo", "Pronto para retirada"]
+	technical_view = is_restricted_technician()
+	states = (
+		["Em diagnóstico", "Aguardando peça", "Teste final"]
+		if technical_view
+		else ["Entrada criada", "Em diagnóstico", "Aguardando aprovação", "Aguardando peça", "Em reparo", "Pronto para retirada"]
+	)
 	scope = service_order_scope_filters()
-	items = [{"key": "overdue", "label": "Atrasadas", "value": len(stage_clock.list_overdue_service_order_names(filters=scope))}]
+	items = []
+	if technical_view:
+		items.append({"key": "total", "label": "Minhas OS", "value": frappe.db.count("Service Order", scope)})
+	items.append({"key": "overdue", "label": "Atrasadas", "value": len(stage_clock.list_overdue_service_order_names(filters=scope))})
 	for state in states:
 		filters = {**scope, "workflow_state": state}
 		items.append({"key": state, "label": state, "value": frappe.db.count("Service Order", filters)})
@@ -530,10 +538,14 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 	doc = frappe.get_doc("Service Order", name)
 	doc.check_permission("read")
 
+	technical_view = is_restricted_technician()
 	services = [_serialize_service_row(row) for row in (doc.get("services") or [])]
 	parts = [_serialize_part_row(row) for row in (doc.get("parts") or [])]
+	if technical_view:
+		# A technician can execute a part, but never needs the customer-facing part price.
+		parts = [{key: value for key, value in row.items() if key not in {"unit_price", "amount"}} for row in parts]
 	service_total = sum(row["amount"] for row in services)
-	parts_price_total = sum(row["amount"] for row in parts)
+	parts_price_total = sum(row["amount"] for row in parts) if not technical_view else 0
 	discount = flt(doc.get("discount") or 0)
 	grand_total = flt(doc.get("grand_total") or (service_total + parts_price_total - discount))
 
@@ -553,6 +565,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"modified": str(doc.get("modified") or ""),
 		"attendant": doc.get("attendant"),
 		"technician": doc.get("technician"),
+		"technical_view": technical_view,
 		"priority": doc.get("priority"),
 		"customer": _get_customer_detail(doc.get("customer"), include_fiscal=not is_restricted_technician()),
 		"device": _get_device_detail(doc.get("customer_device")),
@@ -569,8 +582,8 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"totals": {
 			"service_total": service_total,
 			"parts_price_total": parts_price_total,
-			"discount": discount,
-			"grand_total": grand_total,
+			"discount": discount if not technical_view else 0,
+			"grand_total": grand_total if not technical_view else 0,
 			"budget_version": int(doc.get("budget_version") or 1),
 			"quote_locked": bool(doc.get("quote_locked")),
 		},
@@ -588,14 +601,37 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"has_signature": bool(doc.get("customer_signature")),
 		},
 		"finance": {
-			"sales_invoice": doc.get("sales_invoice"),
-			"sales_invoice_status": _get_sales_invoice_status(doc.get("sales_invoice")),
+			"sales_invoice": doc.get("sales_invoice") if not technical_view else None,
+			"sales_invoice_status": _get_sales_invoice_status(doc.get("sales_invoice")) if not technical_view else None,
 		},
 		"workflow_actions": _get_visible_workflow_actions(doc),
 		"workflow_transitions": _get_service_order_transition_options(doc.get("workflow_state")),
 		"timeline": _get_service_order_timeline(doc),
-		"print_links": _get_service_order_print_links(doc.name),
+		"print_links": _get_service_order_print_links(doc.name) if not technical_view else [],
 	}
+
+
+@frappe.whitelist()
+def save_technical_diagnosis(name: str, problem_found: str) -> dict[str, Any]:
+	"""Save a technical diagnosis without granting access to commercial or desk flows."""
+	_require_frontend_role()
+	roles = set(frappe.get_roles(frappe.session.user))
+	if not roles.intersection({"Tecponto Tecnico", "Tecponto Gestor", "Tecponto Diretor", "System Manager"}):
+		frappe.throw(_("Somente a equipe técnica pode registrar o diagnóstico."), frappe.PermissionError)
+
+	doc = frappe.get_doc("Service Order", (name or "").strip())
+	doc.check_permission("write")
+	if is_restricted_technician() and doc.get("technician") != frappe.session.user:
+		frappe.throw(_("Você só pode registrar diagnóstico nas suas OS."), frappe.PermissionError)
+
+	clean_problem = strip_html(problem_found or "").strip()
+	if not clean_problem:
+		frappe.throw(_("Informe o diagnóstico encontrado."), frappe.ValidationError)
+
+	doc.problem_found = clean_problem
+	doc.diagnosis_date = now_datetime().date()
+	doc.save()
+	return get_service_order_detail(doc.name)
 
 
 @frappe.whitelist()
@@ -1159,9 +1195,11 @@ def get_dashboard_metrics() -> dict[str, Any]:
 	service_scope = service_order_scope_filters()
 	service_orders = {
 		"total": frappe.db.count("Service Order", service_scope),
+		"in_diagnosis": frappe.db.count("Service Order", {**service_scope, "workflow_state": "Em diagnóstico"}),
 		"awaiting_approval": frappe.db.count("Service Order", {**service_scope, "workflow_state": "Aguardando aprovação"}),
 		"ready_for_pickup": frappe.db.count("Service Order", {**service_scope, "workflow_state": "Pronto para retirada"}),
 		"waiting_part": frappe.db.count("Service Order", {**service_scope, "workflow_state": "Aguardando peça"}),
+		"ready_for_test": frappe.db.count("Service Order", {**service_scope, "workflow_state": "Teste final"}),
 		"new_today": frappe.db.count("Service Order", {**service_scope, "creation": [">=", today()]}),
 		"overdue": _count_overdue_service_orders(service_scope),
 	}

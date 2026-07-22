@@ -24,6 +24,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_list_statbar,
 	get_service_order_statbar,
 	get_service_order_detail,
+	save_technical_diagnosis,
 	get_service_order_kanban,
 	issue_os_acceptance,
 	add_catalog_service_to_service_order,
@@ -3298,11 +3299,21 @@ def run_technician_scope_checks() -> dict:
 		metrics = get_dashboard_metrics()
 		if metrics["service_orders"]["total"] != expected_total or metrics["sales_visible"]:
 			raise AssertionError("Dashboard técnico trouxe métricas globais ou vendas indevidas.")
-		statbar = {item["key"]: item["value"] for item in get_service_order_statbar()["items"]}
-		if statbar["Entrada criada"] != frappe.db.count(
-			"Service Order", {"technician": technician, "workflow_state": "Entrada criada"}
+		if metrics["service_orders"]["in_diagnosis"] != frappe.db.count(
+			"Service Order", {"technician": technician, "workflow_state": "Em diagnóstico"}
 		):
-			raise AssertionError("StatBar do técnico ignorou a atribuição da OS.")
+			raise AssertionError("Home técnica não contou diagnósticos da própria carteira.")
+		if metrics["service_orders"]["ready_for_test"] != frappe.db.count(
+			"Service Order", {"technician": technician, "workflow_state": "Teste final"}
+		):
+			raise AssertionError("Home técnica não contou OS prontas para teste da própria carteira.")
+		statbar = {item["key"]: item["value"] for item in get_service_order_statbar()["items"]}
+		if statbar["total"] != expected_total:
+			raise AssertionError("StatBar do técnico ignorou o total de OS atribuídas.")
+		if statbar["Em diagnóstico"] != frappe.db.count(
+			"Service Order", {"technician": technician, "workflow_state": "Em diagnóstico"}
+		):
+			raise AssertionError("StatBar técnico não contou somente diagnósticos atribuídos.")
 
 		customer_results = search_customers(query=own_label, limit=20)
 		customer_names = {item["name"] for item in customer_results["items"]}
@@ -3328,6 +3339,22 @@ def run_technician_scope_checks() -> dict:
 		detail = get_service_order_detail(own_order)
 		if any(detail["customer"].get(field) for field in ("custom_cpf", "custom_rg", "email_id")):
 			raise AssertionError("Detalhe de OS do técnico devolveu dados fiscais ou e-mail do cliente.")
+		if not detail.get("technical_view"):
+			raise AssertionError("Detalhe técnico não sinalizou o contrato reduzido para a interface.")
+		if any(key in detail["parts"][0] for key in ("unit_price", "amount")):
+			raise AssertionError("Detalhe de OS do técnico devolveu preço de peça.")
+		if detail["totals"]["parts_price_total"] or detail["totals"]["discount"] or detail["totals"]["grand_total"]:
+			raise AssertionError("Detalhe de OS do técnico devolveu total comercial ou desconto.")
+		diagnosed = save_technical_diagnosis(own_order, "Diagnóstico técnico restrito validado pela suíte.")
+		if diagnosed["diagnosis"]["problem_found"] != "Diagnóstico técnico restrito validado pela suíte.":
+			raise AssertionError("Técnico não conseguiu registrar diagnóstico na própria OS.")
+		other_diagnosis_blocked = False
+		try:
+			save_technical_diagnosis(other_order, "Tentativa sem carteira.")
+		except frappe.PermissionError:
+			other_diagnosis_blocked = True
+		if not other_diagnosis_blocked:
+			raise AssertionError("Técnico registrou diagnóstico em OS alheia.")
 
 		blocked_endpoints = {
 			"vendas": lambda: list_sales(limit=1),
@@ -3360,6 +3387,8 @@ def run_technician_scope_checks() -> dict:
 			"blocked_endpoints": sorted(blocked_endpoints),
 			"customer_device_scope": True,
 			"fiscal_data_withheld": True,
+			"technical_detail_sanitized": True,
+			"own_diagnosis_saved": True,
 			"multi_role_union_preserved": True,
 		}
 	finally:

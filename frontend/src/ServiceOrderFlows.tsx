@@ -391,7 +391,7 @@ function CompactLines({ label, lines }: { label: string; lines: ServiceOrderDeta
                 <span className="block truncate font-semibold text-white">{line.description || line.item_code || "Linha sem descrição"}</span>
                 <span className="mt-1 block text-xs text-tec-muted">Qtd. {line.qty.toLocaleString("pt-BR")}</span>
               </span>
-              <span className="shrink-0 font-semibold text-tec-subtle">{formatCurrency(line.amount)}</span>
+              <span className="shrink-0 font-semibold text-tec-subtle">{formatCurrency(line.amount ?? 0)}</span>
             </div>
           ))}
         </div>
