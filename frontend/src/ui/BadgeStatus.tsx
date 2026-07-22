@@ -28,14 +28,17 @@ const toneClasses: Record<BadgeTone, string> = {
   slate: "bg-slate-400/10 text-slate-300 ring-slate-400/20",
 };
 
+export function getBadgeStatusToneClass(status?: string | null) {
+	return toneClasses[statusTone[status || "Sem status"] ?? "slate"];
+}
+
 export function BadgeStatus({ status }: { status?: string | null }) {
-  const label = status || "Sem status";
-  const tone = statusTone[label] ?? "slate";
-  return (
+	const label = status || "Sem status";
+	return (
     <span
       className={cx(
         "inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 text-[11px] font-semibold leading-none ring-1",
-        toneClasses[tone],
+		getBadgeStatusToneClass(label),
       )}
       title={label}
     >
