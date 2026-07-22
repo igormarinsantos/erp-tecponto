@@ -17,7 +17,8 @@ export type NavigationTarget =
   | "used-devices"
   | "pos"
   | "sales"
-  | "approval-requests";
+  | "approval-requests"
+  | "notifications";
 
 export interface ProductCategoryNode {
   name: string;
@@ -177,6 +178,21 @@ export interface TecpontoNotification {
 export interface NotificationListResponse {
   items: TecpontoNotification[];
   unread_count: number;
+}
+
+export interface NotificationHistoryResponse extends NotificationListResponse {
+  has_more: boolean;
+  total: number;
+}
+
+export interface NotificationHistoryFilters {
+  from_date?: string;
+  limit?: number;
+  notification_type?: string;
+  period?: "all" | "today" | "7d" | "30d" | "custom";
+  read_state?: "all" | "unread" | "read";
+  start?: number;
+  to_date?: string;
 }
 
 export interface DailyAction {

@@ -47,6 +47,8 @@ export type {
 	SaleListResponse,
 	SaleSummary,
   NavigationTarget,
+  NotificationHistoryFilters,
+  NotificationHistoryResponse,
   NotificationListResponse,
   RolePanel,
   ServiceOrderBudgetLine,

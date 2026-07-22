@@ -1740,12 +1740,27 @@ def run_notification_checks() -> dict:
 		request = create_request("service_order_discount", order_name, "Teste de notificacao.", {"discount": 1})
 		frappe.set_user(manager)
 		manager_notifications = notify.list_notifications()
-		if not any(item["reference_name"] == request["name"] for item in manager_notifications["items"]):
+		manager_request_notification = next((item for item in manager_notifications["items"] if item["reference_name"] == request["name"]), None)
+		if not manager_request_notification:
 			raise AssertionError(f"Solicitacao criada nao notificou o aprovador. Destinatarios resolvidos: {notify._users_with_role('Tecponto Gestor')}")
+		manager_history = notify.list_notification_history(notification_type="approval", read_state="unread", period="today", limit=1)
+		if not manager_history["items"] or manager_history["items"][0]["type"] != "approval" or manager_history["total"] < 1:
+			raise AssertionError("Histórico filtrado do aprovador não retornou a solicitação pendente.")
+		if manager_history["has_more"] and len(manager_history["items"]) != 1:
+			raise AssertionError("Paginação do histórico de notificações não respeitou o limite solicitado.")
 
 		approve_request(request["name"])
 		frappe.set_user(attendant)
 		attendant_notifications = notify.list_notifications()
+		if any(item["name"] == manager_request_notification["name"] for item in attendant_notifications["items"]):
+			raise AssertionError("Usuário conseguiu listar uma notificação destinada ao aprovador.")
+		foreign_mark_blocked = False
+		try:
+			notify.mark_notification_read(manager_request_notification["name"])
+		except frappe.PermissionError:
+			foreign_mark_blocked = True
+		if not foreign_mark_blocked:
+			raise AssertionError("Usuário conseguiu marcar como lida uma notificação de outro destinatário.")
 		decision = next((item for item in attendant_notifications["items"] if item["reference_name"] == request["name"]), None)
 		if not decision:
 			raise AssertionError("Decisao nao notificou o solicitante.")
@@ -1765,7 +1780,7 @@ def run_notification_checks() -> dict:
 		frappe.enqueue = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("queue offline"))
 		if notify.enqueue(attendant, "service_order_state_changed", {"reference_name": order_name}) is not False:
 			raise AssertionError("Falha de fila nao foi isolada da operacao.")
-		return {"status": "ok", "request": request["name"], "decision_notified": True, "unread_before": before_read, "unread_after": after_read, "service_order_link": service_order_notification["link"], "async_failure_isolated": True}
+		return {"status": "ok", "request": request["name"], "decision_notified": True, "history_filters": True, "history_recipient_scoped": True, "unread_before": before_read, "unread_after": after_read, "service_order_link": service_order_notification["link"], "async_failure_isolated": True}
 	finally:
 		frappe.enqueue = original_enqueue
 		frappe.flags.in_test = previous_in_test

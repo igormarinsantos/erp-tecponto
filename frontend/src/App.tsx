@@ -97,6 +97,7 @@ import { ListingMetadataModal } from "./ListingMetadataModal";
 import { ProductCategoryScreen } from "./ProductCategoryScreen";
 import { ProductVariantAttributesScreen } from "./ProductVariantAttributesScreen";
 import { DefectServiceMappingScreen } from "./DefectServiceMappingScreen";
+import { NotificationHistoryScreen } from "./NotificationHistoryScreen";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
@@ -361,6 +362,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   "approval-requests": {
     title: "Central de aprovacoes",
     subtitle: "Solicitacoes que exigem decisao de Gestor ou Diretor.",
+  },
+  notifications: {
+    title: "Notificações",
+    subtitle: "Histórico de avisos e encaminhamentos da operação.",
   },
 };
 
@@ -1044,6 +1049,10 @@ export function App() {
                 setActiveView("commercial-products");
               }}
               onNavigate={setActiveView}
+              onNotificationsChanged={async () => {
+                const next = await notifications.list();
+                setState((current) => current.status === "ready" ? { ...current, notifications: next } : current);
+              }}
               onOpenServiceOrder={openServiceOrder}
               onRefreshData={() => void load({ quiet: true })}
               initialOrderFlow={pendingOrderFlow}
@@ -1077,6 +1086,10 @@ export function App() {
           await notifications.markRead(name);
           const next = await notifications.list();
           setState((current) => current.status === "ready" ? { ...current, notifications: next } : current);
+        }}
+        onOpenAll={() => {
+          setNotificationsOpen(false);
+          setActiveView("notifications");
         }}
         open={notificationsOpen}
       />
@@ -1372,6 +1385,7 @@ function NotificationsPanel({
   onMarkAllRead,
   onMarkRead,
   onNavigate,
+  onOpenAll,
   open,
 }: {
   notifications: NotificationListResponse;
@@ -1379,6 +1393,7 @@ function NotificationsPanel({
   onMarkAllRead: () => Promise<void>;
   onMarkRead: (name: string) => Promise<void>;
   onNavigate: (target: NavigationTarget, orderName?: string) => void;
+  onOpenAll: () => void;
   open: boolean;
 }) {
   if (!open) {
@@ -1387,7 +1402,7 @@ function NotificationsPanel({
 
   return (
     <section
-      className="fixed right-5 top-[calc(var(--tp-topbar-height)+0.75rem)] z-40 w-[min(380px,calc(100vw-1.5rem))] rounded-card border border-tec-border/20 bg-tec-panel-strong p-3 shadow-panel"
+      className="fixed right-5 top-[calc(var(--tp-topbar-height)_+_0.75rem)] z-40 flex h-[calc(100vh_-_var(--tp-topbar-height)_-_1.5rem)] w-[min(380px,calc(100vw-1.5rem))] flex-col rounded-card border border-tec-border/20 bg-tec-panel-strong p-3 shadow-panel"
       data-tp-notifications="panel"
       role="menu"
     >
@@ -1401,7 +1416,7 @@ function NotificationsPanel({
           <button className="rounded-control px-2 py-1 text-xs font-bold text-tec-muted transition hover:bg-tec-field hover:text-white" onClick={onClose} type="button">Fechar</button>
         </div>
       </div>
-      <div className="space-y-2">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
         {notifications.items.length ? notifications.items.map((item) => (
           <button
             className={cx("w-full rounded-card border p-3 text-left transition hover:border-tec-orange/45", item.is_read ? "border-tec-border/15 bg-tec-field/40" : "border-tec-orange/35 bg-tec-field/70")}
@@ -1426,6 +1441,7 @@ function NotificationsPanel({
           </button>
         )) : <p className="rounded-control bg-tec-field/45 px-4 py-5 text-center text-sm text-tec-muted">Nenhuma notificação por enquanto.</p>}
       </div>
+      <button className="mt-3 w-full rounded-control px-3 py-2 text-sm font-bold text-tec-orange transition hover:bg-tec-field" onClick={onOpenAll} type="button">Ver todas <span aria-hidden="true">→</span></button>
     </section>
   );
 }
@@ -1842,6 +1858,7 @@ function NavigationContent({
   initialOrderFlow,
   onInitialOrderFlowHandled,
   onNavigate,
+  onNotificationsChanged,
   onOpenServiceOrder,
   onRefreshData,
   onStartCheckin,
@@ -1865,6 +1882,7 @@ function NavigationContent({
   onRegisterUnknownRetailBarcode: (barcode: string) => void;
   onInitialOrderFlowHandled: () => void;
   onNavigate: (target: NavigationTarget) => void;
+  onNotificationsChanged: () => Promise<void>;
   onOpenServiceOrder: (name: string, flow?: ServiceOrderFlow | null) => void;
   onRefreshData: () => void;
   onStartCheckin: () => void;
@@ -1999,6 +2017,10 @@ function NavigationContent({
 
   if (activeView === "approval-requests") {
     return <ApprovalRequestsPanel onToast={onToast} />;
+  }
+
+  if (activeView === "notifications") {
+    return <NotificationHistoryScreen onNotificationsChanged={onNotificationsChanged} onOpenServiceOrder={onOpenServiceOrder} onToast={onToast} />;
   }
 
   if (activeView === "customers") {

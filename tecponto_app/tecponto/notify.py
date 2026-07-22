@@ -112,6 +112,76 @@ def list_notifications(limit: int = 20) -> dict[str, Any]:
 
 
 @frappe.whitelist()
+def list_notification_history(
+	notification_type: str | None = None,
+	read_state: str = "all",
+	period: str = "all",
+	from_date: str | None = None,
+	to_date: str | None = None,
+	start: int = 0,
+	limit: int = 30,
+) -> dict[str, Any]:
+	"""Return the current user's complete in-app history, in bounded pages.
+
+	Filters deliberately apply in the backend. A user can never infer another
+	operator's notifications by manipulating the UI query.
+	"""
+	_require_frontend_role()
+	filters: dict[str, Any] = {"recipient": frappe.session.user}
+	if notification_type:
+		filters["notification_type"] = notification_type.strip()
+	if read_state == "unread":
+		filters["is_read"] = 0
+	elif read_state == "read":
+		filters["is_read"] = 1
+	elif read_state != "all":
+		frappe.throw(_("Filtro de leitura inválido."), frappe.ValidationError)
+
+	date_range = _notification_history_range(period, from_date, to_date)
+	if date_range:
+		filters["creation"] = ["between", date_range]
+	page_start = max(0, frappe.utils.cint(start))
+	page_limit = max(1, min(frappe.utils.cint(limit) or 30, 100))
+	rows = frappe.get_all(
+		"Tecponto Notification",
+		filters=filters,
+		fields=["name", "notification_type", "title", "body", "link", "reference_doctype", "reference_name", "is_read", "read_at", "creation"],
+		order_by="creation desc",
+		limit_start=page_start,
+		limit_page_length=page_limit,
+	)
+	total = frappe.db.count("Tecponto Notification", filters)
+	return {
+		"has_more": page_start + len(rows) < total,
+		"items": [_serialize(row) for row in rows],
+		"total": total,
+		"unread_count": frappe.db.count("Tecponto Notification", {"recipient": frappe.session.user, "is_read": 0}),
+	}
+
+
+def _notification_history_range(period: str, from_date: str | None, to_date: str | None) -> tuple[object, object] | None:
+	period = (period or "all").strip()
+	if period == "all":
+		return None
+	now = now_datetime()
+	if period == "today":
+		return now.replace(hour=0, minute=0, second=0, microsecond=0), now
+	if period == "7d":
+		return add_to_date(now, days=-6), now
+	if period == "30d":
+		return add_to_date(now, days=-29), now
+	if period == "custom":
+		if not from_date or not to_date:
+			frappe.throw(_("Informe o início e o fim do período personalizado."), frappe.ValidationError)
+		start = get_datetime(f"{from_date} 00:00:00")
+		end = get_datetime(f"{to_date} 23:59:59")
+		if start > end:
+			frappe.throw(_("O início do período não pode ser posterior ao fim."), frappe.ValidationError)
+		return start, end
+	frappe.throw(_("Filtro de período inválido."), frappe.ValidationError)
+
+
+@frappe.whitelist()
 def mark_notification_read(name: str) -> dict[str, Any]:
 	_require_frontend_role()
 	doc = _get_own_notification(name)
