@@ -1086,6 +1086,7 @@ export function App() {
               agendaStorageKey={state.boot.user.name}
               agendaPreferenceVersion={agendaPreferenceVersion}
               canApprove={rolePanels.includes("gestor") || rolePanels.includes("diretor")}
+              showSales={state.metrics.sales_visible}
             />
           ) : (
             <NavigationContent
@@ -1668,6 +1669,7 @@ function OverviewContent({
   agendaStorageKey,
   agendaPreferenceVersion,
   canApprove,
+  showSales,
 }: {
   actions: ActionDefinition[];
   onNavigate: (target: NavigationTarget) => void;
@@ -1679,13 +1681,17 @@ function OverviewContent({
   agendaStorageKey: string;
   agendaPreferenceVersion: number;
   canApprove: boolean;
+  showSales: boolean;
 }) {
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
   const [salesStats, setSalesStats] = useState<Array<{ key: string; label: string; value: number; amount?: number }>>([]);
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([serviceOrders.statBar(), balcao.getListStatBar("sales")])
+    void Promise.all([
+      serviceOrders.statBar(),
+      showSales ? balcao.getListStatBar("sales") : Promise.resolve({ items: [] }),
+    ])
       .then(([serviceOrdersResponse, salesResponse]) => {
         if (!cancelled) {
           setServiceOrderStats(serviceOrdersResponse.items);
@@ -1701,7 +1707,7 @@ function OverviewContent({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [showSales]);
 
   const statItems = [
     ...serviceOrderStats.map((item) => ({ ...item, ...getStatBarVisual("service_orders", item.key) })),
@@ -1719,7 +1725,9 @@ function OverviewContent({
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
             <h2 className="text-xl font-bold text-white">Operacao agora</h2>
-            <p className="mt-1 text-sm text-tec-muted">OS por etapa e vendas do dia. Sem custo, margem ou lucro.</p>
+            <p className="mt-1 text-sm text-tec-muted">
+              {showSales ? "OS por etapa e vendas do dia. Sem custo, margem ou lucro." : "Suas OS por etapa. Sem dados de vendas, custo ou margem."}
+            </p>
           </div>
           <button className="text-sm font-bold text-tec-orange hover:text-tec-digital-orange" onClick={() => onOpenServiceOrderList("all")} type="button">
             Ver Ordens de servico <ArrowRight className="ml-1 inline" size={16} />
@@ -1749,12 +1757,7 @@ function HomeSectorActions({
   onNavigate: (target: NavigationTarget) => void;
   onStartCheckin: () => void;
 }) {
-  const shortcuts = [
-    { action: actions.find((item) => item.target === "pos"), key: "F2" },
-    { action: actions.find((item) => item.opensCheckin), key: "F3" },
-    { action: actions.find((item) => item.target === "customers"), key: "F4" },
-    { action: actions.find((item) => item.target === "trade-ins"), key: "F5" },
-  ].filter((item): item is { action: ActionDefinition; key: string } => Boolean(item.action));
+  const shortcuts = actions.slice(0, 4).map((action, index) => ({ action, key: `F${index + 2}` }));
 
   const runAction = useCallback((action: ActionDefinition) => {
     if (action.opensCheckin) {
@@ -1793,7 +1796,7 @@ function HomeSectorActions({
         <h2 className="text-xl font-bold text-white">Atalhos do setor</h2>
         <p className="mt-1 text-sm text-tec-muted">Acoes frequentes para manter o balcao em movimento.</p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         {shortcuts.map(({ action, key }) => {
           const ActionIcon = action.icon;
           const highlighted = action.target === "pos";

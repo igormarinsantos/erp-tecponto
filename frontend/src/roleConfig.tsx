@@ -136,22 +136,26 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
   },
   tecnico: {
     title: "Olá, Técnico Tecponto!",
-    subtitle: "Gerencie sua fila técnica e registre diagnósticos com segurança.",
+    subtitle: "Sua bancada: diagnósticos, reparos e peças das OS atribuídas a você.",
     tableTitle: "Fila técnica",
     nav: [
       {
-        label: "Atendimento técnico",
+        label: "Início",
         items: [
           { id: "overview", icon: Grid2X2, label: "Visão geral", subtitle: "Sua operação técnica" },
-          { id: "service-orders", icon: ClipboardList, label: "Minhas OS", subtitle: "Ordens atribuídas" },
-			{ id: "repair-parts", icon: PackageSearch, label: "Peças solicitadas", subtitle: "Estoque de Reparo" },
         ],
       },
       {
-        label: "Histórico técnico",
+        label: "Reparo",
         items: [
-          { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Histórico dos aparelhos" },
-          { id: "customers", icon: BarChart3, label: "Histórico técnico", subtitle: "Serviços e intervenções" },
+          { id: "service-orders", icon: ClipboardList, label: "Minhas OS", subtitle: "Ordens atribuídas" },
+          { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque de Reparo" },
+        ],
+      },
+      {
+        label: "Cadastros",
+        items: [
+          { id: "devices", icon: Smartphone, label: "Aparelhos atendidos", subtitle: "Somente da sua carteira" },
           { id: "services", icon: Wrench, label: "Serviços", subtitle: "Consultar catálogo" },
         ],
       },
@@ -161,8 +165,9 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       { icon: PackageSearch, label: "Aguardando peça", tone: "purple", value: (metrics) => metrics.service_orders.waiting_part, detail: "Solicitações abertas" },
     ],
     actions: [
+      { icon: ClipboardList, label: "Minhas OS", detail: "Fila da bancada", target: "service-orders" },
       { icon: Wrench, label: "Atualizar diagnóstico", detail: "Registrar avaliação", target: "service-orders" },
-      { icon: PackageSearch, label: "Solicitar peça", detail: "Estoque Reparo", target: "parts-stock" },
+      { icon: PackageSearch, label: "Peças de reparo", detail: "Consultar disponibilidade", target: "repair-parts" },
       { icon: ClipboardCheck, label: "Finalizar reparo", detail: "Enviar para teste", target: "service-orders" },
     ],
   },
@@ -323,10 +328,17 @@ function withSubmenus(nav: NavSection[]): NavSection[] {
       }
       if (item.id === "services") {
         consumed.add("services");
-        grouped.push({ id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e regras", children: [
+        const serviceChildren: NavItem[] = [
           { id: "services", icon: Wrench, label: "Catálogo de serviços", subtitle: "Mão de obra" },
-          { id: "service-categories", icon: Grid2X2, label: "Categorias de serviço", subtitle: "Organização do catálogo" },
-          { id: "defect-service-mapping", icon: Link2, label: "Mapeamento defeito→serviço", subtitle: "Sugestões no check-in" },
+        ];
+        if (flatItems.some((source) => source.id === "service-categories")) {
+          serviceChildren.push({ id: "service-categories", icon: Grid2X2, label: "Categorias de serviço", subtitle: "Organização do catálogo" });
+        }
+        if (flatItems.some((source) => source.id === "defect-service-mapping")) {
+          serviceChildren.push({ id: "defect-service-mapping", icon: Link2, label: "Mapeamento defeito→serviço", subtitle: "Sugestões no check-in" });
+        }
+        grouped.push({ id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e regras", children: [
+          ...serviceChildren,
         ] });
         continue;
       }
