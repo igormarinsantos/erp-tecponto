@@ -1132,6 +1132,7 @@ def _find_category(items: list[dict], name: str) -> dict:
 def run_product_variant_checks() -> dict:
 	"""Prove native variants keep barcode lookup and stock strictly per child SKU."""
 	previous_user = frappe.session.user
+	created_attribute = None
 	try:
 		ensure_frontend_foundation()
 		ensure_product_variant_attributes()
@@ -1142,6 +1143,21 @@ def run_product_variant_checks() -> dict:
 		attribute = save_product_variant_attribute("Cor", [{"value": "Verde TP", "abbreviation": "VTP"}])["item"]
 		if not any(row["value"] == "Verde TP" for row in attribute["values"]):
 			raise AssertionError("Gestor não conseguiu manter um valor de Item Attribute nativo.")
+		created_attribute = f"TP Material {frappe.generate_hash(length=6).upper()}"
+		custom_attribute = save_product_variant_attribute(
+			created_attribute,
+			[{"value": "Silicone", "abbreviation": "SIL"}, {"value": "Couro", "abbreviation": "COU"}],
+		)["item"]
+		if {row["value"] for row in custom_attribute["values"]} != {"Silicone", "Couro"}:
+			raise AssertionError("Gestor não conseguiu criar Item Attribute nativo.")
+		custom_attribute = save_product_variant_attribute(
+			created_attribute,
+			[{"value": "Silicone", "abbreviation": "SI"}],
+			disabled=True,
+			replace_values=True,
+		)["item"]
+		if not custom_attribute["disabled"] or custom_attribute["values"] != [{"value": "Silicone", "abbreviation": "SI"}]:
+			raise AssertionError("Edição, remoção ou inativação de Item Attribute não foi persistida.")
 
 		suffix = frappe.generate_hash(length=7).upper()
 		template_code = f"TPV-CAPA-{suffix}"
@@ -1200,6 +1216,13 @@ def run_product_variant_checks() -> dict:
 			blocked = True
 		if not blocked:
 			raise AssertionError("Atendente não pode cadastrar produto com variações.")
+		attribute_write_blocked = False
+		try:
+			save_product_variant_attribute(created_attribute, [{"value": "Bloqueado", "abbreviation": "BLQ"}])
+		except frappe.PermissionError:
+			attribute_write_blocked = True
+		if not attribute_write_blocked:
+			raise AssertionError("Atendente não pode alterar atributos de variação.")
 		return {
 			"template": template_code,
 			"variants": len(created["variants"]),
@@ -1208,9 +1231,13 @@ def run_product_variant_checks() -> dict:
 			"target_stock": [before_target, after_target],
 			"other_stock": [before_other, after_other],
 			"attendant_blocked": blocked,
+			"attendant_attribute_write_blocked": attribute_write_blocked,
+			"custom_attribute_crud": True,
 			"leaked_fields": leaks,
 		}
 	finally:
+		if created_attribute and frappe.db.exists("Item Attribute", created_attribute):
+			frappe.delete_doc("Item Attribute", created_attribute, ignore_permissions=True, force=True)
 		frappe.set_user(previous_user)
 
 

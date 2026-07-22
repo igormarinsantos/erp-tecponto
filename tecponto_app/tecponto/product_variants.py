@@ -50,7 +50,7 @@ def ensure_product_variant_attributes() -> None:
 def list_product_variant_attributes() -> list[dict[str, Any]]:
 	ensure_product_variant_attributes()
 	result = []
-	for name in VARIANT_ATTRIBUTES:
+	for name in frappe.get_all("Item Attribute", pluck="name", order_by="name asc"):
 		doc = frappe.get_doc("Item Attribute", name)
 		result.append(
 			{
@@ -65,24 +65,47 @@ def list_product_variant_attributes() -> list[dict[str, Any]]:
 	return result
 
 
-def save_product_variant_attribute(name: str, values: Iterable[dict[str, Any]], disabled: bool = False) -> dict[str, Any]:
-	"""Append/maintain native values without deleting values used by existing variants."""
+def save_product_variant_attribute(
+	name: str,
+	values: Iterable[dict[str, Any]],
+	disabled: bool = False,
+	replace_values: bool = False,
+) -> dict[str, Any]:
+	"""Maintain native attributes; values used by existing variants cannot be removed."""
 	require_category_editor()
 	name = (name or "").strip()
-	if name not in VARIANT_ATTRIBUTES:
-		frappe.throw(_("Atributo de variação inválido."), frappe.ValidationError)
+	if not name:
+		frappe.throw(_("Informe o nome do atributo."), frappe.ValidationError)
 	ensure_product_variant_attributes()
-	doc = frappe.get_doc("Item Attribute", name)
+	if not frappe.db.exists("Item Attribute", name):
+		doc = frappe.get_doc({"doctype": "Item Attribute", "attribute_name": name, "numeric_values": 0})
+	else:
+		doc = frappe.get_doc("Item Attribute", name)
 	existing = {row.attribute_value for row in doc.item_attribute_values}
+	desired_values = []
 	for raw in values or []:
 		value = str(raw.get("value") or "").strip()[:140]
-		if not value or value in existing:
+		if not value:
 			continue
 		abbreviation = str(raw.get("abbreviation") or frappe.scrub(value).upper()[:20]).strip()[:140]
 		if not abbreviation:
 			frappe.throw(_("Informe uma abreviação para cada valor."), frappe.ValidationError)
-		doc.append("item_attribute_values", {"attribute_value": value, "abbr": abbreviation})
-		existing.add(value)
+		desired_values.append({"attribute_value": value, "abbr": abbreviation})
+		if value not in existing:
+			doc.append("item_attribute_values", {"attribute_value": value, "abbr": abbreviation})
+			existing.add(value)
+	if replace_values and not doc.is_new():
+		desired_names = {row["attribute_value"] for row in desired_values}
+		desired_by_value = {row["attribute_value"]: row["abbr"] for row in desired_values}
+		retained = []
+		for row in doc.item_attribute_values:
+			if row.attribute_value in desired_by_value:
+				row.abbr = desired_by_value[row.attribute_value]
+			if row.attribute_value in desired_names or frappe.db.exists(
+				"Item Variant Attribute", {"attribute": name, "attribute_value": row.attribute_value}
+			):
+				retained.append(row)
+		doc.set("item_attribute_values", retained)
 	doc.disabled = cint(disabled)
 	doc.save(ignore_permissions=True)
 	frappe.clear_cache(doctype="Item Attribute")
@@ -179,7 +202,7 @@ def _normalize_template_attributes(raw_attributes: Any) -> list[str]:
 		name = str(raw.get("name") if isinstance(raw, dict) else raw or "").strip()
 		if name and name not in attributes:
 			attributes.append(name)
-	if not attributes or any(name not in VARIANT_ATTRIBUTES for name in attributes):
+	if not attributes or any(not frappe.db.exists("Item Attribute", name) for name in attributes):
 		frappe.throw(_("Selecione atributos de variação válidos."), frappe.ValidationError)
 	return attributes
 

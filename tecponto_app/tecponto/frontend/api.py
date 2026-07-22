@@ -2293,10 +2293,10 @@ def list_product_variant_attributes() -> dict[str, Any]:
 
 
 @frappe.whitelist()
-def save_product_variant_attribute(name: str, values: str | list[dict[str, Any]] | None = None, disabled: int | bool = 0) -> dict[str, Any]:
+def save_product_variant_attribute(name: str, values: str | list[dict[str, Any]] | None = None, disabled: int | bool = 0, replace_values: int | bool = 0) -> dict[str, Any]:
 	_require_product_category_editor()
 	parsed_values = frappe.parse_json(values) if isinstance(values, str) else values
-	return {"item": product_variants.save_product_variant_attribute(name, parsed_values or [], bool(cint(disabled)))}
+	return {"item": product_variants.save_product_variant_attribute(name, parsed_values or [], bool(cint(disabled)), bool(cint(replace_values)))}
 
 
 @frappe.whitelist()

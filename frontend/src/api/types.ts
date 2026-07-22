@@ -11,6 +11,7 @@ export type NavigationTarget =
   | "parts-stock"
   | "repair-parts"
   | "commercial-products"
+  | "product-attributes"
   | "product-categories"
   | "used-devices"
   | "pos"

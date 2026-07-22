@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Clock3,
   Globe2,
+  ListPlus,
   PackageCheck,
   PackageSearch,
   PackageX,
@@ -73,6 +74,11 @@ export function getStatBarVisual(scope: string, key: string): Visual {
       active: visual(CheckCircle2, "green"),
       inactive: visual(PowerOff, "orange"),
       services: visual(Wrench, "blue"),
+    },
+    "product-attributes": {
+      active: visual(Tags, "green"),
+      values: visual(ListPlus, "blue"),
+      inactive: visual(PowerOff, "orange"),
     },
   };
   return maps[scope]?.[key] ?? visual(Archive, "blue");

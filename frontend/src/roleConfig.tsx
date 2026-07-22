@@ -97,6 +97,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
           { id: "commercial-products", icon: Boxes, label: "Produtos", subtitle: "Catálogo e variações", children: [
             { id: "commercial-products", icon: Boxes, label: "Catálogo", subtitle: "Estoque comercial" },
             { id: "product-categories", icon: Grid2X2, label: "Categorias", subtitle: "Hierarquia comercial" },
+            { id: "product-attributes", icon: ClipboardList, label: "Atributos e variações", subtitle: "SKU e combinações" },
           ] },
         ],
       },
@@ -270,6 +271,7 @@ const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
   pos: "Venda",
   sales: "Venda",
   "commercial-products": "Venda",
+  "product-attributes": "Venda",
   "product-categories": "Venda",
   "trade-ins": "Troca",
   "used-devices": "Troca",
@@ -311,8 +313,10 @@ function withSubmenus(nav: NavSection[]): NavSection[] {
         consumed.add("parts-stock");
         continue;
       }
-      if (["commercial-products", "product-categories"].includes(item.id)) {
-        addGroup("commercial-products", Boxes, "Produtos", "Catálogo e variações", ["commercial-products", "product-categories"]);
+      if (["commercial-products", "product-categories", "product-attributes"].includes(item.id)) {
+        addGroup("commercial-products", Boxes, "Produtos", "Catálogo e variações", ["commercial-products", "product-categories", "product-attributes"], [
+          { id: "product-attributes", icon: ClipboardList, label: "Atributos e variações", subtitle: "SKU e combinações" },
+        ]);
         continue;
       }
       if (item.id === "services") {

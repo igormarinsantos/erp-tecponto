@@ -15,9 +15,9 @@ export const productVariants = {
   listProducts() {
     return rpc<{ items: ProductVariantTemplate[] }>(`${API}.list_variant_products`);
   },
-  saveAttribute(name: string, values: Array<{ value: string; abbreviation?: string }>, disabled = false) {
+  saveAttribute(name: string, values: Array<{ value: string; abbreviation?: string }>, disabled = false, replaceValues = false) {
     return rpc<{ item: ProductVariantAttribute }>(`${API}.save_product_variant_attribute`, {
-      body: { disabled: disabled ? 1 : 0, name, values: JSON.stringify(values) },
+      body: { disabled: disabled ? 1 : 0, name, replace_values: replaceValues ? 1 : 0, values: JSON.stringify(values) },
     });
   },
 };

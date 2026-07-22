@@ -94,6 +94,7 @@ import { RetailProductModal } from "./RetailProductModal";
 import { VariantProductModal } from "./VariantProductModal";
 import { ListingMetadataModal } from "./ListingMetadataModal";
 import { ProductCategoryScreen } from "./ProductCategoryScreen";
+import { ProductVariantAttributesScreen } from "./ProductVariantAttributesScreen";
 import { DefectServiceMappingScreen } from "./DefectServiceMappingScreen";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
@@ -305,6 +306,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   "commercial-products": {
     title: "Produtos",
     subtitle: "Disponibilidade exclusiva do estoque Comercial.",
+  },
+  "product-attributes": {
+    title: "Atributos e variações",
+    subtitle: "Atributos nativos, valores e combinações de produtos.",
   },
   "product-categories": {
     title: "Categorias de produtos",
@@ -1841,6 +1846,10 @@ function NavigationContent({
 
   if (activeView === "product-categories") {
     return <ProductCategoryScreen canEdit={canEditProductCategories} onToast={onToast} />;
+  }
+
+  if (activeView === "product-attributes") {
+    return <ProductVariantAttributesScreen canEdit={canEditProductCategories} onToast={onToast} />;
   }
 
   if (activeView === "trade-ins") {
