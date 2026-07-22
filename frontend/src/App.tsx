@@ -144,11 +144,12 @@ type ServiceOrdersViewMode = "list" | "grid" | "kanban";
 type AppTheme = "dark" | "light";
 type AppDensity = "comfortable" | "compact";
 type AgendaDefaultView = "month" | "week" | "list";
-type ContextMenuKind = "global" | "service-order";
+type ContextMenuKind = "customer" | "global" | "product" | "service-order";
 type PendingPosBarcode = { code: string; id: number };
 type PendingRetailBarcode = { code: string; id: number };
 
 interface TecpontoContextTarget {
+	barcode?: string | null;
   customer?: string | null;
   kind: ContextMenuKind;
   label?: string | null;
@@ -250,12 +251,14 @@ function readStoredAgendaDefault(userName: string): AgendaDefaultView {
 }
 
 function readContextTarget(element: HTMLElement | null): TecpontoContextTarget {
-  if (!element || element.dataset.tpContext !== "service-order") {
+  const kind = element?.dataset.tpContext as ContextMenuKind | undefined;
+  if (!element || !kind || !["customer", "product", "service-order"].includes(kind)) {
     return { kind: "global" };
   }
   return {
+	barcode: element.dataset.tpBarcode ?? null,
     customer: element.dataset.tpCustomer ?? null,
-    kind: "service-order",
+    kind,
     label: element.dataset.tpLabel ?? element.dataset.tpName ?? null,
     name: element.dataset.tpName ?? null,
     workflowState: element.dataset.tpWorkflowState ?? null,
@@ -265,6 +268,12 @@ function readContextTarget(element: HTMLElement | null): TecpontoContextTarget {
 function contextMenuTitle(target: TecpontoContextTarget) {
   if (target.kind === "service-order" && target.name) {
     return target.name;
+  }
+  if (target.kind === "customer") {
+    return target.label ?? "Cliente";
+  }
+  if (target.kind === "product") {
+    return target.label ?? target.name ?? "Produto";
   }
   return "Atalhos Tecponto";
 }
@@ -687,7 +696,7 @@ export function App() {
       const contextSource = target?.closest<HTMLElement>("[data-tp-context]") ?? null;
       const nativeTarget = target?.closest("input, textarea, select, canvas, [contenteditable='true']");
       const selectedText = window.getSelection()?.toString();
-      if (!contextSource && (nativeTarget || selectedText)) {
+		if (!contextSource || nativeTarget || selectedText) {
         return;
       }
       event.preventDefault();
@@ -828,6 +837,52 @@ export function App() {
       );
       return items;
     }
+
+		if (contextMenu.target.kind === "customer" && contextMenu.target.name) {
+			const customerName = contextMenu.target.label ?? contextMenu.target.name;
+			return [
+				{
+					detail: contextMenu.target.name,
+					icon: <UserRound size={17} />,
+					label: "Buscar cliente",
+					onSelect: () => {
+						setGlobalSearchQuery(customerName);
+						setGlobalSearchOpen(true);
+					},
+				},
+				{
+					detail: customerName,
+					icon: <Copy size={17} />,
+					label: "Copiar nome",
+					onSelect: () => void copyToClipboard(customerName, "Nome do cliente"),
+				},
+			];
+		}
+
+		if (contextMenu.target.kind === "product" && contextMenu.target.name) {
+			const itemCode = contextMenu.target.name;
+			const actions: ContextMenuItem[] = [
+				{
+					detail: itemCode,
+					icon: <Copy size={17} />,
+					label: "Copiar código do item",
+					onSelect: () => void copyToClipboard(itemCode, "Código do item"),
+				},
+			];
+			if (contextMenu.target.barcode) {
+				actions.push({
+					detail: "Adiciona o item ao carrinho",
+					icon: <ShoppingCart size={17} />,
+					label: "Vender no PDV",
+					onSelect: () => {
+						setPendingPosBarcode({ code: contextMenu.target.barcode as string, id: Date.now() });
+						setActiveView("pos");
+					},
+					separatorBefore: true,
+				});
+			}
+			return actions;
+		}
 
     return [
       {
@@ -4582,6 +4637,11 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
           </Button>
         }
 		onRowClick={chooseCustomer}
+		getRowProps={(customer) => ({
+			"data-tp-context": "customer",
+			"data-tp-label": customer.customer_name ?? customer.name,
+			"data-tp-name": customer.name,
+		})}
         onSearch={(event) => {
           event.preventDefault();
           void search(query);
@@ -5340,6 +5400,12 @@ function StockLookup({
       <LookupCard
         columns={columns}
         emptyLabel={status === "error" ? "Falha ao consultar estoque." : "Nenhum item encontrado."}
+		getRowProps={(item) => ({
+			"data-tp-barcode": item.barcode ?? "",
+			"data-tp-context": "product",
+			"data-tp-label": item.item_name ?? item.item_code,
+			"data-tp-name": item.item_code,
+		})}
         onSearch={(event) => {
           event.preventDefault();
           void search(query);
@@ -5590,6 +5656,7 @@ function LookupCard<T>({
   columns,
   emptyLabel,
   headerAction,
+	getRowProps,
 	 onClear,
   onSearch,
 
@@ -5618,6 +5685,7 @@ function LookupCard<T>({
   columns: Array<TableColumn<T>>;
   emptyLabel: string;
   headerAction?: ReactNode;
+	getRowProps?: (row: T) => Record<`data-${string}`, string | undefined>;
 	 onClear?: () => void;
   onSearch: (event: FormEvent<HTMLFormElement>) => void;
 	onQuickFilterChange?: (key: string) => void;
@@ -5672,7 +5740,7 @@ function LookupCard<T>({
         </div>
         <div className="flex items-center gap-2">{presentation && onPresentationChange ? <ListGridToggle onChange={onPresentationChange} value={presentation} /> : null}{headerAction}</div>
       </div>
-      {presentation === "grid" ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{rows.map((row, rowIndex) => <button className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-field" key={rowIndex} onClick={() => onRowClick?.(row)} type="button">{columns.slice(0, 4).map((column) => <div className="mt-2 first:mt-0" key={column.key}><span className="block text-[11px] font-bold uppercase text-tec-muted">{column.label}</span><span className="mt-0.5 block text-sm text-tec-text">{column.render(row)}</span></div>)}</button>)}</div> : <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} onRowClick={onRowClick} rows={rows} tableMinWidthClassName={tableMinWidthClassName} />}
+      {presentation === "grid" ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{rows.map((row, rowIndex) => <button {...getRowProps?.(row)} className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-field" key={rowIndex} onClick={() => onRowClick?.(row)} type="button">{columns.slice(0, 4).map((column) => <div className="mt-2 first:mt-0" key={column.key}><span className="block text-[11px] font-bold uppercase text-tec-muted">{column.label}</span><span className="mt-0.5 block text-sm text-tec-text">{column.render(row)}</span></div>)}</button>)}</div> : <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} getRowProps={getRowProps} onRowClick={onRowClick} rows={rows} tableMinWidthClassName={tableMinWidthClassName} />}
     </Card>
   );
 }
