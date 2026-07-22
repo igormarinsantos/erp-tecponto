@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 from base64 import b64decode
 
@@ -18,6 +19,7 @@ TOKEN_TTL_HOURS = 24
 MAX_SELFIE_BYTES = 5 * 1024 * 1024
 MAX_SIGNATURE_BYTES = 2 * 1024 * 1024
 LGPD_CONSENT_VERSION = "TECPONTO-ACEITE-1.0"
+EVIDENCE_AUDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 
 
 def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str = "Dono") -> dict:
@@ -167,6 +169,7 @@ def save_public_acceptance_selfie(token: str, image_data: str) -> dict:
 		)
 	finally:
 		frappe.set_user(previous_user)
+	_assert_private_evidence_file(file_doc, doc.service_order, "selfie")
 	doc.db_set("selfie_file", file_doc.name, update_modified=False)
 	return {"saved": True, "acceptance": doc.name}
 
@@ -179,6 +182,8 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 		frappe.throw(_("Este link de aceite não está disponível. Peça um novo link à Tecponto."), frappe.PermissionError)
 	if not doc.selfie_file and not doc.selfie_exception:
 		frappe.throw(_("Capture a selfie antes de concluir o aceite."), frappe.ValidationError)
+	if not doc.selfie_exception:
+		_assert_private_evidence_file(doc.selfie_file, doc.service_order, "selfie")
 	if not frappe.utils.cint(lgpd_consent):
 		frappe.throw(_("Confirme o consentimento LGPD para concluir o aceite."), frappe.ValidationError)
 
@@ -204,6 +209,7 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 		)
 	finally:
 		frappe.set_user(previous_user)
+	_assert_private_evidence_file(signature_file, doc.service_order, "assinatura")
 	accepted_on = now_datetime()
 	try:
 		request = frappe.local.request
@@ -243,6 +249,90 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 
 		complete_tracking_budget_acceptance(doc)
 	return {"completed": True, "acceptance": doc.name, "service_order": doc.service_order, "acceptance_type": doc.acceptance_type}
+
+
+def assert_completed_acceptance_evidence(service_order: str, acceptance_type: str) -> None:
+	"""Fail closed when a completed public acceptance lost its private evidence file."""
+	acceptance_name = frappe.db.get_value(
+		"OS Acceptance",
+		{"service_order": service_order, "acceptance_type": acceptance_type, "status": "Concluído"},
+		"name",
+		order_by="used_on desc",
+	)
+	if not acceptance_name:
+		# Legacy in-person acceptances remain valid; only link-based acceptances have
+		# a private evidence pair to validate here.
+		return
+
+	acceptance = frappe.get_doc("OS Acceptance", acceptance_name)
+	_assert_acceptance_evidence(acceptance)
+
+
+@frappe.whitelist()
+def audit_completed_acceptance_evidence(service_order: str | None = None) -> dict:
+	"""Read-only integrity audit for completed link acceptances.
+
+	Managers can run this before go-live or after storage maintenance to find legal
+	evidence rows whose private File record or physical attachment no longer exists.
+	It never exposes the file content or changes acceptance state.
+	"""
+	_require_evidence_auditor()
+	filters = {"status": "Concluído"}
+	if service_order:
+		filters["service_order"] = service_order.strip()
+	rows = frappe.get_all(
+		"OS Acceptance",
+		filters=filters,
+		fields=["name", "service_order", "acceptance_type"],
+		order_by="used_on desc",
+	)
+	issues = []
+	for row in rows:
+		try:
+			_assert_acceptance_evidence(frappe.get_doc("OS Acceptance", row.name))
+		except frappe.ValidationError as error:
+			issues.append(
+				{
+					"acceptance": row.name,
+					"acceptance_type": row.acceptance_type,
+					"reason": str(error),
+					"service_order": row.service_order,
+				}
+			)
+	return {"checked": len(rows), "issues": issues, "valid": len(rows) - len(issues)}
+
+
+def _assert_acceptance_evidence(acceptance) -> None:
+	_assert_private_evidence_file(acceptance.signature_file, acceptance.service_order, "assinatura")
+	if not frappe.utils.cint(acceptance.selfie_exception):
+		_assert_private_evidence_file(acceptance.selfie_file, acceptance.service_order, "selfie")
+
+
+def _require_evidence_auditor() -> None:
+	if frappe.session.user == "Administrator" or EVIDENCE_AUDITOR_ROLES & set(frappe.get_roles()):
+		return
+	frappe.throw(_("Somente Gestor, Diretor ou System Manager pode auditar evidências de aceite."), frappe.PermissionError)
+
+
+def _assert_private_evidence_file(file_reference, service_order: str, evidence_label: str) -> None:
+	"""Prove that a legal-evidence File is private, scoped to its OS and on disk."""
+	if not file_reference:
+		frappe.throw(
+			_("A prova de {0} não está disponível. Gere um novo link de aceite.").format(evidence_label),
+			frappe.ValidationError,
+		)
+
+	file_doc = file_reference if getattr(file_reference, "doctype", None) == "File" else frappe.get_doc("File", file_reference)
+	if (
+		not file_doc.is_private
+		or file_doc.attached_to_doctype != "Service Order"
+		or file_doc.attached_to_name != service_order
+		or not os.path.isfile(file_doc.get_full_path())
+	):
+		frappe.throw(
+			_("A prova de {0} não pôde ser validada. Gere um novo link de aceite.").format(evidence_label),
+			frappe.ValidationError,
+		)
 
 
 def _get_valid_acceptance(token: str):

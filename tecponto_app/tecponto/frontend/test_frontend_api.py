@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from base64 import b64encode
 from datetime import datetime
 from io import BytesIO
@@ -59,7 +60,13 @@ from tecponto_app.tecponto.frontend.api import (
 	save_defect_service_mapping,
 	submit_stock_transfer,
 )
-from tecponto_app.tecponto.acceptance import complete_public_acceptance, get_public_acceptance, save_public_acceptance_selfie
+from tecponto_app.tecponto.acceptance import (
+	audit_completed_acceptance_evidence,
+	assert_completed_acceptance_evidence,
+	complete_public_acceptance,
+	get_public_acceptance,
+	save_public_acceptance_selfie,
+)
 from tecponto_app.tecponto.tracking import (
 	INVALID_LINK_MESSAGE,
 	TRACKING_STAGES,
@@ -1803,7 +1810,13 @@ def run_public_acceptance_checks() -> dict:
 		saved = save_public_acceptance_selfie(raw_token, camera_selfie)
 		acceptance.reload()
 		selfie_file = frappe.get_doc("File", acceptance.selfie_file)
-		if not saved.get("saved") or selfie_file.attached_to_doctype != "Service Order" or selfie_file.attached_to_name != service_order or not selfie_file.is_private:
+		if (
+			not saved.get("saved")
+			or selfie_file.attached_to_doctype != "Service Order"
+			or selfie_file.attached_to_name != service_order
+			or not selfie_file.is_private
+			or not os.path.isfile(selfie_file.get_full_path())
+		):
 			raise AssertionError("Selfie pública não foi salva como anexo privado da OS.")
 		public_after_selfie = get_public_acceptance(raw_token)
 		if not public_after_selfie["acceptance"].get("selfie_captured") or "selfie_file" in public_after_selfie["acceptance"]:
@@ -1829,6 +1842,19 @@ def run_public_acceptance_checks() -> dict:
 		signature_draw.rectangle((620, 160, 635, 175), fill=(camera_seed % 255, 36, 40))
 		signature_canvas.save(signature_image, format="PNG")
 		signature_data = "data:image/png;base64," + b64encode(signature_image.getvalue()).decode()
+		missing_selfie_completion_blocked = False
+		selfie_path = selfie_file.get_full_path()
+		quarantined_selfie_path = f"{selfie_path}.integrity-check"
+		os.replace(selfie_path, quarantined_selfie_path)
+		try:
+			try:
+				complete_public_acceptance(raw_token, signature_data, 1)
+			except frappe.ValidationError:
+				missing_selfie_completion_blocked = True
+		finally:
+			os.replace(quarantined_selfie_path, selfie_path)
+		if not missing_selfie_completion_blocked:
+			raise AssertionError("Aceite público concluiu mesmo com a selfie privada ausente no disco.")
 		consent_required = False
 		try:
 			complete_public_acceptance(raw_token, signature_data, 0)
@@ -1842,8 +1868,41 @@ def run_public_acceptance_checks() -> dict:
 		entry_signature = frappe.db.get_value("Service Order", service_order, "entry_signature")
 		if not completed.get("completed") or acceptance.status != "Concluído" or not acceptance.consent_version or not acceptance.consented_on or not acceptance.used_on:
 			raise AssertionError("Aceite de entrada não foi consumido com consentimento e timestamp.")
-		if not signature_file.is_private or signature_file.attached_to_name != service_order or entry_signature != signature_data:
+		if (
+			not signature_file.is_private
+			or signature_file.attached_to_name != service_order
+			or not os.path.isfile(signature_file.get_full_path())
+			or entry_signature != signature_data
+		):
 			raise AssertionError("Assinatura de entrada não foi vinculada de forma privada à OS.")
+		missing_signature_blocked = False
+		signature_path = signature_file.get_full_path()
+		quarantined_signature_path = f"{signature_path}.integrity-check"
+		os.replace(signature_path, quarantined_signature_path)
+		missing_evidence_detected_by_audit = False
+		try:
+			try:
+				assert_completed_acceptance_evidence(service_order, "Entrada")
+			except frappe.ValidationError:
+				missing_signature_blocked = True
+			frappe.set_user("Administrator")
+			missing_evidence_detected_by_audit = bool(audit_completed_acceptance_evidence(service_order)["issues"])
+		finally:
+			os.replace(quarantined_signature_path, signature_path)
+		if not missing_signature_blocked or not missing_evidence_detected_by_audit:
+			raise AssertionError("Aceite concluído não bloqueou quando o arquivo privado da assinatura desapareceu.")
+		frappe.set_user(attendant)
+		audit_permission_blocked = False
+		try:
+			audit_completed_acceptance_evidence(service_order)
+		except frappe.PermissionError:
+			audit_permission_blocked = True
+		if not audit_permission_blocked:
+			raise AssertionError("Atendente acessou a auditoria administrativa de evidências.")
+		frappe.set_user("Administrator")
+		evidence_audit = audit_completed_acceptance_evidence(service_order)
+		if evidence_audit["issues"] or evidence_audit["checked"] != 1:
+			raise AssertionError("Auditoria de evidências não confirmou o aceite íntegro após restaurar o arquivo privado.")
 		token_reuse_blocked = False
 		try:
 			complete_public_acceptance(raw_token, signature_data, 1)
@@ -1944,6 +2003,10 @@ def run_public_acceptance_checks() -> dict:
 		expired = get_public_acceptance(expiring_token)
 		if expired.get("valid") or frappe.db.get_value("OS Acceptance", expiring["acceptance"], "status") != "Expirado":
 			raise AssertionError("Token expirado continuou utilizável.")
+		frappe.set_user("Administrator")
+		full_evidence_audit = audit_completed_acceptance_evidence(service_order)
+		if full_evidence_audit["issues"] or full_evidence_audit["checked"] < 4:
+			raise AssertionError("Auditoria histórica não validou cada aceite concluído da mesma OS.")
 
 		return {
 			"status": "ok",
@@ -1951,8 +2014,10 @@ def run_public_acceptance_checks() -> dict:
 			"guest_read_only": True,
 			"imei_partial_only": bool(public_imei),
 			"selfie_attached_to_service_order": True,
+			"missing_selfie_blocks_completion": missing_selfie_completion_blocked,
 			"camera_jpeg_only": True,
 			"signature_and_consent_recorded": True,
+			"evidence_audit": {"checked": full_evidence_audit["checked"], "issues": full_evidence_audit["issues"], "attendant_blocked": audit_permission_blocked, "missing_file_detected": missing_evidence_detected_by_audit},
 			"consent_required": consent_required,
 			"pickup_signature_recorded": True,
 			"selfie_skip_blocked": selfie_skip_blocked,

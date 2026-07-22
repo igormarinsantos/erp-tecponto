@@ -23,6 +23,10 @@ def _validate_entry_acceptance(doc) -> None:
 	if doc.meta.has_field("entry_signature") and not doc.get("entry_signature"):
 		frappe.throw("Assinatura de entrada e obrigatoria antes de iniciar o atendimento.")
 
+	from tecponto_app.tecponto.acceptance import assert_completed_acceptance_evidence
+
+	assert_completed_acceptance_evidence(doc.name, "Entrada")
+
 
 def _validate_approval_acceptance(doc) -> None:
 	if doc.get("approval_status") != APPROVAL_STATUS_APROVADO:
@@ -44,6 +48,10 @@ def _validate_delivery_acceptance(doc) -> None:
 
 	if not doc.get("customer_signature"):
 		frappe.throw("Assinatura de retirada e obrigatoria.")
+
+	from tecponto_app.tecponto.acceptance import assert_completed_acceptance_evidence
+
+	assert_completed_acceptance_evidence(doc.name, "Retirada")
 
 	if doc.meta.has_field("warranty_expiry") and not doc.get("warranty_expiry"):
 		doc.warranty_expiry = add_days(nowdate(), 90)
