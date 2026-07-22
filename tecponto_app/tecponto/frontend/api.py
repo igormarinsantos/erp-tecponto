@@ -73,6 +73,7 @@ CHECKIN_ALLOWED_ROLES = {
 ATTENDANT_FLOW_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POS_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 SERVICE_CATALOG_EDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
+TECHNICIAN_COMMISSION_ROLES = {"System Manager", "Tecponto Tecnico"}
 APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp", "Link"}
 STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
 STATE_APROVADO = "Aprovado"
@@ -222,6 +223,14 @@ def _require_service_catalog_editor() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(SERVICE_CATALOG_EDITOR_ROLES):
 		return
 	frappe.throw(_("Somente Gestor ou Diretor pode editar o catálogo de serviços."), frappe.PermissionError)
+
+
+def _require_technician_commission_role() -> None:
+	"""Allow commission history only for the technician who owns it."""
+	_require_frontend_role()
+	if set(frappe.get_roles(frappe.session.user)).intersection(TECHNICIAN_COMMISSION_ROLES):
+		return
+	frappe.throw(_("Only technicians can consult their own commissions."), frappe.PermissionError)
 
 
 def _initials(full_name: str, fallback: str) -> str:
@@ -435,6 +444,93 @@ def list_sales(query: str = "", limit: int = 50, period: str = "today") -> dict[
 		limit_page_length=limit,
 	)
 	return {"items": items, "count": len(items), "fields": list(SAFE_SALES_INVOICE_FIELDS)}
+
+
+@frappe.whitelist()
+def list_my_commissions(
+	period: str = "month",
+	from_date: str = "",
+	to_date: str = "",
+	limit: int = 100,
+) -> dict[str, Any]:
+	"""Read submitted commissions already generated in Additional Salary.
+
+	The projection is deliberately limited to the logged technician's Employee
+	and Service Orders assigned to that same user. It never recalculates values
+	or joins any item cost, margin, or other employee's payroll information.
+	"""
+	_require_technician_commission_role()
+	limit = max(1, min(int(limit or 100), 200))
+	period = (period or "month").strip()
+	employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user, "status": "Active"}, "name")
+	if not employee:
+		return {"items": [], "count": 0, "total": 0.0, "period": period}
+
+	conditions = [
+		"additional_salary.employee = %(employee)s",
+		"additional_salary.salary_component = %(salary_component)s",
+		"additional_salary.type = 'Earning'",
+		"additional_salary.docstatus = 1",
+		"additional_salary.ref_doctype = 'Service Order Service'",
+		"service_order.technician = %(user)s",
+	]
+	values: dict[str, Any] = {
+		"employee": employee,
+		"salary_component": "Comiss\u00e3o",
+		"user": frappe.session.user,
+		"limit": limit,
+	}
+	if period == "7d":
+		conditions.append("additional_salary.payroll_date >= %(from_date)s")
+		values["from_date"] = add_days(today(), -6)
+	elif period == "month":
+		conditions.append("additional_salary.payroll_date >= %(from_date)s")
+		values["from_date"] = getdate(today()).replace(day=1)
+	elif period == "custom":
+		start = (from_date or "").strip()
+		end = (to_date or "").strip()
+		if not start or not end:
+			frappe.throw(_("Informe as duas datas do periodo personalizado."), frappe.ValidationError)
+		conditions.append("additional_salary.payroll_date between %(from_date)s and %(to_date)s")
+		values.update({"from_date": start, "to_date": end})
+	elif period != "all":
+		frappe.throw(_("Periodo de comissoes invalido."), frappe.ValidationError)
+
+	payroll_entry_field = "additional_salary.payroll_entry" if frappe.get_meta("Additional Salary").has_field("payroll_entry") else "''"
+	rows = frappe.db.sql(
+		f"""
+		select
+			service_order.name as service_order,
+			service_row.description as service_name,
+			additional_salary.amount as value,
+			additional_salary.payroll_date as date,
+			{payroll_entry_field} as payroll_entry
+		from `tabAdditional Salary` additional_salary
+		inner join `tabService Order Service` service_row on service_row.name = additional_salary.ref_docname
+		inner join `tabService Order` service_order on service_order.name = service_row.parent
+		where {' and '.join(conditions)}
+		order by additional_salary.payroll_date desc, additional_salary.creation desc
+		limit %(limit)s
+		""",
+		values,
+		as_dict=True,
+	)
+	items = [
+		{
+			"service_order": row.service_order,
+			"service_name": row.service_name or "Mao de obra",
+			"value": float(flt(row.value)),
+			"date": str(row.date or ""),
+			"payment_status": "Em folha" if row.payroll_entry else "Lançada",
+		}
+		for row in rows
+	]
+	return {
+		"items": items,
+		"count": len(items),
+		"total": float(sum(item["value"] for item in items)),
+		"period": period,
+	}
 
 
 @frappe.whitelist()

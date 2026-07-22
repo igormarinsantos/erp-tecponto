@@ -98,6 +98,7 @@ import { ProductCategoryScreen } from "./ProductCategoryScreen";
 import { ProductVariantAttributesScreen } from "./ProductVariantAttributesScreen";
 import { DefectServiceMappingScreen } from "./DefectServiceMappingScreen";
 import { NotificationHistoryScreen } from "./NotificationHistoryScreen";
+import { MyEarningsScreen } from "./MyEarningsScreen";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
@@ -343,6 +344,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   "repair-parts": {
     title: "Peças de reparo",
     subtitle: "Disponibilidade exclusiva do depósito de Reparo.",
+  },
+  "my-earnings": {
+    title: "Minhas comissões",
+    subtitle: "Lançamentos da sua mão de obra.",
   },
   "commercial-products": {
     title: "Produtos",
@@ -2090,6 +2095,10 @@ function NavigationContent({
 
   if (activeView === "notifications") {
     return <NotificationHistoryScreen onNotificationsChanged={onNotificationsChanged} onOpenServiceOrder={onOpenServiceOrder} onToast={onToast} />;
+  }
+
+  if (activeView === "my-earnings") {
+    return <MyEarningsScreen onOpenServiceOrder={onOpenServiceOrder} />;
   }
 
   if (activeView === "customers") {

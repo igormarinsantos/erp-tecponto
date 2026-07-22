@@ -36,6 +36,7 @@ from tecponto_app.tecponto.frontend.api import (
 	list_catalog_references,
 	list_catalog_services,
 	list_customer_devices,
+	list_my_commissions,
 	list_service_orders,
 	list_stock_items,
 	list_sales,
@@ -80,6 +81,7 @@ from tecponto_app.tecponto.tracking import (
 	start_public_tracking_budget_acceptance,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
+from tecponto_app.tecponto.hr import ensure_hr_foundation
 from tecponto_app.tecponto.product_categories import ensure_product_category_foundation
 from tecponto_app.tecponto.product_variants import ensure_product_variant_attributes
 from tecponto_app.tecponto.listing_metadata import ensure_listing_metadata_fields
@@ -155,6 +157,7 @@ def run_foundation_checks() -> dict:
 		statbar_guard = _check_statbar_guard(users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		technician_scope_check = run_technician_scope_checks()
+		technician_commission_check = run_technician_commission_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
@@ -196,6 +199,7 @@ def run_foundation_checks() -> dict:
 			"statbar_guard": statbar_guard,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
+			"technician_commissions": technician_commission_check,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
@@ -3393,6 +3397,124 @@ def run_technician_scope_checks() -> dict:
 		}
 	finally:
 		frappe.set_user(previous_user)
+
+
+def run_technician_commission_checks() -> dict:
+	"""Prove the commission screen reads only the caller's existing earnings."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		technician = _find_or_create_user("Tecponto Tecnico")
+		attendant = _find_or_create_user("Tecponto Atendente")
+		peer = _find_or_create_commission_peer()
+		ensure_hr_foundation()
+		own_employee = frappe.db.get_value("Employee", {"user_id": technician, "status": "Active"}, "name")
+		peer_employee = frappe.db.get_value("Employee", {"user_id": peer, "status": "Active"}, "name")
+		if not own_employee or not peer_employee:
+			raise AssertionError("Foundation did not create active employees for commission checks.")
+
+		own_order = _create_action_request_service_order(attendant)
+		peer_order = _create_action_request_service_order(attendant)
+		own_service = _assign_commission_service(own_order, technician, own_employee)
+		peer_service = _assign_commission_service(peer_order, peer, peer_employee)
+		_create_test_commission(own_employee, own_service, 24.0)
+		_create_test_commission(peer_employee, peer_service, 31.0)
+		frappe.db.commit()
+
+		frappe.set_user(technician)
+		payload = list_my_commissions(period="all")
+		own_rows = [item for item in payload["items"] if item["service_order"] == own_order]
+		if not own_rows or any(item["service_order"] == peer_order for item in payload["items"]):
+			raise AssertionError("Commission endpoint exposed another technician's earnings.")
+		if own_rows[0]["value"] != 24.0:
+			raise AssertionError("Commission endpoint did not read the Additional Salary value.")
+		leaks = contains_sensitive_field(payload)
+		if leaks:
+			raise AssertionError(f"Commission payload leaked sensitive fields: {', '.join(leaks)}")
+
+		frappe.set_user(attendant)
+		blocked = False
+		try:
+			list_my_commissions(period="all")
+		except frappe.PermissionError:
+			blocked = True
+		if not blocked:
+			raise AssertionError("Attendant accessed technician commission history.")
+
+		return {
+			"technician": technician,
+			"own_service_order": own_order,
+			"own_value": own_rows[0]["value"],
+			"peer_hidden": True,
+			"attendant_blocked": blocked,
+			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _find_or_create_commission_peer() -> str:
+	user = "front-tecnico-comissao@tecponto.local"
+	if not frappe.db.exists("User", user):
+		frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": user,
+				"first_name": "Tecnico",
+				"last_name": "Comissao",
+				"enabled": 1,
+				"user_type": "System User",
+				"send_welcome_email": 0,
+			}
+		).insert(ignore_permissions=True)
+	if not frappe.db.exists("Has Role", {"parent": user, "parenttype": "User", "role": "Tecponto Tecnico"}):
+		frappe.get_doc("User", user).append("roles", {"role": "Tecponto Tecnico"}).save(ignore_permissions=True)
+	return user
+
+
+def _assign_commission_service(order_name: str, technician: str, employee: str) -> str:
+	doc = frappe.get_doc("Service Order", order_name)
+	doc.technician = technician
+	doc.services[0].technician = employee
+	doc.save(ignore_permissions=True)
+	return doc.services[0].name
+
+
+def _create_test_commission(employee: str, service_row: str, amount: float) -> str:
+	existing = frappe.db.get_value(
+		"Additional Salary",
+		{"ref_doctype": "Service Order Service", "ref_docname": service_row, "salary_component": "Comissão"},
+		"name",
+	)
+	if existing:
+		return existing
+	company = frappe.db.get_value("Employee", employee, "company") or frappe.defaults.get_global_default("company")
+	name = f"TST-COMM-{frappe.generate_hash(length=10).upper()}"
+	# This fixture exercises only the read projection. HRMS correctly refuses a
+	# normal insert without a Salary Structure Assignment, which is unrelated to
+	# the technician-scope contract under test.
+	frappe.db.sql(
+		"""
+		insert into `tabAdditional Salary`
+			(name, owner, creation, modified, modified_by, docstatus, idx,
+			employee, company, salary_component, type, payroll_date, currency,
+			amount, ref_doctype, ref_docname)
+		values
+			(%(name)s, 'Administrator', %(now)s, %(now)s, 'Administrator', 1, 0,
+			%(employee)s, %(company)s, 'Comissão', 'Earning', %(payroll_date)s, 'BRL',
+			%(amount)s, 'Service Order Service', %(service_row)s)
+		""",
+		{
+			"name": name,
+			"now": now_datetime(),
+			"employee": employee,
+			"company": company,
+			"payroll_date": nowdate(),
+			"amount": amount,
+			"service_row": service_row,
+		},
+	)
+	return name
 
 
 def _create_technician_scope_customer_device(label: str) -> tuple[str, str, str, str]:

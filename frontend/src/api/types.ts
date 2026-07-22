@@ -11,6 +11,7 @@ export type NavigationTarget =
   | "trade-ins"
   | "parts-stock"
   | "repair-parts"
+  | "my-earnings"
   | "commercial-products"
   | "product-attributes"
   | "product-categories"
@@ -36,6 +37,21 @@ export interface DefectServiceMapping {
   catalog_service_label: string;
   active: boolean;
   modified: string;
+}
+
+export interface OwnEarningItem {
+  service_order: string;
+  service_name: string;
+  value: number;
+  date: string;
+  payment_status: string;
+}
+
+export interface OwnEarningsResponse {
+  items: OwnEarningItem[];
+  count: number;
+  total: number;
+  period: string;
 }
 
 export interface ProductCategoryTreeResponse {

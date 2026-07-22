@@ -24,6 +24,7 @@ const forbiddenFrontendTerms = [
   "commission",
   "stock_value",
 ];
+const permittedOwnEarningsApi = join(root, "src", "api", "earnings.ts");
 
 for (const file of requiredBuildFiles) {
   const target = join(publicDir, file);
@@ -44,6 +45,12 @@ const sourceFiles = collectFiles(join(root, "src"));
 for (const file of sourceFiles) {
   const body = readFileSync(file, "utf8");
   for (const term of forbiddenFrontendTerms) {
+    // The technician may read only their already-generated earning entries.
+    // Keep the backend method name isolated in this one typed API wrapper; all
+    // other financial terms remain forbidden throughout the frontend source.
+    if (term === "commission" && file === permittedOwnEarningsApi) {
+      continue;
+    }
     if (body.includes(term)) {
       throw new Error(`Termo sensível no front (${term}): ${file}`);
     }

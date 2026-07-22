@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
   BarChart3,
+  BadgeDollarSign,
   Bell,
   Boxes,
   ClipboardCheck,
@@ -151,6 +152,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         label: "Reparo",
         items: [
           { id: "service-orders", icon: ClipboardList, label: "Minhas OS", subtitle: "Ordens atribuídas" },
+          { id: "my-earnings", icon: BadgeDollarSign, label: "Minhas comissões", subtitle: "Lançamentos da sua mão de obra" },
           { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque de Reparo" },
         ],
       },
@@ -278,6 +280,7 @@ const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
   overview: "Início",
   "service-orders": "Reparo",
   "repair-parts": "Reparo",
+  "my-earnings": "Reparo",
   "parts-stock": "Reparo",
   pos: "Venda",
   sales: "Venda",
