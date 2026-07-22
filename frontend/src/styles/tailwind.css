@@ -147,6 +147,19 @@ h4 {
   font-family: var(--tp-font-display);
 }
 
+:root[data-tecponto-density="compact"] .tp-data-table :is(th, td) {
+  padding-bottom: 0.55rem !important;
+  padding-top: 0.55rem !important;
+}
+
+:root[data-tecponto-density="compact"] .tp-data-table tr > td > div {
+  gap: 0.35rem;
+}
+
+:root[data-tecponto-density="compact"] .tp-sidebar-nav-scroll {
+  --tp-content-gap: 10px;
+}
+
 .tp-bento-grid {
   display: grid;
   gap: 1rem;

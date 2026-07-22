@@ -53,6 +53,7 @@ import {
   type BudgetWarehouseSummary,
   type BootResponse,
   type CheckinResponse,
+  type LoggedUser,
   type CreateCustomerPayload,
   type CustomerDeviceSummary,
   type CustomerSummary,
@@ -140,6 +141,8 @@ type ToastState = { message: string; tone: "success" | "error" };
 type ServiceOrderFlow = "approve" | "reject" | "pickup";
 type ServiceOrdersViewMode = "list" | "grid" | "kanban";
 type AppTheme = "dark" | "light";
+type AppDensity = "comfortable" | "compact";
+type AgendaDefaultView = "month" | "week" | "list";
 type ContextMenuKind = "global" | "service-order";
 type PendingPosBarcode = { code: string; id: number };
 type PendingRetailBarcode = { code: string; id: number };
@@ -176,6 +179,8 @@ interface ServiceOrderFilterState {
 
 const SERVICE_ORDERS_VIEW_KEY = "tecponto.service-orders.view";
 const THEME_STORAGE_PREFIX = "tecponto.theme.";
+const DENSITY_STORAGE_PREFIX = "tecponto.density.";
+const AGENDA_VIEW_STORAGE_PREFIX = "tecponto.agenda.v2.view.";
 const BARCODE_MIN_LENGTH = 6;
 const BARCODE_KEY_INTERVAL_MS = 100;
 const DEFAULT_DASHBOARD_PERIOD: DashboardPeriodFilter = {
@@ -213,12 +218,33 @@ function getThemeStorageKey(userName: string) {
   return `${THEME_STORAGE_PREFIX}${userName}`;
 }
 
+function getDensityStorageKey(userName: string) {
+  return `${DENSITY_STORAGE_PREFIX}${userName}`;
+}
+
 function readStoredTheme(userName: string): AppTheme {
   try {
     const stored = window.localStorage.getItem(getThemeStorageKey(userName));
     return stored === "light" ? "light" : "dark";
   } catch {
     return "dark";
+  }
+}
+
+function readStoredDensity(userName: string): AppDensity {
+  try {
+    return window.localStorage.getItem(getDensityStorageKey(userName)) === "compact" ? "compact" : "comfortable";
+  } catch {
+    return "comfortable";
+  }
+}
+
+function readStoredAgendaDefault(userName: string): AgendaDefaultView {
+  try {
+    const stored = window.localStorage.getItem(`${AGENDA_VIEW_STORAGE_PREFIX}${userName}`);
+    return stored === "list" || stored === "week" ? stored : "month";
+  } catch {
+    return "month";
   }
 }
 
@@ -345,8 +371,10 @@ export function App() {
   const [activeView, setActiveView] = useState<NavigationTarget>("overview");
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
 	const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [accountOpen, setAccountOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<TecpontoContextMenuState | null>(null);
   const [selectedOrderName, setSelectedOrderName] = useState<string | null>(null);
   const [pendingOrderFlow, setPendingOrderFlow] = useState<ServiceOrderFlow | null>(null);
@@ -355,6 +383,8 @@ export function App() {
   const [pendingServiceOrderStatus, setPendingServiceOrderStatus] = useState<QueueFilter | null>(null);
   const [checkinDirty, setCheckinDirty] = useState(false);
   const [serviceOrdersView, setServiceOrdersView] = useState<ServiceOrdersViewMode>(getStoredServiceOrdersView);
+  const [density, setDensity] = useState<AppDensity>("comfortable");
+  const [agendaPreferenceVersion, setAgendaPreferenceVersion] = useState(0);
   const [theme, setTheme] = useState<AppTheme>("dark");
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -389,6 +419,10 @@ export function App() {
   }, [theme]);
 
   useEffect(() => {
+    document.documentElement.dataset.tecpontoDensity = density;
+  }, [density]);
+
+  useEffect(() => {
     const onSessionExpired = () => {
       setState({
         message: "Sua sessão expirou. Entre novamente para continuar.",
@@ -413,6 +447,7 @@ export function App() {
       return;
     }
     setTheme(readStoredTheme(state.boot.user.name));
+    setDensity(readStoredDensity(state.boot.user.name));
   }, [state]);
 
   useEffect(() => {
@@ -676,6 +711,24 @@ export function App() {
     });
   }, [state]);
 
+  const savePreferences = useCallback((next: { agendaDefault: AgendaDefaultView; density: AppDensity; theme: AppTheme }) => {
+    if (state.status !== "ready") {
+      return;
+    }
+    const userName = state.boot.user.name;
+    setTheme(next.theme);
+    setDensity(next.density);
+    try {
+      window.localStorage.setItem(getThemeStorageKey(userName), next.theme);
+      window.localStorage.setItem(getDensityStorageKey(userName), next.density);
+      window.localStorage.setItem(`${AGENDA_VIEW_STORAGE_PREFIX}${userName}`, next.agendaDefault);
+    } catch {
+      // These choices affect only presentation and must not interrupt operations.
+    }
+    setAgendaPreferenceVersion((current) => current + 1);
+    showToast("Preferências salvas.");
+  }, [showToast, state]);
+
   const contextMenuItems = useMemo<Array<ContextMenuItem>>(() => {
     if (!contextMenu) {
       return [];
@@ -872,9 +925,13 @@ export function App() {
     <div className="min-h-screen">
       <Sidebar
         activeItemId={activeView === "service-order-detail" ? "service-orders" : activeView}
+        canOpenSystemSettings={state.boot.user.roles.includes("System Manager")}
+        onOpenAccount={() => setAccountOpen(true)}
         onLogout={logout}
         onOpenHelp={() => setHelpOpen(true)}
         onNavigate={navigateFromSidebar}
+        onOpenPreferences={() => setPreferencesOpen(true)}
+        onOpenSystemSettings={() => window.location.assign("/app/tecponto-settings")}
         sections={panel.nav}
         user={visualUser}
       />
@@ -953,6 +1010,7 @@ export function App() {
               onOpenServiceOrderList={openServiceOrderList}
               agendaPanel={rolePanels.length > 1 ? "unified" : visualUser.panel}
               agendaStorageKey={state.boot.user.name}
+              agendaPreferenceVersion={agendaPreferenceVersion}
               canApprove={rolePanels.includes("gestor") || rolePanels.includes("diretor")}
             />
           ) : (
@@ -1019,6 +1077,15 @@ export function App() {
           startCheckin();
         }}
         open={helpOpen}
+      />
+      <AccountModal onClose={() => setAccountOpen(false)} open={accountOpen} user={visualUser} />
+      <PreferencesModal
+        agendaDefault={readStoredAgendaDefault(state.boot.user.name)}
+        density={density}
+        onClose={() => setPreferencesOpen(false)}
+        onSave={savePreferences}
+        open={preferencesOpen}
+        theme={theme}
       />
       {contextMenu ? (
         <ContextMenu
@@ -1349,6 +1416,91 @@ function NotificationsPanel({
   );
 }
 
+function AccountModal({ onClose, open, user }: { onClose: () => void; open: boolean; user: LoggedUser }) {
+  return (
+    <Modal className="max-w-lg" onClose={onClose} open={open} title="Meu perfil / conta">
+      <div className="flex items-center gap-4 rounded-card border border-tec-border/20 bg-tec-field/55 p-4">
+        <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-tec-blue text-lg font-bold text-white">{user.initials}</div>
+        <div className="min-w-0">
+          <p className="truncate text-lg font-bold text-white">{user.full_name}</p>
+          <p className="truncate text-sm text-tec-muted">{user.name}</p>
+        </div>
+      </div>
+      <dl className="mt-5 divide-y divide-tec-border/15 rounded-card border border-tec-border/15 bg-tec-panel-strong px-4">
+        <div className="flex items-start justify-between gap-5 py-3"><dt className="text-sm text-tec-muted">Papéis ativos</dt><dd className="max-w-[62%] text-right text-sm font-bold text-white">{user.role_label}</dd></div>
+        <div className="flex items-start justify-between gap-5 py-3"><dt className="text-sm text-tec-muted">Visão atual</dt><dd className="text-right text-sm font-bold text-white">{user.subtitle}</dd></div>
+      </dl>
+      <p className="mt-4 text-sm text-tec-muted">Dados de conta e permissões são administrados pelo responsável da loja.</p>
+    </Modal>
+  );
+}
+
+function PreferencesModal({
+  agendaDefault,
+  density,
+  onClose,
+  onSave,
+  open,
+  theme,
+}: {
+  agendaDefault: AgendaDefaultView;
+  density: AppDensity;
+  onClose: () => void;
+  onSave: (next: { agendaDefault: AgendaDefaultView; density: AppDensity; theme: AppTheme }) => void;
+  open: boolean;
+  theme: AppTheme;
+}) {
+  const [nextTheme, setNextTheme] = useState<AppTheme>(theme);
+  const [nextDensity, setNextDensity] = useState<AppDensity>(density);
+  const [nextAgendaDefault, setNextAgendaDefault] = useState<AgendaDefaultView>(agendaDefault);
+
+  useEffect(() => {
+    if (!open) return;
+    setNextTheme(theme);
+    setNextDensity(density);
+    setNextAgendaDefault(agendaDefault);
+  }, [agendaDefault, density, open, theme]);
+
+  const choiceClass = (selected: boolean) => cx(
+    "rounded-control border px-3 py-2 text-sm font-bold transition",
+    selected ? "border-tec-orange bg-tec-orange text-tec-graphite" : "border-tec-border/25 bg-tec-field text-tec-subtle hover:border-tec-orange/45 hover:text-white",
+  );
+
+  return (
+    <Modal className="max-w-xl" onClose={onClose} open={open} title="Preferências">
+      <div className="space-y-6">
+        <section>
+          <h3 className="text-base font-bold text-white">Tema</h3>
+          <p className="mt-1 text-sm text-tec-muted">Escolha a aparência que fica salva apenas para a sua conta.</p>
+          <div className="mt-3 inline-flex flex-wrap gap-2" role="group" aria-label="Tema">
+            <button className={choiceClass(nextTheme === "dark")} onClick={() => setNextTheme("dark")} type="button">Escuro</button>
+            <button className={choiceClass(nextTheme === "light")} onClick={() => setNextTheme("light")} type="button">Claro</button>
+          </div>
+        </section>
+        <section>
+          <h3 className="text-base font-bold text-white">Densidade</h3>
+          <p className="mt-1 text-sm text-tec-muted">Compacta reduz a altura das linhas para quem trabalha com listas longas.</p>
+          <div className="mt-3 inline-flex flex-wrap gap-2" role="group" aria-label="Densidade da interface">
+            <button className={choiceClass(nextDensity === "comfortable")} onClick={() => setNextDensity("comfortable")} type="button">Confortável</button>
+            <button className={choiceClass(nextDensity === "compact")} onClick={() => setNextDensity("compact")} type="button">Compacta</button>
+          </div>
+        </section>
+        <section>
+          <h3 className="text-base font-bold text-white">Visão padrão da agenda</h3>
+          <p className="mt-1 text-sm text-tec-muted">A agenda abre nesta visão quando você entra no painel.</p>
+          <div className="mt-3 inline-flex flex-wrap gap-2" role="group" aria-label="Visão padrão da agenda">
+            {(["month", "week", "list"] as const).map((view) => <button className={choiceClass(nextAgendaDefault === view)} key={view} onClick={() => setNextAgendaDefault(view)} type="button">{view === "month" ? "Mês" : view === "week" ? "Semana" : "Lista"}</button>)}
+          </div>
+        </section>
+      </div>
+      <div className="mt-7 flex justify-end gap-2">
+        <Button onClick={onClose}>Cancelar</Button>
+        <Button onClick={() => { onSave({ agendaDefault: nextAgendaDefault, density: nextDensity, theme: nextTheme }); onClose(); }} variant="primary">Salvar preferências</Button>
+      </div>
+    </Modal>
+  );
+}
+
 function HelpModal({
   onClose,
   onNavigate,
@@ -1429,6 +1581,7 @@ function OverviewContent({
   onStartCheckin,
   agendaPanel,
   agendaStorageKey,
+  agendaPreferenceVersion,
   canApprove,
 }: {
   actions: ActionDefinition[];
@@ -1439,6 +1592,7 @@ function OverviewContent({
   onStartCheckin: () => void;
   agendaPanel: RolePanel | "unified";
   agendaStorageKey: string;
+  agendaPreferenceVersion: number;
   canApprove: boolean;
 }) {
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
@@ -1492,7 +1646,7 @@ function OverviewContent({
         />
       </section>
       <div className="mt-4">
-        <DailyActionsPanel key={agendaStorageKey} onOpenOrder={onOpenServiceOrder} onToast={onToast} panel={agendaPanel} storageKey={agendaStorageKey} />
+        <DailyActionsPanel key={`${agendaStorageKey}:${agendaPreferenceVersion}`} onOpenOrder={onOpenServiceOrder} onToast={onToast} panel={agendaPanel} storageKey={agendaStorageKey} />
       </div>
       {canApprove ? <div className="mt-4">
         <ApprovalRequestsPanel compact onOpenAll={() => onNavigate("approval-requests")} onToast={onToast} />

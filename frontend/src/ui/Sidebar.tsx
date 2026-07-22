@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { ChevronDown, ChevronUp, HelpCircle, LogOut } from "lucide-react";
+import { ChevronDown, ChevronUp, HelpCircle, LogOut, Settings, SlidersHorizontal, UserCog } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import tecpontoLogoDark from "../assets/tecponto-logo-dark.png";
@@ -21,14 +21,29 @@ export interface NavSection {
 
 interface SidebarProps {
   activeItemId: NavigationTarget;
+  canOpenSystemSettings: boolean;
+  onOpenAccount: () => void;
   onOpenHelp: () => void;
   onLogout: () => void;
   onNavigate: (target: NavigationTarget) => void;
+  onOpenPreferences: () => void;
+  onOpenSystemSettings: () => void;
   sections: NavSection[];
   user: LoggedUser;
 }
 
-export function Sidebar({ activeItemId, onLogout, onOpenHelp, onNavigate, sections, user }: SidebarProps) {
+export function Sidebar({
+  activeItemId,
+  canOpenSystemSettings,
+  onLogout,
+  onOpenAccount,
+  onOpenHelp,
+  onNavigate,
+  onOpenPreferences,
+  onOpenSystemSettings,
+  sections,
+  user,
+}: SidebarProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const storageKey = `tecponto.sidebar.expanded.${user.name}`;
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -105,6 +120,48 @@ export function Sidebar({ activeItemId, onLogout, onOpenHelp, onNavigate, sectio
         </button>
         {profileOpen ? (
           <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-2 shadow-panel">
+            <button
+              className="flex min-h-10 w-full items-center gap-3 rounded-control px-3 text-sm font-bold text-tec-subtle transition hover:bg-tec-field hover:text-white"
+              onClick={() => {
+                setProfileOpen(false);
+                onOpenAccount();
+              }}
+              type="button"
+            >
+              <UserCog size={17} />
+              Meu perfil / conta
+            </button>
+            <button
+              className="flex min-h-10 w-full items-center gap-3 rounded-control px-3 text-sm font-bold text-tec-subtle transition hover:bg-tec-field hover:text-white"
+              onClick={() => {
+                setProfileOpen(false);
+                onOpenPreferences();
+              }}
+              type="button"
+            >
+              <SlidersHorizontal size={17} />
+              Preferências
+            </button>
+            <button
+              className="flex min-h-10 w-full items-center gap-3 rounded-control px-3 text-sm font-bold text-tec-subtle transition hover:bg-tec-field hover:text-white"
+              onClick={() => {
+                setProfileOpen(false);
+                onOpenHelp();
+              }}
+              type="button"
+            >
+              <HelpCircle size={17} />
+              Ajuda rápida
+            </button>
+            {canOpenSystemSettings ? <button
+              className="flex min-h-10 w-full items-center gap-3 rounded-control px-3 text-sm font-bold text-tec-subtle transition hover:bg-tec-field hover:text-white"
+              onClick={onOpenSystemSettings}
+              type="button"
+            >
+              <Settings size={17} />
+              Configurações do sistema
+            </button> : null}
+            <div className="my-1 border-t border-tec-border/15" />
             <button
               className="flex min-h-10 w-full items-center gap-3 rounded-control px-3 text-sm font-bold text-tec-subtle transition hover:bg-tec-field hover:text-white"
               onClick={onLogout}
