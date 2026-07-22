@@ -80,6 +80,11 @@ export function getStatBarVisual(scope: string, key: string): Visual {
       values: visual(ListPlus, "blue"),
       inactive: visual(PowerOff, "orange"),
     },
+    "service-categories": {
+      active: visual(Wrench, "green"),
+      all: visual(Tags, "blue"),
+      inactive: visual(PowerOff, "orange"),
+    },
   };
   return maps[scope]?.[key] ?? visual(Archive, "blue");
 }

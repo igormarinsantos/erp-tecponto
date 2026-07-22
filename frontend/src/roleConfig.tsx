@@ -115,6 +115,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
           { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Cadastro e histórico" },
           { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e regras", children: [
             { id: "services", icon: Wrench, label: "Catálogo de serviços", subtitle: "Mão de obra" },
+            { id: "service-categories", icon: Grid2X2, label: "Categorias de serviço", subtitle: "Organização do catálogo" },
             { id: "defect-service-mapping", icon: Link2, label: "Mapeamento defeito→serviço", subtitle: "Sugestões no check-in" },
           ] },
         ],
@@ -273,6 +274,7 @@ const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
   "commercial-products": "Venda",
   "product-attributes": "Venda",
   "product-categories": "Venda",
+  "service-categories": "Cadastros",
   "trade-ins": "Troca",
   "used-devices": "Troca",
   customers: "Cadastros",
@@ -323,6 +325,7 @@ function withSubmenus(nav: NavSection[]): NavSection[] {
         consumed.add("services");
         grouped.push({ id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e regras", children: [
           { id: "services", icon: Wrench, label: "Catálogo de serviços", subtitle: "Mão de obra" },
+          { id: "service-categories", icon: Grid2X2, label: "Categorias de serviço", subtitle: "Organização do catálogo" },
           { id: "defect-service-mapping", icon: Link2, label: "Mapeamento defeito→serviço", subtitle: "Sugestões no check-in" },
         ] });
         continue;

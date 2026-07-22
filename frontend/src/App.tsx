@@ -99,6 +99,7 @@ import { DefectServiceMappingScreen } from "./DefectServiceMappingScreen";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
+import { ServiceCategoriesScreen } from "./ServiceCategoriesScreen";
 import { WorkflowMoveMenu } from "./WorkflowMoveMenu";
 import { BudgetDecisionModal, PickupModal } from "./ServiceOrderFlows";
 import {
@@ -286,6 +287,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   services: {
     title: "Serviços",
     subtitle: "Catálogo de mão de obra, preços e prazos sugeridos.",
+  },
+  "service-categories": {
+    title: "Categorias de serviço",
+    subtitle: "Organização da mão de obra e dos prazos sugeridos.",
   },
   "defect-service-mapping": {
     title: "Mapeamento defeito→serviço",
@@ -1838,6 +1843,10 @@ function NavigationContent({
 
   if (activeView === "services") {
     return <ServiceCatalogScreen canEdit={canEditServiceCatalog} onToast={onToast} />;
+  }
+
+  if (activeView === "service-categories") {
+    return <ServiceCategoriesScreen canEdit={canEditServiceCatalog} onToast={onToast} />;
   }
 
   if (activeView === "defect-service-mapping") {

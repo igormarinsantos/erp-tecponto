@@ -771,6 +771,12 @@ def run_service_catalog_checks() -> dict:
 		category = save_catalog_reference("category", {"value": f"Teste {suffix}", "active": True})["item"]
 		created_device_type = device_type["name"]
 		created_category = category["name"]
+		category = save_catalog_reference(
+			"category", {"name": category["name"], "value": f"Categoria editada {suffix}", "active": True}
+		)["item"]
+		created_category = category["name"]
+		if category["value"] != f"Categoria editada {suffix}":
+			raise AssertionError("Edição de categoria de serviço não persistiu.")
 		device_type = save_catalog_reference(
 			"device_type", {"name": device_type["name"], "value": f"Teste editado {suffix}", "active": True}
 		)["item"]
@@ -806,6 +812,11 @@ def run_service_catalog_checks() -> dict:
 		):
 			raise AssertionError("Serviço do catálogo não aplicou nem preservou os ajustes da OS.")
 		updated = save_catalog_service({**created, "default_labor_price": 179.9, "active": False})["item"]
+		inactive_category = save_catalog_reference(
+			"category", {"name": category["name"], "value": category["value"], "active": False}
+		)["item"]
+		if inactive_category["active"]:
+			raise AssertionError("Inativação de categoria de serviço não persistiu.")
 		active_rows = list_catalog_services(query=suffix, include_inactive="0")["items"]
 		all_rows = list_catalog_services(query=suffix, include_inactive=True)["items"]
 		if active_rows or not any(row["name"] == created["name"] and not row["active"] for row in all_rows):
@@ -818,8 +829,15 @@ def run_service_catalog_checks() -> dict:
 			save_catalog_service({**created, "default_labor_price": 1})
 		except frappe.PermissionError:
 			write_blocked = True
+		category_write_blocked = False
+		try:
+			save_catalog_reference("category", {"name": category["name"], "value": category["value"], "active": True})
+		except frappe.PermissionError:
+			category_write_blocked = True
 		if not write_blocked:
 			raise AssertionError("Atendente alterou preço base do catálogo.")
+		if not category_write_blocked:
+			raise AssertionError("Atendente alterou categoria de serviço.")
 		leaks = contains_sensitive_field(readable)
 		if leaks:
 			raise AssertionError(f"Catálogo expôs campo sensível: {', '.join(leaks)}")
@@ -831,7 +849,9 @@ def run_service_catalog_checks() -> dict:
 			"updated_price": updated["default_labor_price"],
 			"catalog_suggestion_adjusted_in_os": True,
 			"inactive_preserves_history": True,
+			"category_rename_and_inactivation": True,
 			"attendant_write_blocked": write_blocked,
+			"attendant_category_write_blocked": category_write_blocked,
 			"sensitive_guard": {"leaked_fields": leaks},
 		}
 	finally:

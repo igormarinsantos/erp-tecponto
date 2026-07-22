@@ -6,6 +6,7 @@ export type NavigationTarget =
   | "customers"
   | "devices"
   | "services"
+  | "service-categories"
   | "defect-service-mapping"
   | "trade-ins"
   | "parts-stock"

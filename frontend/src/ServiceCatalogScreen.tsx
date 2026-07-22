@@ -90,7 +90,7 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
             <div className="flex items-center gap-2 text-tec-orange"><BookOpenCheck size={20} /><span className="text-sm font-bold">Catálogo de mão de obra</span></div>
             <p className="mt-1 text-sm text-tec-muted">Preço e prazo são sugestões. Nenhum item desta tela bloqueia uma OS.</p>
           </div>
-          {canEdit ? <div className="flex flex-wrap gap-2"><Button icon={<Settings2 size={17} />} onClick={() => setReferencesOpen(true)}>Tipos e categorias</Button><Button icon={<Plus size={17} />} onClick={openNew} variant="primary">Novo serviço</Button></div> : <span className="rounded-control bg-tec-field px-3 py-2 text-xs font-semibold text-tec-muted">Consulta operacional</span>}
+          {canEdit ? <div className="flex flex-wrap gap-2"><Button icon={<Settings2 size={17} />} onClick={() => setReferencesOpen(true)}>Tipos de aparelho</Button><Button icon={<Plus size={17} />} onClick={openNew} variant="primary">Novo serviço</Button></div> : <span className="rounded-control bg-tec-field px-3 py-2 text-xs font-semibold text-tec-muted">Consulta operacional</span>}
         </div>
         <LayeredFilters active={quickFilter} filters={[{ key: "active", label: "Ativos" }, { key: "all", label: "Todos" }, { key: "parts", label: "Com peça" }]} onSelect={(key) => {
           setQuickFilter(key);
@@ -129,7 +129,7 @@ function ServiceEditor({ activeCategories, activeDeviceTypes, canEdit, draft, on
 }
 
 function ReferenceManager({ onChanged, onClose, onToast, open, references }: { onChanged: () => void; onClose: () => void; onToast: (message: string, tone?: ToastTone) => void; open: boolean; references: ServiceCatalogReferenceResponse }) {
-  return <Modal className="max-w-4xl" onClose={onClose} open={open} title="Tipos e categorias"><div className="grid gap-5 md:grid-cols-2"><ReferenceColumn items={references.device_types} kind="device_type" label="Tipos de aparelho" onChanged={onChanged} onToast={onToast} /><ReferenceColumn items={references.categories} kind="category" label="Categorias" onChanged={onChanged} onToast={onToast} /></div></Modal>;
+  return <Modal className="max-w-2xl" onClose={onClose} open={open} title="Tipos de aparelho"><ReferenceColumn items={references.device_types} kind="device_type" label="Tipos de aparelho" onChanged={onChanged} onToast={onToast} /></Modal>;
 }
 
 function ReferenceColumn({ items, kind, label, onChanged, onToast }: { items: ServiceCatalogReference[]; kind: "device_type" | "category"; label: string; onChanged: () => void; onToast: (message: string, tone?: ToastTone) => void }) {
