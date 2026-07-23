@@ -11,6 +11,7 @@ export type NavigationTarget =
   | "trade-ins"
   | "parts-stock"
   | "repair-parts"
+  | "part-requests"
   | "my-earnings"
   | "commercial-products"
   | "product-attributes"
@@ -52,6 +53,35 @@ export interface OwnEarningsResponse {
   count: number;
   total: number;
   period: string;
+}
+
+export interface TechnicalPartRequest {
+  name: string;
+  service_order: string;
+  item: string | null;
+  free_description: string | null;
+  qty: number;
+  notes: string | null;
+  requested_by: string;
+  requested_at: string;
+  status: "Solicitada" | "Pedida" | "Recebida" | "Cancelada";
+  modified: string;
+}
+
+export interface TechnicalPartRequestResponse {
+  items: TechnicalPartRequest[];
+  count: number;
+}
+
+export interface RepairPartOption {
+  item_code: string;
+  item_name: string;
+  item_group: string;
+}
+
+export interface RepairPartOptionsResponse {
+  items: RepairPartOption[];
+  count: number;
 }
 
 export interface ProductCategoryTreeResponse {

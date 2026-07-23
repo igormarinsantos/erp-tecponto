@@ -153,7 +153,10 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         items: [
           { id: "service-orders", icon: ClipboardList, label: "Minhas OS", subtitle: "Ordens atribuídas" },
           { id: "my-earnings", icon: BadgeDollarSign, label: "Minhas comissões", subtitle: "Lançamentos da sua mão de obra" },
-          { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque de Reparo" },
+          { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque e solicitações", children: [
+            { id: "repair-parts", icon: Boxes, label: "Estoque de Reparo", subtitle: "Disponibilidade" },
+            { id: "part-requests", icon: ClipboardList, label: "Solicitações de peça", subtitle: "Pedidos da sua bancada" },
+          ] },
         ],
       },
       {
@@ -280,6 +283,7 @@ const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
   overview: "Início",
   "service-orders": "Reparo",
   "repair-parts": "Reparo",
+  "part-requests": "Reparo",
   "my-earnings": "Reparo",
   "parts-stock": "Reparo",
   pos: "Venda",
@@ -321,7 +325,7 @@ function withSubmenus(nav: NavSection[]): NavSection[] {
     for (const item of flatItems) {
       if (consumed.has(item.id)) continue;
       if (item.id === "repair-parts") {
-        addGroup("repair-parts", PackageSearch, "Peças", "Estoque de reparo", ["repair-parts"]);
+        addGroup("repair-parts", PackageSearch, "Peças", "Estoque de reparo", ["repair-parts", "part-requests"]);
         continue;
       }
       if (item.id === "parts-stock") {

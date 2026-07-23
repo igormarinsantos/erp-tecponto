@@ -252,11 +252,13 @@ fixtures = [
 # }
 permission_query_conditions = {
 	"Service Order": "tecponto_app.tecponto.permissions.service_order_query",
+	"Tecponto Part Request": "tecponto_app.tecponto.permissions.part_request_query",
 	"Tecponto Notification": "tecponto_app.tecponto.notify.notification_query",
 }
 
 has_permission = {
 	"Service Order": "tecponto_app.tecponto.permissions.service_order_has_permission",
+	"Tecponto Part Request": "tecponto_app.tecponto.permissions.part_request_has_permission",
 	"Tecponto Notification": "tecponto_app.tecponto.notify.notification_has_permission",
 }
 

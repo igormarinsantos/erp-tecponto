@@ -50,3 +50,18 @@ def service_order_has_permission(doc, user: str | None = None, permission_type: 
 		return True
 
 	return doc.get("technician") == user
+
+
+def part_request_query(user: str | None = None) -> str | None:
+	"""Technicians may see only the needs they personally registered."""
+	user = user or frappe.session.user
+	if user == "Administrator" or not is_restricted_technician(user):
+		return None
+	return f"`tabTecponto Part Request`.`requested_by` = {frappe.db.escape(user)}"
+
+
+def part_request_has_permission(doc, user: str | None = None, permission_type: str | None = None) -> bool | None:
+	user = user or frappe.session.user
+	if user == "Administrator" or not is_restricted_technician(user):
+		return True
+	return doc.get("requested_by") == user

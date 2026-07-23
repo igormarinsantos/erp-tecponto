@@ -21,6 +21,7 @@ import {
   History,
   MoreHorizontal,
   Package,
+	PackagePlus,
   Plus,
   Printer,
   RefreshCw,
@@ -99,6 +100,7 @@ import { ProductVariantAttributesScreen } from "./ProductVariantAttributesScreen
 import { DefectServiceMappingScreen } from "./DefectServiceMappingScreen";
 import { NotificationHistoryScreen } from "./NotificationHistoryScreen";
 import { MyEarningsScreen } from "./MyEarningsScreen";
+import { PartRequestModal, PartRequestsScreen } from "./PartRequestsScreen";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
@@ -348,6 +350,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   "my-earnings": {
     title: "Minhas comissões",
     subtitle: "Lançamentos da sua mão de obra.",
+  },
+  "part-requests": {
+    title: "Solicitações de peça",
+    subtitle: "Necessidades registradas para as suas OS.",
   },
   "commercial-products": {
     title: "Produtos",
@@ -2101,6 +2107,10 @@ function NavigationContent({
     return <MyEarningsScreen onOpenServiceOrder={onOpenServiceOrder} />;
   }
 
+  if (activeView === "part-requests") {
+    return <PartRequestsScreen onOpenServiceOrder={onOpenServiceOrder} />;
+  }
+
   if (activeView === "customers") {
       return <CustomerLookup onToast={onToast} />;
   }
@@ -2683,6 +2693,7 @@ function ServiceOrderDetail({
 				detail={detail}
 				onBack={onBack}
 				onMove={handleSimpleWorkflowMove}
+				onRefresh={refreshServiceOrder}
 				onSaveDiagnosis={async (problemFound) => {
 					try {
 						const updated = await serviceOrders.saveDiagnosis(detail.name, problemFound);
@@ -3077,16 +3088,19 @@ function TechnicalServiceOrderDetail({
   detail,
   onBack,
   onMove,
+  onRefresh,
   onSaveDiagnosis,
 }: {
   detail: ServiceOrderDetailResponse;
   onBack: () => void;
   onMove: (nextState: string) => Promise<void>;
+  onRefresh: (message?: string) => Promise<void>;
   onSaveDiagnosis: (problemFound: string) => Promise<void>;
 }) {
   const [diagnosis, setDiagnosis] = useState(detail.diagnosis.problem_found ?? "");
   const [savingDiagnosis, setSavingDiagnosis] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [partRequestOpen, setPartRequestOpen] = useState(false);
   const deviceLabel =
     [detail.device?.brand, detail.device?.model, detail.device?.color].filter(Boolean).join(" ") ||
     detail.device?.name ||
@@ -3198,9 +3212,16 @@ function TechnicalServiceOrderDetail({
             </div>
             <p className="mt-4 text-sm text-tec-subtle">As transições disponíveis vêm do workflow do motor e só afetam esta OS atribuída.</p>
           </Card>
+          <Card className="p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-tec-muted">Peças</p>
+            <h3 className="mt-2 text-lg font-bold text-white">Faltou uma peça?</h3>
+            <p className="mt-2 text-sm text-tec-subtle">Registre a necessidade. A compra é acompanhada sem interromper o seu trabalho técnico.</p>
+            <Button className="mt-4 w-full" icon={<PackagePlus size={17} />} onClick={() => setPartRequestOpen(true)} variant="primary">Solicitar peça</Button>
+          </Card>
           <ServiceOrderAttendanceCard detail={detail} />
         </aside>
       </div>
+      <PartRequestModal onClose={() => setPartRequestOpen(false)} onCreated={() => void onRefresh("Solicitação de peça registrada. OS movida para Aguardando peça.")} open={partRequestOpen} serviceOrder={detail.name} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 export { balcao } from "./balcao";
 export { earnings } from "./earnings";
+export { partRequests } from "./partRequests";
 export { checkin } from "./checkin";
 export { getBoot, getLoggedUser, logout } from "./auth";
 export { pos } from "./pos";
@@ -87,6 +88,9 @@ export type {
 	CommercialCatalogItem,
 	OwnEarningItem,
 	OwnEarningsResponse,
+	TechnicalPartRequest,
+	TechnicalPartRequestResponse,
+	RepairPartOption,
 	ListingImage,
 	ListingMetadataPayload,
   RetailBarcodeLookupResponse,

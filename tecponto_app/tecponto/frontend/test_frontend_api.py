@@ -61,6 +61,9 @@ from tecponto_app.tecponto.frontend.api import (
 	save_stage_sla,
 	save_defect_service_mapping,
 	submit_stock_transfer,
+	create_technical_part_request,
+	list_my_technical_part_requests,
+	search_repair_part_options,
 )
 from tecponto_app.tecponto.acceptance import (
 	audit_completed_acceptance_evidence,
@@ -158,6 +161,7 @@ def run_foundation_checks() -> dict:
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		technician_scope_check = run_technician_scope_checks()
 		technician_commission_check = run_technician_commission_checks()
+		technician_part_request_check = run_technician_part_request_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
@@ -200,6 +204,7 @@ def run_foundation_checks() -> dict:
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
 			"technician_commissions": technician_commission_check,
+			"technician_part_requests": technician_part_request_check,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
@@ -3453,6 +3458,105 @@ def run_technician_commission_checks() -> dict:
 		frappe.set_user(previous_user)
 
 
+def run_technician_part_request_checks() -> dict:
+	"""Prove 3.14-1: technician requests part needs without seeing cost or other people's requests."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		technician = _find_or_create_user("Tecponto Tecnico")
+		attendant = _find_or_create_user("Tecponto Atendente")
+		peer = _find_or_create_commission_peer()
+		repair_item = _ensure_part_request_repair_item()
+
+		catalog_order = _create_action_request_service_order(attendant)
+		free_order = _create_action_request_service_order(attendant)
+		peer_order = _create_action_request_service_order(attendant)
+		for order_name, assignee in ((catalog_order, technician), (free_order, technician), (peer_order, peer)):
+			order = frappe.get_doc("Service Order", order_name)
+			order.set("parts", [])
+			order.save(ignore_permissions=True)
+			frappe.db.set_value(
+				"Service Order",
+				order_name,
+				{"technician": assignee, "workflow_state": "Aprovado"},
+				update_modified=False,
+			)
+		frappe.db.commit()
+
+		frappe.set_user(technician)
+		options = search_repair_part_options(query="Solicitacao Tecnica", limit=10)
+		if repair_item not in {item["item_code"] for item in options["items"]}:
+			raise AssertionError("Busca segura de pecas de Reparo nao retornou o item de teste.")
+		catalog_request = create_technical_part_request(
+			service_order=catalog_order,
+			item=repair_item,
+			qty=2,
+			notes="Peca catalogada solicitada pela suite.",
+		)
+		if frappe.db.get_value("Service Order", catalog_order, "workflow_state") != "Aguardando peça":
+			raise AssertionError("Solicitacao catalogada nao moveu a OS para Aguardando peca.")
+		free_request = create_technical_part_request(
+			service_order=free_order,
+			free_description="Flex compativel ainda sem cadastro",
+			qty=1,
+			notes="Pedido livre sem travar a OS.",
+		)
+		if frappe.db.get_value("Service Order", free_order, "workflow_state") != "Aguardando peça":
+			raise AssertionError("Solicitacao livre nao moveu a OS para Aguardando peca.")
+		own_payload = list_my_technical_part_requests(limit=100)
+		own_names = {item["name"] for item in own_payload["items"]}
+		if catalog_request["name"] not in own_names or free_request["name"] not in own_names:
+			raise AssertionError("Tecnico nao encontrou as proprias solicitacoes de peca.")
+		leaks = contains_sensitive_field({"options": options, "requests": own_payload})
+		if leaks:
+			raise AssertionError(f"Solicitacao de peca vazou campo sensivel: {', '.join(leaks)}")
+
+		frappe.set_user(peer)
+		peer_request = create_technical_part_request(
+			service_order=peer_order,
+			free_description="Peca do tecnico de controle",
+			qty=1,
+			notes="Nao pode aparecer para outro tecnico.",
+		)
+		frappe.set_user(technician)
+		scoped_names = {item["name"] for item in list_my_technical_part_requests(limit=200)["items"]}
+		if peer_request["name"] in scoped_names:
+			raise AssertionError("Tecnico visualizou solicitacao criada por outro tecnico.")
+		other_order_blocked = False
+		try:
+			create_technical_part_request(
+				service_order=peer_order,
+				free_description="Tentativa em OS alheia",
+				qty=1,
+			)
+		except frappe.PermissionError:
+			other_order_blocked = True
+		if not other_order_blocked:
+			raise AssertionError("Tecnico conseguiu solicitar peca para OS alheia.")
+
+		frappe.set_user(attendant)
+		attendant_blocked = False
+		try:
+			list_my_technical_part_requests(limit=1)
+		except frappe.PermissionError:
+			attendant_blocked = True
+		if not attendant_blocked:
+			raise AssertionError("Atendente acessou solicitacoes tecnicas de peca.")
+
+		return {
+			"catalog_request": catalog_request["name"],
+			"free_request": free_request["name"],
+			"catalog_order_state": frappe.db.get_value("Service Order", catalog_order, "workflow_state"),
+			"free_order_state": frappe.db.get_value("Service Order", free_order, "workflow_state"),
+			"peer_request_hidden": peer_request["name"] not in scoped_names,
+			"other_order_blocked": other_order_blocked,
+			"attendant_blocked": attendant_blocked,
+			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
 def _find_or_create_commission_peer() -> str:
 	user = "front-tecnico-comissao@tecponto.local"
 	if not frappe.db.exists("User", user):
@@ -3515,6 +3619,32 @@ def _create_test_commission(employee: str, service_row: str, amount: float) -> s
 		},
 	)
 	return name
+
+
+def _ensure_part_request_repair_item() -> str:
+	group = "Peças de Reparo"
+	if not frappe.db.exists("Item Group", group):
+		frappe.get_doc(
+			{
+				"doctype": "Item Group",
+				"item_group_name": group,
+				"parent_item_group": "All Item Groups",
+				"is_group": 0,
+			}
+		).insert(ignore_permissions=True)
+	item_code = "TP-REQ-PECA-TECNICA"
+	values = {
+		"item_name": "Peca Solicitacao Tecnica",
+		"item_group": group,
+		"stock_uom": "Nos",
+		"is_stock_item": 1,
+		"disabled": 0,
+	}
+	if frappe.db.exists("Item", item_code):
+		frappe.db.set_value("Item", item_code, values, update_modified=False)
+	else:
+		frappe.get_doc({"doctype": "Item", "item_code": item_code, **values}).insert(ignore_permissions=True)
+	return item_code
 
 
 def _create_technician_scope_customer_device(label: str) -> tuple[str, str, str, str]:

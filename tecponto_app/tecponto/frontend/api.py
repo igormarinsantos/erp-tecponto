@@ -28,6 +28,7 @@ from tecponto_app.tecponto.service_order.print_formats import (
 from tecponto_app.tecponto.workflow import _get_service_order_transitions, get_service_order_workflow_state_names
 from tecponto_app.tecponto import service_catalog
 from tecponto_app.tecponto import defect_service_mapping
+from tecponto_app.tecponto import part_requests
 from tecponto_app.tecponto.permissions import is_restricted_technician, service_order_scope_filters
 from tecponto_app.tecponto.service_order import stage_clock, stage_sla
 
@@ -531,6 +532,37 @@ def list_my_commissions(
 		"total": float(sum(item["value"] for item in items)),
 		"period": period,
 	}
+
+
+@frappe.whitelist()
+def create_technical_part_request(
+	service_order: str,
+	item: str = "",
+	free_description: str = "",
+	qty: float = 1,
+	notes: str = "",
+) -> dict[str, Any]:
+	"""Create a technical need; later buying/receiving flows own the cost fields."""
+	_require_frontend_role()
+	return part_requests.create_part_request(
+		service_order=service_order,
+		item=item,
+		free_description=free_description,
+		qty=qty,
+		notes=notes,
+	)
+
+
+@frappe.whitelist()
+def list_my_technical_part_requests(limit: int = 100) -> dict[str, Any]:
+	_require_frontend_role()
+	return part_requests.list_my_part_requests(limit=limit)
+
+
+@frappe.whitelist()
+def search_repair_part_options(query: str = "", limit: int = 20) -> dict[str, Any]:
+	_require_frontend_role()
+	return part_requests.list_repair_part_options(query=query, limit=limit)
 
 
 @frappe.whitelist()
