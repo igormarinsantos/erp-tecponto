@@ -329,7 +329,9 @@ function withSubmenus(nav: NavSection[]): NavSection[] {
         continue;
       }
       if (item.id === "parts-stock") {
-        consumed.add("parts-stock");
+        addGroup("parts-stock", Boxes, "PeÃ§as", "Estoque e compras", ["parts-stock", "part-requests"], [
+          { id: "part-requests", icon: ClipboardList, label: "SolicitaÃ§Ãµes de peÃ§a", subtitle: "Lista de compras" },
+        ]);
         continue;
       }
       if (["commercial-products", "product-categories", "product-attributes"].includes(item.id)) {

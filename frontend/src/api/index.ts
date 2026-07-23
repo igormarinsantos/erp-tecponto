@@ -90,6 +90,8 @@ export type {
 	OwnEarningsResponse,
 	TechnicalPartRequest,
 	TechnicalPartRequestResponse,
+	PurchasePartRequest,
+	PurchasePartRequestResponse,
 	RepairPartOption,
 	ListingImage,
 	ListingMetadataPayload,

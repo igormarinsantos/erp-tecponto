@@ -73,6 +73,25 @@ export interface TechnicalPartRequestResponse {
   count: number;
 }
 
+export interface PurchasePartRequest extends TechnicalPartRequest {
+  supplier: string | null;
+  expected_arrival: string;
+  received_at: string;
+  estimated_cost: number;
+  cancellation_reason: string | null;
+  customer: string | null;
+  technician: string | null;
+  service_order_state: string | null;
+  service_order_deadline: string;
+  is_late: boolean;
+}
+
+export interface PurchasePartRequestResponse {
+  items: PurchasePartRequest[];
+  count: number;
+  statbar: Array<{ key: string; label: string; value: number }>;
+}
+
 export interface RepairPartOption {
   item_code: string;
   item_name: string;

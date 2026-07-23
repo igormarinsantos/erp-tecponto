@@ -566,6 +566,35 @@ def search_repair_part_options(query: str = "", limit: int = 20) -> dict[str, An
 
 
 @frappe.whitelist()
+def list_purchase_part_requests(status: str = "open", query: str = "", limit: int = 100) -> dict[str, Any]:
+	_require_frontend_role()
+	return part_requests.list_purchase_part_requests(status=status, query=query, limit=limit)
+
+
+@frappe.whitelist()
+def mark_part_request_ordered(
+	name: str,
+	supplier: str,
+	expected_arrival: str,
+	estimated_cost: float | None = None,
+) -> dict[str, Any]:
+	_require_frontend_role()
+	return part_requests.mark_part_request_ordered(name, supplier=supplier, expected_arrival=expected_arrival, estimated_cost=estimated_cost)
+
+
+@frappe.whitelist()
+def mark_part_request_received(name: str) -> dict[str, Any]:
+	_require_frontend_role()
+	return part_requests.mark_part_request_received(name)
+
+
+@frappe.whitelist()
+def cancel_part_request(name: str, reason: str) -> dict[str, Any]:
+	_require_frontend_role()
+	return part_requests.cancel_part_request(name, reason)
+
+
+@frappe.whitelist()
 def get_service_order_kanban(
 	limit_per_column: int = 18,
 	query: str | None = None,

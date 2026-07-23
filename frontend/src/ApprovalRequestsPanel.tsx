@@ -10,6 +10,7 @@ const REQUEST_TYPE_LABELS: Record<string, string> = {
   billed_service_order_cancel: "Cancelar OS faturada",
   pos_discount: "Desconto no PDV",
   pos_price_floor: "Venda abaixo do piso",
+  part_purchase_above_threshold: "Compra de peca acima do teto",
   service_order_move: "Mover OS fora do papel",
   stock_transfer: "Transferencia entre estoques",
   tradein_over_max: "Troca acima da tabela",

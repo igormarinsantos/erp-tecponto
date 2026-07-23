@@ -2108,7 +2108,7 @@ function NavigationContent({
   }
 
   if (activeView === "part-requests") {
-    return <PartRequestsScreen onOpenServiceOrder={onOpenServiceOrder} />;
+    return <PartRequestsScreen onOpenServiceOrder={onOpenServiceOrder} onToast={onToast} />;
   }
 
   if (activeView === "customers") {

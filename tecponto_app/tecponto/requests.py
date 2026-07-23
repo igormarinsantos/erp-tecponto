@@ -18,9 +18,10 @@ REQUEST_TYPES = {
 	"stock_transfer": {"label": "Transferência entre estoques", "doctype": "Stock Entry"},
 	"billed_service_order_cancel": {"label": "Cancelar OS faturada", "doctype": "Service Order"},
 	"acceptance_selfie_exception": {"label": "Dispensar selfie do aceite", "doctype": "OS Acceptance"},
+	"part_purchase_above_threshold": {"label": "Compra de peça acima do teto", "doctype": "Tecponto Part Request"},
 }
 MANAGER_ROLE = "Tecponto Gestor"
-MANAGER_TYPES = {"service_order_discount", "pos_discount", "pos_price_floor", "tradein_over_max", "stock_transfer", "billed_service_order_cancel", "acceptance_selfie_exception"}
+MANAGER_TYPES = {"service_order_discount", "pos_discount", "pos_price_floor", "tradein_over_max", "stock_transfer", "billed_service_order_cancel", "acceptance_selfie_exception", "part_purchase_above_threshold"}
 FRONTEND_ROLES = {"Tecponto Atendente", "Tecponto Tecnico", "Tecponto Gestor", "Tecponto Diretor", "System Manager"}
 
 
@@ -174,6 +175,19 @@ def _execute_as_approver(
 			doc.selfie_exception_request = request_name
 			doc.save()
 			return {"acceptance": doc.name, "selfie_exception": True}
+		if request_type == "part_purchase_above_threshold":
+			from tecponto_app.tecponto.part_requests import mark_part_request_ordered
+			frappe.flags.approved_part_purchase_request = request_name
+			try:
+				return mark_part_request_ordered(
+					reference_name,
+					supplier=data["supplier"],
+					expected_arrival=data["expected_arrival"],
+					estimated_cost=data.get("estimated_cost"),
+					approved_request=request_name,
+				)
+			finally:
+				frappe.flags.approved_part_purchase_request = None
 	frappe.throw(_("Executor de solicitação inválido."), frappe.ValidationError)
 
 
@@ -194,6 +208,11 @@ def _validate_payload(request_type: str, reference_name: str, data: dict[str, An
 			frappe.throw(_("Só é possível solicitar exceção para um aceite pendente."), frappe.ValidationError)
 		if doc.selfie_file:
 			frappe.throw(_("Este aceite já possui uma selfie registrada."), frappe.ValidationError)
+	if request_type == "part_purchase_above_threshold":
+		if not data.get("supplier") or not data.get("expected_arrival"):
+			frappe.throw(_("Informe fornecedor e previsão de chegada."), frappe.ValidationError)
+		if not frappe.db.exists("Tecponto Part Request", {"name": reference_name, "status": "Solicitada"}):
+			frappe.throw(_("A solicitação de peça precisa estar em Solicitada para aprovação."), frappe.ValidationError)
 
 
 def _approver_role(request_type: str, reference_name: str, data: dict[str, Any]) -> str:

@@ -62,7 +62,11 @@ from tecponto_app.tecponto.frontend.api import (
 	save_defect_service_mapping,
 	submit_stock_transfer,
 	create_technical_part_request,
+	cancel_part_request,
+	list_purchase_part_requests,
 	list_my_technical_part_requests,
+	mark_part_request_ordered,
+	mark_part_request_received,
 	search_repair_part_options,
 )
 from tecponto_app.tecponto.acceptance import (
@@ -162,6 +166,7 @@ def run_foundation_checks() -> dict:
 		technician_scope_check = run_technician_scope_checks()
 		technician_commission_check = run_technician_commission_checks()
 		technician_part_request_check = run_technician_part_request_checks()
+		part_purchase_cycle_check = run_part_purchase_cycle_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
@@ -205,6 +210,7 @@ def run_foundation_checks() -> dict:
 			"technician_scope": technician_scope_check,
 			"technician_commissions": technician_commission_check,
 			"technician_part_requests": technician_part_request_check,
+			"part_purchase_cycle": part_purchase_cycle_check,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
@@ -3557,6 +3563,113 @@ def run_technician_part_request_checks() -> dict:
 		frappe.set_user(previous_user)
 
 
+def run_part_purchase_cycle_checks() -> dict:
+	"""Prove 3.14-2: buyer queue, ordering, statuses and approval above threshold."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		technician = _find_or_create_user("Tecponto Tecnico")
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		director = _find_or_create_user("Tecponto Diretor")
+		supplier = _ensure_part_request_supplier()
+		repair_item = _ensure_part_request_repair_item()
+		previous_threshold = frappe.db.get_single_value("Tecponto Settings", "purchase_approval_threshold")
+		frappe.db.set_single_value("Tecponto Settings", "purchase_approval_threshold", 100)
+
+		marker = f"3142-{now_datetime().strftime('%H%M%S%f')}"
+		urgent_order = _create_action_request_service_order(attendant)
+		later_order = _create_action_request_service_order(attendant)
+		receivable_order = _create_action_request_service_order(attendant)
+		expensive_order = _create_action_request_service_order(attendant)
+		for order_name, deadline in (
+			(urgent_order, add_days(today(), 1)),
+			(later_order, add_days(today(), 5)),
+			(receivable_order, add_days(today(), 3)),
+			(expensive_order, add_days(today(), 2)),
+		):
+			order = frappe.get_doc("Service Order", order_name)
+			order.set("parts", [])
+			order.save(ignore_permissions=True)
+			frappe.db.set_value(
+				"Service Order",
+				order_name,
+				{"technician": technician, "workflow_state": "Aprovado", "estimated_deadline": deadline},
+				update_modified=False,
+			)
+		frappe.db.commit()
+
+		frappe.set_user(technician)
+		later_request = create_technical_part_request(later_order, item=repair_item, qty=1, notes=f"{marker} later")
+		urgent_request = create_technical_part_request(urgent_order, item=repair_item, qty=1, notes=f"{marker} urgent")
+		receivable_request = create_technical_part_request(receivable_order, free_description=f"{marker} receber livre", qty=1)
+		expensive_request = create_technical_part_request(expensive_order, item=repair_item, qty=1, notes=f"{marker} expensive")
+
+		technician_blocked = False
+		try:
+			list_purchase_part_requests(query=marker)
+		except frappe.PermissionError:
+			technician_blocked = True
+		if not technician_blocked:
+			raise AssertionError("Tecnico acessou fila de compras.")
+
+		frappe.set_user(director)
+		queue = list_purchase_part_requests(query=marker, status="open", limit=10)
+		ordered_names = [item["name"] for item in queue["items"]]
+		if ordered_names.index(urgent_request["name"]) > ordered_names.index(later_request["name"]):
+			raise AssertionError("Lista de compras nao ordenou pelo prazo prometido da OS.")
+		cheap = mark_part_request_ordered(urgent_request["name"], supplier=supplier, expected_arrival=add_days(today(), 2), estimated_cost=50)
+		if cheap["status"] != "Pedida":
+			raise AssertionError("Compra abaixo do teto nao marcou como Pedida.")
+		blocked_expensive = False
+		try:
+			mark_part_request_ordered(expensive_request["name"], supplier=supplier, expected_arrival=add_days(today(), 2), estimated_cost=150)
+		except frappe.PermissionError:
+			blocked_expensive = True
+		if not blocked_expensive:
+			raise AssertionError("Compra acima do teto passou sem aprovacao.")
+		frappe.db.commit()
+		approval = create_request(
+			"part_purchase_above_threshold",
+			expensive_request["name"],
+			"Compra urgente para cumprir prazo do cliente.",
+			{"supplier": supplier, "expected_arrival": str(add_days(today(), 2)), "estimated_cost": 150},
+		)
+
+		frappe.set_user(manager)
+		approved = approve_request(approval["name"])
+		if frappe.db.get_value("Tecponto Part Request", expensive_request["name"], "status") != "Pedida":
+			raise AssertionError("Aprovacao nao executou a marcacao Pedida.")
+		received = mark_part_request_ordered(receivable_request["name"], supplier=supplier, expected_arrival=add_days(today(), 1), estimated_cost=10)
+		received = mark_part_request_received(received["name"])
+		if received["status"] != "Recebida" or not received["received_at"]:
+			raise AssertionError("Marcacao Recebida nao gravou received_at.")
+		cancelled = cancel_part_request(later_request["name"], "Fornecedor indisponivel no teste.")
+		if cancelled["status"] != "Cancelada" or not cancelled["cancellation_reason"]:
+			raise AssertionError("Cancelamento nao gravou motivo.")
+
+		frappe.set_user(technician)
+		own_payload = list_my_technical_part_requests(limit=200)
+		leaks = contains_sensitive_field(own_payload)
+		if leaks:
+			raise AssertionError(f"Tecnico recebeu custo ou campo sensivel na solicitacao de peca: {', '.join(leaks)}")
+
+		return {
+			"ordered_by_urgency": ordered_names[:2],
+			"cheap_status": cheap["status"],
+			"expensive_blocked": blocked_expensive,
+			"approval": approved["name"],
+			"received_at": received["received_at"],
+			"cancelled": cancelled["name"],
+			"technician_blocked_from_purchase_queue": technician_blocked,
+			"leaked_fields": leaks,
+		}
+	finally:
+		if "previous_threshold" in locals():
+			frappe.db.set_single_value("Tecponto Settings", "purchase_approval_threshold", previous_threshold or 0)
+		frappe.set_user(previous_user)
+
+
 def _find_or_create_commission_peer() -> str:
 	user = "front-tecnico-comissao@tecponto.local"
 	if not frappe.db.exists("User", user):
@@ -3618,6 +3731,21 @@ def _create_test_commission(employee: str, service_row: str, amount: float) -> s
 			"service_row": service_row,
 		},
 	)
+	return name
+
+
+def _ensure_part_request_supplier() -> str:
+	name = "Fornecedor Teste Pecas Tecponto"
+	if frappe.db.exists("Supplier", name):
+		return name
+	frappe.get_doc(
+		{
+			"doctype": "Supplier",
+			"supplier_name": name,
+			"supplier_group": frappe.db.get_value("Supplier Group", {"is_group": 0}, "name") or "All Supplier Groups",
+			"supplier_type": "Company",
+		}
+	).insert(ignore_permissions=True)
 	return name
 
 
