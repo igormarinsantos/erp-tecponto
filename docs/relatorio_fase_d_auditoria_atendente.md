@@ -64,7 +64,7 @@ Resultado: `tsc --noEmit` verde, build Vite verde e verificação de fundação 
 ## Itens Não Bloqueantes Registrados
 
 1. **Bundle do front:** `app.js` minificado tem aproximadamente 523 kB. É aviso de performance do Vite, não falha. Quando as telas de Técnico/Gestor/Diretor crescerem, dividir rotas por import dinâmico é recomendado.
-2. **Massa de testes:** a suíte cria OS, solicitações, notificações e registros de garantia para provar fluxos. Isso é útil para integração local, mas uma rotina de limpeza de fixtures ajudará o banco de desenvolvimento a não crescer indefinidamente.
+2. **Massa de testes:** a suíte cria OS, solicitações, notificações, links de rastreio e registros de garantia para provar fluxos. O procedimento versionado em `docs/procedimento_limpeza_massa_teste.md` cobre também `Service Order Tracking` órfão e registros `File` sem arquivo físico, com auditoria prévia das evidências privadas de aceite.
 3. **Valor de troca dentro da faixa:** o fluxo atual permite registrar valor dentro da tabela e exige Gestor apenas acima do máximo, conforme T2/F6 do contrato. Futuramente, pode-se separar semanticamente `valor sugerido` e `valor aprovado` na interface, sem alterar essa regra.
 
 ## Conclusão
