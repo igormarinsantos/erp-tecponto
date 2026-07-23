@@ -106,6 +106,10 @@ def ensure_tracking_lifecycle() -> None:
 		fields=["name", "service_order"],
 		limit_page_length=0,
 	):
+		if not frappe.db.exists("Service Order", row.service_order):
+			frappe.db.set_value(TRACKING_DOCTYPE, row.name, "status", "Revogado", update_modified=False)
+			frappe.db.set_value(TRACKING_DOCTYPE, row.name, "revoked_on", now_datetime(), update_modified=False)
+			continue
 		order = frappe.get_doc("Service Order", row.service_order)
 		frappe.db.set_value(TRACKING_DOCTYPE, row.name, "expires_on", _tracking_expiry(order), update_modified=False)
 
