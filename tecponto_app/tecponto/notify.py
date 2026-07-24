@@ -209,6 +209,8 @@ def _render(template_key: str, context: dict[str, Any]) -> dict[str, str]:
 		return {"type": "deadline", "title": "Orçamento perto de expirar", "body": f"A OS {service_order} expira nas próximas 12 horas.", "link": _service_order_link(service_order)}
 	if template_key == "ready_for_pickup":
 		return {"type": "pickup", "title": "OS aguardando retirada", "body": f"A OS {service_order} está pronta há {context.get('days')} dias.", "link": _service_order_link(service_order)}
+	if template_key == "part_received":
+		return {"type": "part", "title": "Peça recebida para sua OS", "body": f"A peça {context.get('item') or 'solicitada'} chegou e está reservada para a OS {service_order}.", "link": _service_order_link(service_order)}
 	return {"type": "service_order", "title": "OS atualizada", "body": f"A OS {service_order} mudou para {context.get('state') or 'novo estado'}.", "link": _service_order_link(service_order)}
 
 

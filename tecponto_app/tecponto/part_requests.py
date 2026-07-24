@@ -5,9 +5,11 @@ from typing import Any
 import frappe
 from frappe import _
 from frappe.model.workflow import apply_workflow
-from frappe.utils import flt, getdate, now_datetime, today
+from frappe.utils import flt, getdate, now_datetime, nowdate, nowtime, today
 
 from tecponto_app.tecponto.permissions import is_restricted_technician
+from tecponto_app.tecponto import notify
+from tecponto_app.tecponto.service_order.parts import _get_company, _get_cost_center, _get_stock_entry_type, _get_stock_adjustment_account
 from tecponto_app.tecponto.workflow import _get_service_order_transitions
 
 
@@ -113,6 +115,9 @@ def list_purchase_part_requests(status: str = "open", query: str = "", limit: in
 			request.status,
 			request.supplier,
 			request.expected_arrival,
+			request.received_item,
+			request.stock_entry,
+			request.reservation,
 			request.received_at,
 			request.estimated_cost,
 			request.cancellation_reason,
@@ -166,12 +171,37 @@ def mark_part_request_ordered(
 	return serialize_purchase_part_request(_reload_purchase_row(doc.name))
 
 
-def mark_part_request_received(name: str) -> dict[str, Any]:
+def mark_part_request_received(name: str, item: str = "") -> dict[str, Any]:
+	"""Receive a requested part into Repair and reserve it for its originating OS.
+
+	The receipt, the Service Order part row and its native Stock Reservation Entry
+	are one savepoint. A failed reservation can never leave a request marked as
+	received or stock free for another OS.
+	"""
 	_require_part_request_buyer()
 	doc = _get_part_request_for_buying(name, expected_status="Pedida")
-	doc.status = "Recebida"
-	doc.received_at = now_datetime()
-	doc.save(ignore_permissions=True)
+	received_item = (item or doc.item or "").strip()
+	if not received_item:
+		frappe.throw(_("Confirme o Item de Reparo recebido antes de concluir."), frappe.ValidationError)
+	_validate_repair_item(received_item)
+	frappe.db.savepoint("tecponto_part_receipt")
+	try:
+		stock_entry = _receive_into_repair_stock(doc, received_item)
+		reservation = _reserve_received_part_for_service_order(doc, received_item)
+		doc.received_item = received_item
+		doc.stock_entry = stock_entry
+		doc.reservation = reservation
+		doc.status = "Recebida"
+		doc.received_at = now_datetime()
+		doc.save(ignore_permissions=True)
+	except Exception:
+		frappe.db.rollback(save_point="tecponto_part_receipt")
+		raise
+	notify.enqueue(
+		frappe.db.get_value("Service Order", doc.service_order, "technician"),
+		"part_received",
+		{"service_order": doc.service_order, "item": received_item, "reference_doctype": PART_REQUEST_DOCTYPE, "reference_name": doc.name},
+	)
 	return serialize_purchase_part_request(_reload_purchase_row(doc.name))
 
 
@@ -210,6 +240,9 @@ def serialize_purchase_part_request(row: dict[str, Any]) -> dict[str, Any]:
 		"supplier": row.get("supplier") or None,
 		"expected_arrival": str(row.get("expected_arrival") or ""),
 		"received_at": str(row.get("received_at") or ""),
+		"received_item": row.get("received_item") or None,
+		"stock_entry": row.get("stock_entry") or None,
+		"reservation": row.get("reservation") or None,
 		"estimated_cost": float(flt(row.get("estimated_cost"))),
 		"cancellation_reason": row.get("cancellation_reason") or None,
 		"customer": row.get("customer") or None,
@@ -263,6 +296,9 @@ def _reload_purchase_row(name: str) -> dict[str, Any]:
 			request.status,
 			request.supplier,
 			request.expected_arrival,
+			request.received_item,
+			request.stock_entry,
+			request.reservation,
 			request.received_at,
 			request.estimated_cost,
 			request.cancellation_reason,
@@ -282,6 +318,64 @@ def _reload_purchase_row(name: str) -> dict[str, Any]:
 	if not rows:
 		frappe.throw(_("Solicitação de peça não encontrada."), frappe.DoesNotExistError)
 	return rows[0]
+
+
+def _receive_into_repair_stock(doc, item_code: str) -> str:
+	if doc.get("stock_entry") and frappe.db.exists("Stock Entry", doc.stock_entry):
+		return doc.stock_entry
+	warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+	if not warehouse:
+		frappe.throw(_("Configure o depósito de Reparo antes de receber a peça."), frappe.ValidationError)
+	company = _get_company(warehouse)
+	stock_entry = frappe.new_doc("Stock Entry")
+	stock_entry.stock_entry_type = _get_stock_entry_type("Material Receipt")
+	stock_entry.purpose = "Material Receipt"
+	stock_entry.company = company
+	stock_entry.set_posting_time = 1
+	stock_entry.posting_date = nowdate()
+	stock_entry.posting_time = nowtime()
+	stock_entry.remarks = f"Recebimento da solicitação {doc.name} para a OS {doc.service_order}."
+	stock_entry.append(
+		"items",
+		{
+			"item_code": item_code,
+			"qty": flt(doc.qty),
+			"t_warehouse": warehouse,
+			"basic_rate": flt(doc.estimated_cost) / flt(doc.qty) if flt(doc.qty) else 0,
+			"conversion_factor": 1,
+			"cost_center": _get_cost_center(company),
+			"expense_account": _get_stock_adjustment_account(company),
+			"allow_zero_valuation_rate": 1,
+		},
+	)
+	stock_entry.insert(ignore_permissions=True)
+	stock_entry.submit()
+	return stock_entry.name
+
+
+def _reserve_received_part_for_service_order(doc, item_code: str) -> str:
+	if doc.get("reservation") and frappe.db.exists("Stock Reservation Entry", doc.reservation):
+		return doc.reservation
+	order = frappe.get_doc("Service Order", doc.service_order)
+	warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+	part_row = next((row for row in order.get("parts") or [] if row.get("part_request") == doc.name), None)
+	if not part_row:
+		part_row = order.append(
+			"parts",
+			{
+				"item_code": item_code,
+				"qty": flt(doc.qty),
+				"warehouse": warehouse,
+				"rate": flt(frappe.db.get_value("Item", item_code, "standard_rate")),
+				"technician": order.get("technician"),
+				"part_request": doc.name,
+			},
+		)
+	order.save(ignore_permissions=True)
+	part_row = next((row for row in order.get("parts") or [] if row.get("part_request") == doc.name), None)
+	if not part_row or not part_row.get("reservation"):
+		frappe.throw(_("Não foi possível reservar a peça recebida para a OS de origem."), frappe.ValidationError)
+	return part_row.reservation
 
 
 def _purchase_part_request_statbar() -> list[dict[str, Any]]:

@@ -77,6 +77,9 @@ export interface PurchasePartRequest extends TechnicalPartRequest {
   supplier: string | null;
   expected_arrival: string;
   received_at: string;
+  received_item: string | null;
+  stock_entry: string | null;
+  reservation: string | null;
   estimated_cost: number;
   cancellation_reason: string | null;
   customer: string | null;

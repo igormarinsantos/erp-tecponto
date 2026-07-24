@@ -583,9 +583,9 @@ def mark_part_request_ordered(
 
 
 @frappe.whitelist()
-def mark_part_request_received(name: str) -> dict[str, Any]:
+def mark_part_request_received(name: str, item: str = "") -> dict[str, Any]:
 	_require_frontend_role()
-	return part_requests.mark_part_request_received(name)
+	return part_requests.mark_part_request_received(name, item=item)
 
 
 @frappe.whitelist()

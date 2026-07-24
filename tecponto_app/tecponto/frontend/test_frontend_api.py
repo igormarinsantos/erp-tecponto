@@ -167,6 +167,7 @@ def run_foundation_checks() -> dict:
 		technician_commission_check = run_technician_commission_checks()
 		technician_part_request_check = run_technician_part_request_checks()
 		part_purchase_cycle_check = run_part_purchase_cycle_checks()
+		part_receipt_check = run_part_receipt_reservation_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
@@ -211,6 +212,7 @@ def run_foundation_checks() -> dict:
 			"technician_commissions": technician_commission_check,
 			"technician_part_requests": technician_part_request_check,
 			"part_purchase_cycle": part_purchase_cycle_check,
+			"part_receipt_reservation": part_receipt_check,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
@@ -3641,7 +3643,7 @@ def run_part_purchase_cycle_checks() -> dict:
 		if frappe.db.get_value("Tecponto Part Request", expensive_request["name"], "status") != "Pedida":
 			raise AssertionError("Aprovacao nao executou a marcacao Pedida.")
 		received = mark_part_request_ordered(receivable_request["name"], supplier=supplier, expected_arrival=add_days(today(), 1), estimated_cost=10)
-		received = mark_part_request_received(received["name"])
+		received = mark_part_request_received(received["name"], item=repair_item)
 		if received["status"] != "Recebida" or not received["received_at"]:
 			raise AssertionError("Marcacao Recebida nao gravou received_at.")
 		cancelled = cancel_part_request(later_request["name"], "Fornecedor indisponivel no teste.")
@@ -3667,6 +3669,86 @@ def run_part_purchase_cycle_checks() -> dict:
 	finally:
 		if "previous_threshold" in locals():
 			frappe.db.set_single_value("Tecponto Settings", "purchase_approval_threshold", previous_threshold or 0)
+		frappe.set_user(previous_user)
+
+
+def run_part_receipt_reservation_checks() -> dict:
+	"""Prove 3.14-3 receipt, native reservation, notice and waiting-part SLA."""
+	previous_user = frappe.session.user
+	previous_in_test = frappe.flags.in_test
+	try:
+		frappe.flags.in_test = True
+		ensure_frontend_foundation()
+		technician = _find_or_create_user("Tecponto Tecnico")
+		buyer = _find_or_create_user("Tecponto Gestor")
+		supplier = _ensure_part_request_supplier()
+		item = _ensure_part_request_repair_item()
+		warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+		if not warehouse:
+			raise AssertionError("Fixture sem depósito de Reparo.")
+		marker = f"3143-{now_datetime().strftime('%H%M%S%f')}"
+		available_before = flt(get_available_qty_to_reserve(item, warehouse))
+		qty = available_before + 1
+		attendant = _find_or_create_user("Tecponto Atendente")
+		origin_order = _create_action_request_service_order(attendant)
+		other_order = _create_action_request_service_order(attendant)
+		blank_order = _create_action_request_service_order(attendant)
+		for order_name in (origin_order, other_order, blank_order):
+			frappe.db.set_value("Service Order", order_name, {"technician": technician, "workflow_state": "Aprovado"}, update_modified=False)
+		frappe.db.commit()
+
+		frappe.set_user(technician)
+		receipt_request = create_technical_part_request(origin_order, item=item, qty=qty, notes=marker)
+		blank_request = create_technical_part_request(blank_order, item=item, qty=1, notes=f"{marker}-blank")
+		frappe.set_user(buyer)
+		mark_part_request_ordered(receipt_request["name"], supplier=supplier, expected_arrival=add_days(today(), -1), estimated_cost=50)
+		# Pedida without supplier promise is allowed in persisted legacy data and must
+		# not generate a synthetic stage alarm.
+		frappe.db.set_value("Tecponto Part Request", blank_request["name"], {"status": "Pedida", "expected_arrival": None}, update_modified=False)
+		frappe.db.commit()
+		late_clock = get_stage_clock(frappe.get_doc("Service Order", origin_order))
+		blank_clock = get_stage_clock(frappe.get_doc("Service Order", blank_order))
+		if not late_clock["is_stage_overdue"] or not late_clock["waiting_part_expected_arrival"]:
+			raise AssertionError("Previsão vencida não marcou atraso na etapa Aguardando peça.")
+		if blank_clock["is_stage_overdue"] or blank_clock["waiting_part_expected_arrival"]:
+			raise AssertionError("Solicitação sem previsão gerou alerta falso de atraso.")
+
+		notifications_before = frappe.db.count("Tecponto Notification", {"recipient": technician, "template_key": "part_received", "reference_name": receipt_request["name"]})
+		received = mark_part_request_received(receipt_request["name"])
+		if received["status"] != "Recebida" or not received["stock_entry"] or not received["reservation"]:
+			raise AssertionError("Recebimento não gravou entrada e reserva nativas.")
+		if not frappe.db.exists("Stock Entry", received["stock_entry"]) or not frappe.db.exists("Stock Reservation Entry", received["reservation"]):
+			raise AssertionError("Documento de entrada ou reserva não foi persistido.")
+		reservation = frappe.get_doc("Stock Reservation Entry", received["reservation"])
+		if reservation.voucher_no != origin_order or flt(reservation.reserved_qty) != qty:
+			raise AssertionError("Reserva não ficou vinculada à OS de origem.")
+		if frappe.db.count("Tecponto Notification", {"recipient": technician, "template_key": "part_received", "reference_name": receipt_request["name"]}) != notifications_before + 1:
+			raise AssertionError("Técnico não recebeu notificação assíncrona da peça recebida.")
+		available_after_reservation = flt(get_available_qty_to_reserve(item, warehouse))
+
+		other = frappe.get_doc("Service Order", other_order)
+		other.append("parts", {"item_code": item, "qty": qty, "warehouse": warehouse, "technician": technician, "outcome": "Usada no reparo"})
+		other_blocked = False
+		try:
+			other.save(ignore_permissions=True)
+		except frappe.ValidationError:
+			other_blocked = True
+		if not other_blocked:
+			raise AssertionError(
+			f"Outra OS consumiu a disponibilidade reservada sem liberação do Gestor (antes={available_before}, reserva={reservation.reserved_qty}, depois={available_after_reservation}, pedido={qty})."
+		)
+
+		return {
+			"receipt": receipt_request["name"],
+			"stock_entry": received["stock_entry"],
+			"reservation": received["reservation"],
+			"technician_notified": True,
+			"overdue_from_expected_arrival": late_clock["is_stage_overdue"],
+			"blank_expected_arrival_has_no_alert": not blank_clock["is_stage_overdue"],
+			"other_order_blocked": other_blocked,
+		}
+	finally:
+		frappe.flags.in_test = previous_in_test
 		frappe.set_user(previous_user)
 
 

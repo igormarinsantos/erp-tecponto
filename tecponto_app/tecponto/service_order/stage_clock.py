@@ -30,7 +30,8 @@ def get_stage_clock(doc: Any, reference_datetime=None) -> dict[str, Any]:
 	state = doc.get("workflow_state") or "Entrada criada"
 	entered_at = get_datetime(doc.get("stage_entered_at") or doc.get("modified") or doc.get("entry_date") or now)
 	sla_hours = _sla_hours_for_state(state)
-	stage_deadline = add_commercial_business_hours(entered_at, sla_hours) if sla_hours > 0 and state not in TERMINAL_STATES else None
+	waiting_part_arrival = _waiting_part_expected_arrival(doc.name) if state == "Aguardando peça" else None
+	stage_deadline = waiting_part_arrival or (add_commercial_business_hours(entered_at, sla_hours) if sla_hours > 0 and state not in TERMINAL_STATES else None)
 	estimated_deadline = _estimated_deadline_at(doc.get("estimated_deadline"))
 	is_stage_overdue = bool(stage_deadline and now > stage_deadline)
 	is_total_overdue = bool(estimated_deadline and now > estimated_deadline and state not in TERMINAL_STATES)
@@ -38,6 +39,7 @@ def get_stage_clock(doc: Any, reference_datetime=None) -> dict[str, Any]:
 		"stage_entered_at": str(entered_at),
 		"stage_sla_business_hours": sla_hours,
 		"stage_deadline": str(stage_deadline or ""),
+		"waiting_part_expected_arrival": str(waiting_part_arrival or ""),
 		"estimated_deadline": str(doc.get("estimated_deadline") or ""),
 		"is_stage_overdue": is_stage_overdue,
 		"is_total_overdue": is_total_overdue,
@@ -77,3 +79,20 @@ def _estimated_deadline_at(value: Any) -> datetime | None:
 	if not value:
 		return None
 	return datetime.combine(getdate(value), BUSINESS_DAY_END)
+
+
+def _waiting_part_expected_arrival(service_order: str) -> datetime | None:
+	"""Use the earliest pending supplier promise as the follow-up deadline.
+
+	An empty promise deliberately creates no alarm. Asking for a part never
+	turns into a synthetic SLA.
+	"""
+	if not service_order:
+		return None
+	arrival = frappe.db.get_value(
+		"Tecponto Part Request",
+		{"service_order": service_order, "status": "Pedida", "expected_arrival": ["is", "set"]},
+		"expected_arrival",
+		order_by="expected_arrival asc",
+	)
+	return _estimated_deadline_at(arrival)

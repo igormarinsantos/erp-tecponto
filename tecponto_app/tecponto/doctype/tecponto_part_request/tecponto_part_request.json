@@ -4,7 +4,7 @@
  "autoname": "naming_series:",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": ["naming_series", "service_order", "item", "free_description", "qty", "notes", "requested_by", "requested_at", "status", "supplier", "expected_arrival", "received_at", "estimated_cost", "cancellation_reason"],
+ "field_order": ["naming_series", "service_order", "item", "free_description", "qty", "notes", "requested_by", "requested_at", "status", "supplier", "expected_arrival", "received_item", "stock_entry", "reservation", "received_at", "estimated_cost", "cancellation_reason"],
  "fields": [
   {"fieldname":"naming_series","fieldtype":"Select","label":"Série","options":"TPR-.YYYY.-.#####","default":"TPR-.YYYY.-.#####","reqd":1},
   {"fieldname":"service_order","fieldtype":"Link","label":"Ordem de serviço","options":"Service Order","reqd":1,"in_list_view":1,"search_index":1},
@@ -17,6 +17,9 @@
   {"fieldname":"status","fieldtype":"Select","label":"Status","options":"Solicitada\nPedida\nRecebida\nCancelada","default":"Solicitada","reqd":1,"in_list_view":1},
   {"fieldname":"supplier","fieldtype":"Link","label":"Fornecedor","options":"Supplier"},
   {"fieldname":"expected_arrival","fieldtype":"Date","label":"Previsão de chegada"},
+  {"fieldname":"received_item","fieldtype":"Link","label":"Item recebido","options":"Item","read_only":1},
+  {"fieldname":"stock_entry","fieldtype":"Link","label":"Entrada de estoque","options":"Stock Entry","read_only":1},
+  {"fieldname":"reservation","fieldtype":"Link","label":"Reserva para a OS","options":"Stock Reservation Entry","read_only":1},
   {"fieldname":"received_at","fieldtype":"Datetime","label":"Recebida em","read_only":1},
   {"fieldname":"estimated_cost","fieldtype":"Currency","label":"Custo estimado","permlevel":1},
   {"fieldname":"cancellation_reason","fieldtype":"Small Text","label":"Motivo do cancelamento"}

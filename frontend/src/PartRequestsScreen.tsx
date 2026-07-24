@@ -23,6 +23,7 @@ export function PartRequestsScreen({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("open");
   const [orderModal, setOrderModal] = useState<PurchasePartRequest | null>(null);
+  const [receiveModal, setReceiveModal] = useState<PurchasePartRequest | null>(null);
   const [receiveBusy, setReceiveBusy] = useState<string | null>(null);
   const [cancelModal, setCancelModal] = useState<PurchasePartRequest | null>(null);
 
@@ -60,8 +61,11 @@ export function PartRequestsScreen({
         onSearch={() => void load()}
         onShowCancel={setCancelModal}
         onShowOrder={setOrderModal}
+        onShowReceive={setReceiveModal}
+        onCloseReceive={() => setReceiveModal(null)}
         onToast={onToast}
         orderModal={orderModal}
+        receiveModal={receiveModal}
         query={query}
         receiveBusy={receiveBusy}
         setQuery={setQuery}
@@ -123,8 +127,11 @@ function PurchasePartRequestsView({
   onSearch,
   onShowCancel,
   onShowOrder,
+  onShowReceive,
+  onCloseReceive,
   onToast,
   orderModal,
+  receiveModal,
   query,
   receiveBusy,
   setQuery,
@@ -143,8 +150,11 @@ function PurchasePartRequestsView({
   onSearch: () => void;
   onShowCancel: (item: PurchasePartRequest) => void;
   onShowOrder: (item: PurchasePartRequest) => void;
+  onShowReceive: (item: PurchasePartRequest) => void;
+  onCloseReceive: () => void;
   onToast: Toast;
   orderModal: PurchasePartRequest | null;
+  receiveModal: PurchasePartRequest | null;
   query: string;
   receiveBusy: string | null;
   setQuery: (value: string) => void;
@@ -165,7 +175,7 @@ function PurchasePartRequestsView({
     { key: "actions", label: "", className: "text-right", render: (row) => <PartRequestActions item={row} onOpenServiceOrder={onOpenServiceOrder} onReceive={async () => {
       setReceiveBusy(row.name);
       try {
-        await partRequests.markReceived(row.name);
+        await partRequests.markReceived(row.name, row.item ?? undefined);
         onToast("Solicitacao marcada como recebida.", "success");
         onRefresh();
       } catch (error) {
@@ -173,8 +183,8 @@ function PurchasePartRequestsView({
       } finally {
         setReceiveBusy(null);
       }
-    }} onShowCancel={onShowCancel} onShowOrder={onShowOrder} receiveBusy={receiveBusy === row.name} /> },
-  ], [onOpenServiceOrder, onRefresh, onShowCancel, onShowOrder, onToast, receiveBusy, setReceiveBusy]);
+    }} onShowCancel={onShowCancel} onShowOrder={onShowOrder} onShowReceive={onShowReceive} receiveBusy={receiveBusy === row.name} /> },
+  ], [onOpenServiceOrder, onRefresh, onShowCancel, onShowOrder, onShowReceive, onToast, receiveBusy, setReceiveBusy]);
 
   return <div className="space-y-4">
     <StatBar items={statbar.map((item) => ({ ...item, detail: statDetail(item.key), icon: statIcon(item.key), tone: statTone(item.key) }))} />
@@ -201,22 +211,24 @@ function PurchasePartRequestsView({
       <DataTable columns={columns} emptyLabel={state === "loading" ? "Carregando compras..." : "Nenhuma solicitacao no filtro atual."} rows={items} tableMinWidthClassName="min-w-[1040px]" />
     </Card>
     {orderModal ? <MarkOrderedModal item={orderModal} onClose={onOrdered} onToast={onToast} /> : null}
+    {receiveModal ? <ReceivePartModal item={receiveModal} onClose={onCloseReceive} onDone={onRefresh} onToast={onToast} /> : null}
     {cancelModal ? <CancelPartRequestModal item={cancelModal} onClose={onCancelClose} onDone={onRefresh} onToast={onToast} /> : null}
   </div>;
 }
 
-function PartRequestActions({ item, onOpenServiceOrder, onReceive, onShowCancel, onShowOrder, receiveBusy }: {
+function PartRequestActions({ item, onOpenServiceOrder, onReceive, onShowCancel, onShowOrder, onShowReceive, receiveBusy }: {
   item: PurchasePartRequest;
   onOpenServiceOrder: (name: string) => void;
   onReceive: () => Promise<void>;
   onShowCancel: (item: PurchasePartRequest) => void;
   onShowOrder: (item: PurchasePartRequest) => void;
+  onShowReceive: (item: PurchasePartRequest) => void;
   receiveBusy: boolean;
 }) {
   return <div className="flex flex-wrap justify-end gap-2">
     <Button onClick={() => onOpenServiceOrder(item.service_order)} variant="ghost">OS</Button>
     {item.status === "Solicitada" ? <Button icon={<Truck size={15} />} onClick={() => onShowOrder(item)} variant="primary">Pedida</Button> : null}
-    {item.status === "Pedida" ? <Button disabled={receiveBusy} icon={<PackageCheck size={15} />} onClick={() => void onReceive()} variant="primary">{receiveBusy ? "Recebendo..." : "Recebida"}</Button> : null}
+    {item.status === "Pedida" ? <Button disabled={receiveBusy} icon={<PackageCheck size={15} />} onClick={() => item.item ? void onReceive() : onShowReceive(item)} variant="primary">{receiveBusy ? "Recebendo..." : "Recebida"}</Button> : null}
     {["Solicitada", "Pedida"].includes(item.status) ? <Button onClick={() => onShowCancel(item)} variant="danger">Cancelar</Button> : null}
   </div>;
 }
@@ -272,6 +284,38 @@ function MarkOrderedModal({ item, onClose, onToast }: { item: PurchasePartReques
       title="Esta compra de peca ultrapassa o teto configurado. Deseja solicitar aprovacao do Gestor?"
     /> : null}
   </>;
+}
+
+function ReceivePartModal({ item, onClose, onDone, onToast }: { item: PurchasePartRequest; onClose: () => void; onDone: () => void; onToast: Toast }) {
+  const [query, setQuery] = useState("");
+  const [options, setOptions] = useState<RepairPartOption[]>([]);
+  const [selected, setSelected] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      partRequests.searchOptions(query).then((response) => setOptions(response.items)).catch(() => setOptions([]));
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+  const submit = async () => {
+    if (!selected) { onToast("Confirme o Item de Reparo que chegou.", "error"); return; }
+    setBusy(true);
+    try {
+      await partRequests.markReceived(item.name, selected);
+      onToast("Peça recebida no Reparo e reservada para a OS.", "success");
+      onDone(); onClose();
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Não foi possível receber a peça.", "error");
+    } finally { setBusy(false); }
+  };
+  return <Modal className="max-w-xl" onClose={onClose} open title={`Confirmar item recebido — ${item.name}`}>
+    <div className="space-y-4">
+      <p className="rounded-card border border-tec-blue/25 bg-tec-blue/10 p-3 text-sm text-tec-subtle">O técnico descreveu: <strong className="text-white">{item.free_description || "Peça sem item definido"}</strong>. Escolha o Item de Reparo correto para gerar a entrada e a reserva da OS.</p>
+      <label className="block text-xs font-bold uppercase text-tec-muted">Buscar Item de Reparo<input autoFocus className="tp-input mt-1 w-full" onChange={(event) => { setQuery(event.target.value); setSelected(""); }} placeholder="Nome ou código do item" value={query} /></label>
+      <div className="max-h-60 space-y-2 overflow-y-auto">{options.map((option) => <button className={`flex w-full items-center justify-between rounded-control border px-3 py-3 text-left text-sm ${selected === option.item_code ? "border-tec-orange bg-tec-orange/10 text-white" : "border-tec-border/20 bg-tec-field text-tec-subtle"}`} key={option.item_code} onClick={() => setSelected(option.item_code)} type="button"><span className="font-semibold">{option.item_name}</span><span className="text-xs text-tec-muted">{option.item_code}</span></button>)}</div>
+      <div className="flex justify-end gap-2"><Button onClick={onClose} variant="secondary">Cancelar</Button><Button disabled={!selected || busy} icon={<PackageCheck size={17} />} onClick={() => void submit()} variant="primary">{busy ? "Recebendo..." : "Receber e reservar"}</Button></div>
+    </div>
+  </Modal>;
 }
 
 function CancelPartRequestModal({ item, onClose, onDone, onToast }: { item: PurchasePartRequest; onClose: () => void; onDone: () => void; onToast: Toast }) {

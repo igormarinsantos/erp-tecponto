@@ -76,6 +76,7 @@ def baixar_peca(part_row, doc):
 		frappe.throw("Informe o motivo da perda da pe\u00e7a antes de baixar o estoque.")
 
 	_validate_stock_part(part_row)
+	_assert_unreserved_part_is_available(part_row)
 	_liberar_reserva(part_row.get("reservation"))
 	_set_part_value(part_row, "reservation", None)
 
@@ -320,6 +321,24 @@ def _validate_stock_part(part_row) -> None:
 
 	if not frappe.get_cached_value("Item", part_row.item_code, "is_stock_item"):
 		frappe.throw("A peca {0} precisa ser um Item de estoque.".format(part_row.item_code))
+
+
+def _assert_unreserved_part_is_available(part_row) -> None:
+	"""Never issue stock that is already reserved for another Service Order.
+
+	Normal repair flow carries its own SRE and releases it immediately before the
+	Material Issue. A manually added line has no such claim, so it can only use
+	the remaining free quantity.
+	"""
+	if part_row.get("reservation"):
+		return
+	available_qty = flt(get_available_qty_to_reserve(part_row.item_code, part_row.warehouse))
+	if available_qty < flt(part_row.qty):
+		frappe.throw(
+			"Estoque reservado para outra OS. Disponivel para uso: {0}.".format(
+				frappe.format_value(available_qty, {"fieldtype": "Float"})
+			)
+		)
 
 
 def _get_existing_open_reservation(service_order: str, part_row_name: str) -> str | None:

@@ -17,6 +17,7 @@
   "outcome",
   "loss_reason",
   "batch_no",
+  "part_request",
   "stock_entry",
   "reservation"
  ],
@@ -85,6 +86,13 @@
    "fieldtype": "Link",
    "label": "Lote",
    "options": "Batch"
+  },
+  {
+   "fieldname": "part_request",
+   "fieldtype": "Link",
+   "label": "Solicitação de peça",
+   "options": "Tecponto Part Request",
+   "read_only": 1
   },
   {
    "fieldname": "stock_entry",
