@@ -754,6 +754,12 @@ export interface DirectorStrategicReport {
   trend: Array<{ date: string; revenue: number }>;
 }
 
+export interface DirectorRiskAgenda {
+  items: DailyAction[];
+  count: number;
+  risk_count: number;
+}
+
 export interface TechnicianWorkloadItem {
   technician: string;
   technician_name: string;

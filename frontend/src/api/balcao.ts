@@ -10,6 +10,7 @@ import type {
   DashboardMetrics,
   DirectorFinancialSummary,
   DirectorStrategicReport,
+	DirectorRiskAgenda,
   ListStatBarResponse,
 	TechnicianWorkloadResponse,
 	SaleListResponse,
@@ -38,6 +39,10 @@ export const balcao = {
 
   getDirectorStrategicReport(period: "7d" | "month" = "month") {
     return rpc<DirectorStrategicReport>(`${API}.get_director_strategic_report`, { query: { period } });
+  },
+
+  getDirectorRiskAgenda() {
+    return rpc<DirectorRiskAgenda>(`${API}.get_director_risk_agenda`);
   },
 	getTechnicianWorkload() {
 		return rpc<TechnicianWorkloadResponse>(`${API}.get_technician_workload`);

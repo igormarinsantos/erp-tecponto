@@ -21,6 +21,7 @@ from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
 	get_dashboard_metrics,
 	get_director_financial_summary,
+	get_director_risk_agenda,
 	get_director_strategic_report,
 	get_technician_workload,
 	get_boot,
@@ -178,6 +179,12 @@ def run_foundation_checks() -> dict:
 			users["Tecponto Tecnico"],
 			users["Tecponto Atendente"],
 		)
+		director_risk_agenda_guard = _check_director_risk_agenda_guard(
+			users["Tecponto Diretor"],
+			users["Tecponto Gestor"],
+			users["Tecponto Tecnico"],
+			users["Tecponto Atendente"],
+		)
 		manager_operation_check = _check_manager_operation_scope(users["Tecponto Gestor"], users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		technician_scope_check = run_technician_scope_checks()
@@ -227,6 +234,7 @@ def run_foundation_checks() -> dict:
 			"manager_home_guard": manager_home_guard,
 			"director_financial_guard": director_financial_guard,
 			"director_report_guard": director_report_guard,
+			"director_risk_agenda_guard": director_risk_agenda_guard,
 			"manager_operation_scope": manager_operation_check,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
@@ -4146,6 +4154,39 @@ def _check_director_strategic_report_guard(director: str, manager: str, technici
 			"director_fields": sorted(expected - {"period"}),
 			"blocked_roles": blocked_roles,
 		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _check_director_risk_agenda_guard(director: str, manager: str, technician: str, attendant: str) -> dict:
+	"""Executive risks are Director-only and never include sensitive values by accident."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user(director)
+		payload = get_director_risk_agenda()
+		if set(payload) != {"items", "count", "risk_count"}:
+			raise AssertionError("Agenda executiva retornou uma projeção inesperada.")
+		leaks = contains_sensitive_field(payload)
+		if leaks:
+			raise AssertionError(f"Agenda executiva expôs dado financeiro fora do recorte: {', '.join(leaks)}")
+		for item in payload["items"]:
+			unexpected = set(item) - {
+				"key", "kind", "tone", "title", "description", "urgency", "urgency_sort_at",
+				"group_key", "group_label", "link", "reference_doctype", "reference_name",
+			}
+			if unexpected:
+				raise AssertionError(f"Agenda executiva retornou campos fora da projeção: {sorted(unexpected)}")
+
+		blocked_roles = []
+		for label, user in (("gestor", manager), ("tecnico", technician), ("atendente", attendant)):
+			frappe.set_user(user)
+			try:
+				get_director_risk_agenda()
+			except frappe.PermissionError:
+				blocked_roles.append(label)
+			else:
+				raise AssertionError(f"{label.title()} acessou a agenda executiva exclusiva do Diretor.")
+		return {"director_visible": True, "blocked_roles": blocked_roles, "leaked_fields": leaks}
 	finally:
 		frappe.set_user(previous_user)
 

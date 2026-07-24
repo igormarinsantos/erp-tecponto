@@ -8,7 +8,7 @@ from urllib.parse import quote
 import frappe
 from frappe import _
 from frappe.model.workflow import apply_workflow
-from frappe.utils import add_days, cint, flt, getdate, now_datetime, strip_html, today
+from frappe.utils import add_days, add_to_date, cint, flt, getdate, now_datetime, strip_html, today
 from frappe.utils.file_manager import save_file
 
 from tecponto_app.tecponto.customer import (
@@ -17,6 +17,7 @@ from tecponto_app.tecponto.customer import (
 	validate_customer_contact_document,
 )
 from tecponto_app.tecponto.pos import get_commercial_item_groups, get_retail_item_groups
+from tecponto_app.tecponto import pending
 from tecponto_app.tecponto.pending import action_for_service_order_state
 from tecponto_app.tecponto.stock import normalize_barcode
 from tecponto_app.tecponto.service_order.print_formats import (
@@ -1623,6 +1624,143 @@ def get_director_strategic_report(period: str = "month") -> dict[str, Any]:
 		"service_order_costs": [{"service_order": row.service_order, "cost": float(flt(row.cost))} for row in service_order_costs],
 		"trend": [{"date": str(row.date), "revenue": float(flt(row.revenue))} for row in trend_rows],
 	}
+
+
+@frappe.whitelist()
+def get_director_risk_agenda() -> dict[str, Any]:
+	"""Director-only agenda combining operational actions with derived executive risks."""
+	_require_director_financial_role()
+	base = pending.list_daily_actions(panel="diretor")
+	items = [*base["items"], *_director_risk_actions()]
+	items = _sort_director_risk_actions(items)
+	return {"items": items, "count": len(items), "risk_count": len(items) - len(base["items"])}
+
+
+def _director_risk_actions() -> list[dict[str, Any]]:
+	"""Read-only risk projection. All alerts disappear when their source state is resolved."""
+	items: list[dict[str, Any]] = []
+	repair_warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+	commercial_warehouse = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
+	reorder_level = flt(frappe.db.get_single_value("Tecponto Settings", "reorder_level") or 0)
+	warehouses = [warehouse for warehouse in (repair_warehouse, commercial_warehouse) if warehouse]
+	if warehouses:
+		for row in frappe.db.sql(
+			"""
+			select bin.item_code, coalesce(item.item_name, bin.item_code) as item_name,
+				bin.warehouse, coalesce(bin.actual_qty, 0) as actual_qty
+			from `tabBin` bin
+			inner join `tabItem` item on item.name = bin.item_code
+			where item.disabled = 0
+				and item.is_stock_item = 1
+				and bin.warehouse in %(warehouses)s
+				and coalesce(bin.actual_qty, 0) <= %(reorder_level)s
+			order by coalesce(bin.actual_qty, 0) asc, item.item_name asc
+			limit 40
+			""",
+			{"warehouses": warehouses, "reorder_level": reorder_level},
+			as_dict=True,
+		):
+			warehouse_label = "Reparo" if row.warehouse == repair_warehouse else "Comercial"
+			items.append(
+				_director_risk_action(
+					key=f"critical-stock:{row.warehouse}:{row.item_code}",
+					title="Estoque critico",
+					description=f"{row.item_name} - {warehouse_label}: {flt(row.actual_qty)} disponivel(is)",
+					urgency="overdue" if flt(row.actual_qty) <= 0 else "due_today",
+					urgency_sort_at=f"{flt(row.actual_qty):012.3f}",
+					link="/tecponto?view=parts-stock" if warehouse_label == "Reparo" else "/tecponto?view=products",
+					reference_doctype="Item",
+					reference_name=row.item_code,
+					group_key=f"critical-stock:{warehouse_label}",
+					group_label=f"Estoque critico - {warehouse_label}",
+				),
+			)
+
+	for row in frappe.get_all(
+		"Tecponto Part Request",
+		filters={"status": "Pedida", "expected_arrival": ["<", today()]},
+		fields=["name", "service_order", "item", "free_description", "expected_arrival"],
+		order_by="expected_arrival asc",
+		limit_page_length=50,
+	):
+		part_label = row.item or row.free_description or "Peca sem descricao"
+		items.append(
+			_director_risk_action(
+				key=f"late-part-request:{row.name}",
+				title="Peca pedida atrasada",
+				description=f"{part_label} - OS {row.service_order or 'nao vinculada'} - prevista para {row.expected_arrival}",
+				urgency="overdue",
+				urgency_sort_at=str(row.expected_arrival),
+				link="/tecponto?view=part-requests",
+				reference_doctype="Tecponto Part Request",
+				reference_name=row.name,
+				group_key="late-part-request",
+				group_label="Pecas pedidas atrasadas",
+			),
+		)
+
+	now = now_datetime()
+	for row in frappe.get_all(
+		"Tecponto Request",
+		filters={"status": "Pendente", "expires_on": ["between", [now, add_to_date(now, hours=12)]]},
+		fields=["name", "request_type", "expires_on"],
+		order_by="expires_on asc",
+		limit_page_length=50,
+	):
+		items.append(
+			_director_risk_action(
+				key=f"request-expiring:{row.name}",
+				title="Aprovacao perto de expirar",
+				description=f"{row.request_type or 'Solicitacao'} expira em {row.expires_on}",
+				urgency="due_today",
+				urgency_sort_at=str(row.expires_on),
+				link="/tecponto?view=approval-requests",
+				reference_doctype="Tecponto Request",
+				reference_name=row.name,
+				group_key="request-expiring",
+				group_label="Aprovacoes perto de expirar",
+			),
+		)
+
+	ready_before = add_days(now, -7)
+	for row in frappe.get_all(
+		"Service Order",
+		filters={"workflow_state": STATE_PRONTO_RETIRADA, "stage_entered_at": ["<", ready_before]},
+		fields=["name", "customer", "stage_entered_at"],
+		order_by="stage_entered_at asc",
+		limit_page_length=50,
+	):
+		items.append(
+			_director_risk_action(
+				key=f"pickup-overdue:{row.name}",
+				title="OS pronta sem retirada",
+				description=f"{row.name} - {row.customer or 'Cliente nao informado'} - pronta desde {row.stage_entered_at}",
+				urgency="overdue",
+				urgency_sort_at=str(row.stage_entered_at),
+				link=f"/tecponto?view=service-order-detail&id={quote(row.name)}",
+				reference_doctype="Service Order",
+				reference_name=row.name,
+				group_key="pickup-overdue",
+				group_label="OS prontas sem retirada ha mais de 7 dias",
+			),
+		)
+	return items
+
+
+def _director_risk_action(**values: Any) -> dict[str, Any]:
+	return {"kind": "derived", "tone": "red", **values}
+
+
+def _sort_director_risk_actions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+	priority = {"overdue": 0, "high": 0, "due_today": 1, "normal": 1, "scheduled": 2, "low": 2}
+	return sorted(
+		items,
+		key=lambda item: (
+			priority.get(item.get("urgency"), 1),
+			item.get("urgency_sort_at") or "9999-12-31 23:59:59",
+			item.get("title") or "",
+		),
+	)
 
 
 @frappe.whitelist()

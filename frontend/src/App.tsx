@@ -64,6 +64,7 @@ import {
   type CustomerSummary,
   type DashboardMetrics,
   type DirectorFinancialSummary,
+	 type DirectorRiskAgenda,
   type DirectorStrategicReport,
   type TechnicianWorkloadItem,
   type AgendaCalendarEvent,
@@ -1719,6 +1720,7 @@ function OverviewContent({
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
   const [salesStats, setSalesStats] = useState<Array<{ key: string; label: string; value: number; amount?: number }>>([]);
   const [directorFinancial, setDirectorFinancial] = useState<DirectorFinancialSummary | null>(null);
+	const [directorRiskAgenda, setDirectorRiskAgenda] = useState<DirectorRiskAgenda | null>(null);
   const [directorStrategic, setDirectorStrategic] = useState<DirectorStrategicReport | null>(null);
   const [directorPeriod, setDirectorPeriod] = useState<"7d" | "month">("month");
 
@@ -1749,6 +1751,7 @@ function OverviewContent({
     let cancelled = false;
     if (!canViewDirectorFinancial) {
       setDirectorFinancial(null);
+		setDirectorRiskAgenda(null);
       setDirectorStrategic(null);
       return () => { cancelled = true; };
     }
@@ -1759,6 +1762,13 @@ function OverviewContent({
       .catch(() => {
         if (!cancelled) setDirectorFinancial(null);
       });
+		void balcao.getDirectorRiskAgenda()
+			.then((agenda) => {
+				if (!cancelled) setDirectorRiskAgenda(agenda);
+			})
+			.catch(() => {
+				if (!cancelled) setDirectorRiskAgenda(null);
+			});
     void balcao.getDirectorStrategicReport(directorPeriod)
       .then((report) => {
         if (!cancelled) setDirectorStrategic(report);
@@ -1820,6 +1830,7 @@ function OverviewContent({
       />
       {directorFinancial ? <DirectorFinancialPanel summary={directorFinancial} /> : null}
       {directorStrategic ? <DirectorStrategicPanel onPeriodChange={setDirectorPeriod} period={directorPeriod} report={directorStrategic} /> : null}
+			{directorRiskAgenda ? <DirectorRiskAgendaPanel agenda={directorRiskAgenda} onOpenOrder={onOpenServiceOrder} /> : null}
       <section className="mt-4">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
@@ -1879,6 +1890,49 @@ function DirectorFinancialPanel({ summary }: { summary: DirectorFinancialSummary
           </Card>
         ))}
       </div>
+    </section>
+  );
+}
+
+function DirectorRiskAgendaPanel({ agenda, onOpenOrder }: { agenda: DirectorRiskAgenda; onOpenOrder: (name: string) => void }) {
+  const topItems = agenda.items.slice(0, 8);
+  const urgencyLabel: Record<DirectorRiskAgenda["items"][number]["urgency"], string> = {
+    overdue: "Critico",
+    high: "Critico",
+    due_today: "Hoje",
+    normal: "Hoje",
+    scheduled: "Programado",
+    low: "Programado",
+  };
+
+  return (
+    <section className="mt-4 rounded-card border border-tec-border/20 bg-tec-panel p-4" id="executive-risk-agenda">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-xl font-bold text-white">Riscos executivos</h2>
+          <p className="mt-1 text-sm text-tec-muted">Operacao herdada mais riscos derivados de estoque, compras, aprovacoes e retiradas.</p>
+        </div>
+        <span className="rounded-full bg-tec-red/15 px-3 py-1 text-xs font-bold text-tec-red">{agenda.risk_count} risco(s) ativo(s)</span>
+      </div>
+      {topItems.length ? <div className="divide-y divide-tec-border/15 rounded-control border border-tec-border/15 bg-tec-field/40">
+        {topItems.map((item) => (
+          <button
+            className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-tec-field"
+            key={item.key}
+            onClick={() => item.reference_doctype === "Service Order" && item.reference_name ? onOpenOrder(item.reference_name) : window.location.assign(item.link)}
+            type="button"
+          >
+            <ShieldAlert className={item.urgency === "overdue" || item.urgency === "high" ? "shrink-0 text-tec-red" : "shrink-0 text-tec-amber"} size={18} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-bold text-white">{item.title}</span>
+              <span className="mt-0.5 block truncate text-xs text-tec-muted">{item.description}</span>
+            </span>
+            <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-bold ${item.urgency === "overdue" || item.urgency === "high" ? "bg-tec-red/15 text-tec-red" : "bg-tec-amber/15 text-tec-amber"}`}>{urgencyLabel[item.urgency]}</span>
+            <ChevronRight className="shrink-0 text-tec-subtle" size={16} />
+          </button>
+        ))}
+      </div> : <p className="rounded-control border border-dashed border-tec-border/25 px-4 py-5 text-sm text-tec-muted">Nenhum risco derivado no momento.</p>}
+      {agenda.count > topItems.length ? <p className="mt-3 text-sm text-tec-muted">Mostrando os {topItems.length} mais urgentes de {agenda.count} acoes.</p> : null}
     </section>
   );
 }
