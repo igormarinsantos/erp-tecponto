@@ -9,6 +9,7 @@ import type {
   CustomerSearchResponse,
   DashboardMetrics,
   ListStatBarResponse,
+	TechnicianWorkloadResponse,
 	SaleListResponse,
   StockItemListResponse,
 	StockTransferResponse,
@@ -28,6 +29,9 @@ export const balcao = {
   getDashboardMetrics() {
     return rpc<DashboardMetrics>(`${API}.get_dashboard_metrics`);
   },
+	getTechnicianWorkload() {
+		return rpc<TechnicianWorkloadResponse>(`${API}.get_technician_workload`);
+	},
 	issueAcceptance(serviceOrder: string, acceptanceType: "Entrada" | "Retirada", signerRole = "Dono") {
 		return rpc<AcceptanceIssueResponse>(`${API}.issue_os_acceptance`, {
 			body: { service_order: serviceOrder, acceptance_type: acceptanceType, signer_role: signerRole },

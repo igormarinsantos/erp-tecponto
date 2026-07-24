@@ -39,6 +39,8 @@ export type {
   CustomerSearchResponse,
   CustomerSummary,
   DashboardMetrics,
+  TechnicianWorkloadItem,
+  TechnicianWorkloadResponse,
   DeliverySuggestion,
   AgendaCalendarEvent,
   AgendaCalendarResponse,

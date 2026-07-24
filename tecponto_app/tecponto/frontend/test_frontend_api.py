@@ -20,6 +20,7 @@ from tecponto_app.tecponto.customer import CUSTOMER_NO_CPF_FIELD
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
 	get_dashboard_metrics,
+	get_technician_workload,
 	get_boot,
 	get_list_statbar,
 	get_service_order_statbar,
@@ -163,6 +164,7 @@ def run_foundation_checks() -> dict:
 		device_search_check = _check_customer_device_search(users["Tecponto Atendente"])
 		statbar_guard = _check_statbar_guard(users["Tecponto Atendente"])
 		manager_home_guard = _check_manager_home_guard(users["Tecponto Gestor"])
+		manager_operation_check = _check_manager_operation_scope(users["Tecponto Gestor"], users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		technician_scope_check = run_technician_scope_checks()
 		technician_commission_check = run_technician_commission_checks()
@@ -209,6 +211,7 @@ def run_foundation_checks() -> dict:
 			"customer_device_search": device_search_check,
 			"statbar_guard": statbar_guard,
 			"manager_home_guard": manager_home_guard,
+			"manager_operation_scope": manager_operation_check,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
 			"technician_commissions": technician_commission_check,
@@ -4015,6 +4018,39 @@ def _check_manager_home_guard(user: str) -> dict:
 			"purchase_queue_exception": "estimated_cost_only",
 			"purchase_queue_leaked_fields": queue_leaks,
 			"third_party_commissions": "blocked",
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _check_manager_operation_scope(manager: str, attendant: str) -> dict:
+	"""Workload is a management-only, non-financial operational projection."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user(manager)
+		payload = get_technician_workload()
+		leaks = contains_sensitive_field(payload)
+		if leaks:
+			raise AssertionError(f"Carga por técnico expôs dado sensível: {', '.join(leaks)}")
+		for item in payload["items"]:
+			unexpected = set(item) - {"technician", "technician_name", "active_orders", "in_diagnosis", "waiting_part", "overdue"}
+			if unexpected:
+				raise AssertionError(f"Carga por técnico retornou campos fora da projeção: {sorted(unexpected)}")
+
+		frappe.set_user(attendant)
+		attendant_blocked = False
+		try:
+			get_technician_workload()
+		except frappe.PermissionError:
+			attendant_blocked = True
+		if not attendant_blocked:
+			raise AssertionError("Atendente acessou a carga de técnicos da loja.")
+
+		return {
+			"manager_visible": True,
+			"technicians": len(payload["items"]),
+			"attendant_blocked": True,
+			"leaked_fields": leaks,
 		}
 	finally:
 		frappe.set_user(previous_user)

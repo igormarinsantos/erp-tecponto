@@ -59,6 +59,7 @@ import {
   type CustomerDeviceSummary,
   type CustomerSummary,
   type DashboardMetrics,
+  type TechnicianWorkloadItem,
   type AgendaCalendarEvent,
   type DailyActionsResponse,
   type NavigationTarget,
@@ -1112,6 +1113,7 @@ export function App() {
               canReceiveStock={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "System Manager")}
               canEditServiceCatalog={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
               canEditProductCategories={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
+              canViewStoreOperations={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
 			  isRestrictedTechnician={!state.metrics.sales_visible}
               onInitialPosBarcodeHandled={() => setPendingPosBarcode(null)}
               onInitialRetailBarcodeHandled={() => setPendingRetailBarcode(null)}
@@ -1943,6 +1945,7 @@ function NavigationContent({
   canReceiveStock,
   canEditServiceCatalog,
   canEditProductCategories,
+  canViewStoreOperations,
 	 isRestrictedTechnician,
   onInitialPosBarcodeHandled,
   onInitialRetailBarcodeHandled,
@@ -1965,6 +1968,7 @@ function NavigationContent({
   canReceiveStock: boolean;
   canEditServiceCatalog: boolean;
   canEditProductCategories: boolean;
+  canViewStoreOperations: boolean;
 	 isRestrictedTechnician: boolean;
   initialPosBarcode: PendingPosBarcode | null;
   initialRetailBarcode: PendingRetailBarcode | null;
@@ -2071,6 +2075,7 @@ function NavigationContent({
             items={serviceOrderStats.map((item) => ({ ...item, ...getStatBarVisual("service_orders", item.key) }))}
             onSelect={(status) => setServiceOrderFilters((current) => ({ ...current, status: status === "total" ? "all" : status as QueueFilter }))}
           />
+          {canViewStoreOperations ? <TechnicianWorkloadPanel /> : null}
           {serviceOrderListState.status === "error" ? (
             <Card className="p-4 text-sm font-semibold text-tec-red">{serviceOrderListState.message}</Card>
           ) : null}
@@ -2096,19 +2101,21 @@ function NavigationContent({
             />
           )}
         </section>
-        <ActionPanel
-          actions={isRestrictedTechnician ? [
-            { icon: ClipboardCheck, label: "Minhas OS", detail: "Fila técnica", target: "service-orders" },
-            { icon: Boxes, label: "Peças de reparo", detail: "Consultar disponibilidade", target: "repair-parts" },
-          ] : [
-            { icon: Wrench, label: "Nova OS", detail: "Check-in do balcão", opensCheckin: true },
-            { icon: SearchIcon, label: "Buscar cliente", detail: "Localizar cadastro", target: "customers" },
-            { icon: Smartphone, label: "Aparelhos", detail: "Buscar IMEI", target: "devices" },
-          ]}
-          onNavigate={onNavigate}
-          onStartCheckin={onStartCheckin}
-          title="Atalhos de OS"
-        />
+        <aside className="space-y-4">
+          <ActionPanel
+            actions={isRestrictedTechnician ? [
+              { icon: ClipboardCheck, label: "Minhas OS", detail: "Fila técnica", target: "service-orders" },
+              { icon: Boxes, label: "Peças de reparo", detail: "Consultar disponibilidade", target: "repair-parts" },
+            ] : [
+              { icon: Wrench, label: "Nova OS", detail: "Check-in do balcão", opensCheckin: true },
+              { icon: SearchIcon, label: "Buscar cliente", detail: "Localizar cadastro", target: "customers" },
+              { icon: Smartphone, label: "Aparelhos", detail: "Buscar IMEI", target: "devices" },
+            ]}
+            onNavigate={onNavigate}
+            onStartCheckin={onStartCheckin}
+            title="Atalhos de OS"
+          />
+        </aside>
       </div>
     );
   }
@@ -6111,6 +6118,55 @@ function IntegrationPendingLine() {
       </span>
       <span className="shrink-0 rounded-full bg-tec-field px-2 py-1 text-[10px] font-bold uppercase text-tec-muted">Fase 5a</span>
     </div>
+  );
+}
+
+function TechnicianWorkloadPanel() {
+  const [items, setItems] = useState<TechnicianWorkloadItem[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  const load = useCallback(async () => {
+    setStatus("loading");
+    try {
+      const response = await balcao.getTechnicianWorkload();
+      setItems(response.items);
+      setStatus("ready");
+    } catch {
+      setStatus("error");
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-white">Carga por técnico</h2>
+          <p className="mt-1 text-xs text-tec-muted">OS ativas da loja, ordenadas por urgência.</p>
+        </div>
+        <Button icon={<RefreshCw className={status === "loading" ? "animate-spin" : ""} size={15} />} onClick={() => void load()} variant="ghost">
+          Atualizar
+        </Button>
+      </div>
+      {status === "error" ? <p className="mt-4 text-sm text-tec-red">Não foi possível carregar a carga da equipe.</p> : null}
+      {status !== "error" && !items.length && status !== "loading" ? <p className="mt-4 rounded-control border border-dashed border-tec-border/20 p-3 text-sm text-tec-muted">Nenhuma OS ativa atribuída a técnico.</p> : null}
+      <ul className="mt-4 grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
+        {items.slice(0, 8).map((item) => (
+          <li className="rounded-control border border-tec-border/15 bg-tec-field/55 p-3" key={item.technician}>
+            <div className="flex items-start justify-between gap-3">
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-bold text-white" title={item.technician_name}>{item.technician_name}</span>
+                <span className="mt-1 block text-xs text-tec-muted">{item.active_orders} OS ativas · {item.in_diagnosis} em diagnóstico</span>
+              </span>
+              {item.overdue ? <span className="shrink-0 rounded-full bg-tec-red/15 px-2 py-1 text-xs font-bold text-tec-red">{item.overdue} atrasada{item.overdue > 1 ? "s" : ""}</span> : null}
+            </div>
+            {item.waiting_part ? <p className="mt-2 text-xs font-semibold text-tec-amber">{item.waiting_part} aguardando peça</p> : null}
+          </li>
+        ))}
+      </ul>
+      {items.length > 8 ? <p className="mt-3 text-center text-xs font-semibold text-tec-muted">Exibindo 8 de {items.length} técnicos.</p> : null}
+    </Card>
   );
 }
 

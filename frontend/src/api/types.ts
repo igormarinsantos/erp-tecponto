@@ -729,6 +729,20 @@ export interface DashboardMetrics {
   };
 }
 
+export interface TechnicianWorkloadItem {
+  technician: string;
+  technician_name: string;
+  active_orders: number;
+  in_diagnosis: number;
+  waiting_part: number;
+  overdue: number;
+}
+
+export interface TechnicianWorkloadResponse {
+  items: TechnicianWorkloadItem[];
+  count: number;
+}
+
 export interface ListStatBarResponse { items: Array<{ key: string; label: string; value: number; amount?: number }>; }
 
 export interface SaleSummary {

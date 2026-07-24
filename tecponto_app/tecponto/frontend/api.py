@@ -74,6 +74,7 @@ CHECKIN_ALLOWED_ROLES = {
 ATTENDANT_FLOW_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POS_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 SERVICE_CATALOG_EDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
+STORE_OPERATION_MANAGER_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 TECHNICIAN_COMMISSION_ROLES = {"System Manager", "Tecponto Tecnico"}
 APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp", "Link"}
 STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
@@ -224,6 +225,14 @@ def _require_service_catalog_editor() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(SERVICE_CATALOG_EDITOR_ROLES):
 		return
 	frappe.throw(_("Somente Gestor ou Diretor pode editar o catálogo de serviços."), frappe.PermissionError)
+
+
+def _require_store_operation_manager() -> None:
+	"""Store-wide queues are visible only to management roles."""
+	_require_frontend_role()
+	if set(frappe.get_roles(frappe.session.user)).intersection(STORE_OPERATION_MANAGER_ROLES):
+		return
+	frappe.throw(_("Somente Gestor ou Diretor pode consultar a carga da loja."), frappe.PermissionError)
 
 
 def _require_technician_commission_role() -> None:
@@ -1379,6 +1388,49 @@ def get_dashboard_metrics() -> dict[str, Any]:
 		"sales_visible": sales_visible,
 		"service_orders": service_orders,
 	}
+
+
+@frappe.whitelist()
+def get_technician_workload() -> dict[str, Any]:
+	"""Safe store-wide workload projection for management, without financial data."""
+	_require_store_operation_manager()
+	terminal_states = ("Entregue", "Cancelado", "Reprovado", "Orçamento expirado", "Sem conserto")
+	rows = frappe.get_all(
+		"Service Order",
+		filters={"workflow_state": ["not in", terminal_states], "technician": ["is", "set"]},
+		fields=["name", "technician", "workflow_state"],
+		limit_page_length=0,
+	)
+	overdue_names = set(stage_clock.list_overdue_service_order_names())
+	by_technician: dict[str, dict[str, Any]] = {}
+	for row in rows:
+		technician = row.technician
+		entry = by_technician.setdefault(
+			technician,
+			{"technician": technician, "active_orders": 0, "in_diagnosis": 0, "waiting_part": 0, "overdue": 0},
+		)
+		entry["active_orders"] += 1
+		if row.workflow_state == "Em diagnóstico":
+			entry["in_diagnosis"] += 1
+		if row.workflow_state == "Aguardando peça":
+			entry["waiting_part"] += 1
+		if row.name in overdue_names:
+			entry["overdue"] += 1
+
+	full_names = (
+		{
+			row.name: row.full_name
+			for row in frappe.get_all("User", filters={"name": ["in", list(by_technician)]}, fields=["name", "full_name"])
+		}
+		if by_technician
+		else {}
+	)
+	items = [
+		{**entry, "technician_name": full_names.get(entry["technician"]) or entry["technician"]}
+		for entry in by_technician.values()
+	]
+	items.sort(key=lambda item: (-item["overdue"], -item["active_orders"], item["technician_name"]))
+	return {"items": items, "count": len(items)}
 
 
 @frappe.whitelist()
