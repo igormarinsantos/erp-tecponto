@@ -1,0 +1,58 @@
+# Build with the layered Frappe Docker base. The build context must be the
+# frappe_docker checkout so its resources/core files are available below.
+ARG FRAPPE_BRANCH=version-16
+ARG FRAPPE_IMAGE_PREFIX=frappe
+
+FROM ${FRAPPE_IMAGE_PREFIX}/build:${FRAPPE_BRANCH} AS builder
+
+ARG FRAPPE_BRANCH=version-16
+ARG FRAPPE_PATH=https://github.com/frappe/frappe.git
+ARG CACHE_BUST=""
+
+USER frappe
+
+# apps_json contains only public repository URLs. git_config is a BuildKit
+# secret that supplies the private-repository credential and is never copied
+# into any image layer.
+RUN --mount=type=secret,id=apps_json,target=/opt/frappe/apps.json,uid=1000,gid=1000 \
+    --mount=type=secret,id=git_config,target=/home/frappe/.gitconfig,uid=1000,gid=1000 \
+    : "${CACHE_BUST}" && \
+    bench init --apps_path=/opt/frappe/apps.json \
+      --frappe-branch=${FRAPPE_BRANCH} \
+      --frappe-path=${FRAPPE_PATH} \
+      --no-procfile --no-backups --skip-redis-config-generation --verbose \
+      /home/frappe/frappe-bench && \
+    cd /home/frappe/frappe-bench && \
+    echo "{}" > sites/common_site_config.json && \
+    find apps -mindepth 1 -path "*/.git" -prune -exec rm -rf {} +
+
+# Tecponto's React/Vite app is outside the Python package directory in the
+# repository. Build it explicitly, then let bench materialize public assets.
+RUN cd /home/frappe/frappe-bench/apps/erp-tecponto/frontend && \
+    npm ci && \
+    npm run build && \
+    cd /home/frappe/frappe-bench && \
+    bench build --app tecponto_app && \
+    rm -rf apps/erp-tecponto/frontend/node_modules
+
+FROM ${FRAPPE_IMAGE_PREFIX}/base:${FRAPPE_BRANCH} AS backend
+
+USER frappe
+
+COPY --from=builder --chown=frappe:frappe /home/frappe/frappe-bench /home/frappe/frappe-bench
+
+WORKDIR /home/frappe/frappe-bench
+
+RUN cp -r /home/frappe/frappe-bench/sites/assets /home/frappe/frappe-bench/assets && \
+    rm -rf /home/frappe/frappe-bench/sites/assets
+
+VOLUME ["/home/frappe/frappe-bench/sites", "/home/frappe/frappe-bench/logs"]
+
+USER root
+COPY resources/core/main-entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY resources/core/start.sh /usr/local/bin/start.sh
+RUN chmod 755 /usr/local/bin/entrypoint.sh /usr/local/bin/start.sh
+
+USER frappe
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["start.sh"]

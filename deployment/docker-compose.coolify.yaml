@@ -1,0 +1,198 @@
+name: tecponto
+
+x-image: &image
+  image: ${FRAPPE_IMAGE:?Defina FRAPPE_IMAGE no Coolify}
+  pull_policy: always
+  restart: unless-stopped
+
+x-bench: &bench
+  <<: *image
+  volumes:
+    - tecponto-sites:/home/frappe/frappe-bench/sites
+    - tecponto-logs:/home/frappe/frappe-bench/logs
+
+services:
+  db:
+    image: mariadb:11.8
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no Coolify}
+      MARIADB_AUTO_UPGRADE: "1"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - tecponto-db:/var/lib/mysql
+    networks: [tecponto-internal]
+
+  redis-cache:
+    image: redis:8.6-alpine
+    restart: unless-stopped
+    networks: [tecponto-internal]
+
+  redis-queue:
+    image: redis:8.6-alpine
+    restart: unless-stopped
+    volumes:
+      - tecponto-redis-queue:/data
+    networks: [tecponto-internal]
+
+  configurator:
+    <<: *bench
+    restart: on-failure
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host $$DB_HOST;
+        bench set-config -gp db_port $$DB_PORT;
+        bench set-config -g redis_cache "redis://$$REDIS_CACHE";
+        bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
+        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
+        bench set-config -gp socketio_port $$SOCKETIO_PORT;
+        bench set-config -g chromium_path /usr/bin/chromium-headless-shell;
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: "9000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
+    networks: [tecponto-internal]
+
+  create-site:
+    <<: *bench
+    restart: "no"
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        if [ -f "sites/$$SITE_NAME/site_config.json" ]; then
+          echo "Site $$SITE_NAME already exists";
+        else
+          bench new-site "$$SITE_NAME"
+            --mariadb-user-host-login-scope='%'
+            --admin-password="$$SITE_ADMIN_PASSWORD"
+            --db-root-username=root
+            --db-root-password="$$DB_PASSWORD"
+            --install-app erpnext
+            --install-app tecponto_app
+            --set-default;
+        fi;
+    environment:
+      SITE_NAME: ${SITE_NAME:?Defina SITE_NAME no Coolify}
+      SITE_ADMIN_PASSWORD: ${SITE_ADMIN_PASSWORD:?Defina SITE_ADMIN_PASSWORD no Coolify}
+      DB_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no Coolify}
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    networks: [tecponto-internal]
+
+  migrate:
+    <<: *bench
+    restart: on-failure:5
+    entrypoint: ["bash", "-c"]
+    command: ["bench --site $$SITE_NAME migrate"]
+    environment:
+      SITE_NAME: ${SITE_NAME:?Defina SITE_NAME no Coolify}
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+    networks: [tecponto-internal]
+
+  backend:
+    <<: *bench
+    environment:
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [tecponto-internal]
+
+  websocket:
+    <<: *bench
+    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [tecponto-internal]
+
+  queue-short:
+    <<: *bench
+    command: ["bench", "worker", "--queue", "short,default"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [tecponto-internal]
+
+  queue-long:
+    <<: *bench
+    command: ["bench", "worker", "--queue", "long,default,short"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [tecponto-internal]
+
+  scheduler:
+    <<: *bench
+    command: ["bench", "schedule"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [tecponto-internal]
+
+  frontend:
+    <<: *image
+    command: ["nginx-entrypoint.sh"]
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      FRAPPE_SITE_NAME_HEADER: ${SITE_NAME:?Defina SITE_NAME no Coolify}
+      UPSTREAM_REAL_IP_ADDRESS: "127.0.0.1"
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: "120"
+      CLIENT_MAX_BODY_SIZE: "50m"
+    volumes:
+      - tecponto-sites:/home/frappe/frappe-bench/sites
+      - tecponto-logs:/home/frappe/frappe-bench/logs
+    depends_on:
+      backend:
+        condition: service_started
+      websocket:
+        condition: service_started
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - traefik.http.routers.tecponto.rule=Host(`${SITE_DOMAIN:?Defina SITE_DOMAIN no Coolify}`)
+      - traefik.http.routers.tecponto.entrypoints=https
+      - traefik.http.routers.tecponto.tls=true
+      - traefik.http.routers.tecponto.tls.certresolver=letsencrypt
+      - traefik.http.services.tecponto.loadbalancer.server.port=8080
+    networks: [tecponto-internal, coolify]
+
+volumes:
+  tecponto-db:
+  tecponto-redis-queue:
+  tecponto-sites:
+  tecponto-logs:
+
+networks:
+  tecponto-internal:
+    internal: true
+  coolify:
+    external: true
