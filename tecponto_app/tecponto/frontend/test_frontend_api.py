@@ -162,6 +162,7 @@ def run_foundation_checks() -> dict:
 		metrics_check = _check_dashboard_metrics(users["Tecponto Atendente"])
 		device_search_check = _check_customer_device_search(users["Tecponto Atendente"])
 		statbar_guard = _check_statbar_guard(users["Tecponto Atendente"])
+		manager_home_guard = _check_manager_home_guard(users["Tecponto Gestor"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		technician_scope_check = run_technician_scope_checks()
 		technician_commission_check = run_technician_commission_checks()
@@ -207,6 +208,7 @@ def run_foundation_checks() -> dict:
 			"dashboard_metrics": metrics_check,
 			"customer_device_search": device_search_check,
 			"statbar_guard": statbar_guard,
+			"manager_home_guard": manager_home_guard,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
 			"technician_commissions": technician_commission_check,
@@ -3966,6 +3968,56 @@ def _check_statbar_guard(user: str) -> dict:
 		"checked_scopes": sorted(payload),
 		"leaked_fields": leaks,
 	}
+
+
+def _check_manager_home_guard(user: str) -> dict:
+	"""Manager home is revenue/volume-only; purchase queue is the sole cost exception."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user(user)
+		home_payload = {
+			"dashboard": get_dashboard_metrics(),
+			"service_orders": get_service_order_statbar(),
+			"sales": get_list_statbar("sales"),
+			"repair_stock": get_list_statbar("stock:repair-parts"),
+			"commercial_stock": get_list_statbar("stock:commercial-products"),
+			"trades": get_list_statbar("trades"),
+			"sales_list": list_sales(limit=10),
+		}
+		leaks = contains_sensitive_field(home_payload)
+		if leaks:
+			raise AssertionError(f"Home do Gestor expôs campo sensível: {', '.join(leaks)}")
+
+		purchase_queue = list_purchase_part_requests(status="all", limit=10)
+		queue_without_estimated_cost = {
+			**purchase_queue,
+			"items": [
+				{key: value for key, value in item.items() if key != "estimated_cost"}
+				for item in purchase_queue["items"]
+			],
+		}
+		queue_leaks = contains_sensitive_field(queue_without_estimated_cost)
+		if queue_leaks:
+			raise AssertionError(f"Fila de compras do Gestor expôs campo sensível fora da exceção: {', '.join(queue_leaks)}")
+		if any("estimated_cost" not in item for item in purchase_queue["items"]):
+			raise AssertionError("A fila de compras deixou de projetar o custo estimado autorizado ao Gestor.")
+
+		commission_blocked = False
+		try:
+			list_my_commissions()
+		except frappe.PermissionError:
+			commission_blocked = True
+		if not commission_blocked:
+			raise AssertionError("Gestor acessou comissão individual por endpoint técnico.")
+
+		return {
+			"home_leaked_fields": leaks,
+			"purchase_queue_exception": "estimated_cost_only",
+			"purchase_queue_leaked_fields": queue_leaks,
+			"third_party_commissions": "blocked",
+		}
+	finally:
+		frappe.set_user(previous_user)
 
 
 def _check_budget_item_cost_guard(user: str) -> dict:

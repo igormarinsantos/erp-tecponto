@@ -187,19 +187,50 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
     tableTitle: "Operação da loja",
     nav: [
       {
-        label: "Operação",
+        label: "Início",
         items: [
           { id: "overview", icon: Grid2X2, label: "Visão geral", subtitle: "Painel do gestor" },
+        ],
+      },
+      {
+        label: "Reparo",
+        items: [
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Acompanhar e controlar" },
-          { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Status e histórico" },
+          { id: "parts-stock", icon: Boxes, label: "Peças", subtitle: "Estoque e compras", children: [
+            { id: "parts-stock", icon: Boxes, label: "Estoque de Reparo", subtitle: "Disponibilidade" },
+            { id: "part-requests", icon: ClipboardList, label: "Solicitações de peça", subtitle: "Fila de compras" },
+          ] },
+        ],
+      },
+      {
+        label: "Venda",
+        items: [
+          { id: "pos", icon: ShoppingCart, label: "PDV / Lançar venda", subtitle: "Venda rápida no balcão" },
+          { id: "sales", icon: CreditCard, label: "Vendas", subtitle: "Volume e faturamento" },
+          { id: "commercial-products", icon: ShoppingCart, label: "Produtos", subtitle: "Prateleira comercial", children: [
+            { id: "commercial-products", icon: Boxes, label: "Catálogo", subtitle: "Estoque comercial" },
+            { id: "product-categories", icon: Grid2X2, label: "Categorias", subtitle: "Hierarquia comercial" },
+            { id: "product-attributes", icon: ClipboardList, label: "Atributos e variações", subtitle: "SKU e combinações" },
+          ] },
+        ],
+      },
+      {
+        label: "Troca",
+        items: [
           { id: "trade-ins", icon: Handshake, label: "Trocas", subtitle: "Avaliações e propostas" },
+          { id: "used-devices", icon: Smartphone, label: "Aparelhos usados", subtitle: "Itens únicos de trade-in" },
+        ],
+      },
+      {
+        label: "Cadastros",
+        items: [
           { id: "customers", icon: Users, label: "Clientes", subtitle: "Base e relacionamento" },
-          { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e preços base" },
-          { id: "parts-stock", icon: Boxes, label: "Peças e estoque", subtitle: "Inventário e alertas" },
-			{ id: "commercial-products", icon: ShoppingCart, label: "Produtos", subtitle: "Prateleira comercial" },
-			{ id: "used-devices", icon: Smartphone, label: "Aparelhos usados", subtitle: "Itens únicos de trade-in" },
-          { id: "product-categories", icon: Grid2X2, label: "Categorias", subtitle: "Estrutura comercial" },
-          { id: "sales", icon: CreditCard, label: "Financeiro", subtitle: "Receitas e vendas" },
+          { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Cadastro e histórico" },
+          { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e regras", children: [
+            { id: "services", icon: Wrench, label: "Catálogo de serviços", subtitle: "Mão de obra" },
+            { id: "service-categories", icon: Grid2X2, label: "Categorias de serviço", subtitle: "Organização do catálogo" },
+            { id: "defect-service-mapping", icon: Link2, label: "Mapeamento defeito→serviço", subtitle: "Sugestões no check-in" },
+          ] },
         ],
       },
     ],
@@ -209,9 +240,10 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       { icon: Bell, label: "OS atrasadas", tone: "red", value: (metrics) => metrics.service_orders.overdue, detail: "Ver críticas" },
     ],
     actions: [
-      ...commonActions,
-      { icon: ClipboardCheck, label: "Aprovar orçamento", detail: "Pendências", target: "service-orders" },
-      { icon: Gauge, label: "Ver desempenho", detail: "Equipe e loja", target: "sales" },
+      { icon: ClipboardCheck, label: "Aprovações", detail: "Decisões pendentes", target: "approval-requests" },
+      { icon: Wrench, label: "Ordens de serviço", detail: "Operação da loja", target: "service-orders" },
+      { icon: ClipboardList, label: "Compras de peças", detail: "Fila por urgência", target: "part-requests" },
+      { icon: ShoppingCart, label: "Vendas", detail: "Volume do dia", target: "sales" },
     ],
   },
   diretor: {
@@ -341,7 +373,7 @@ function withSubmenus(nav: NavSection[]): NavSection[] {
         continue;
       }
       if (item.id === "services") {
-        consumed.add("services");
+        (["services", "service-categories", "defect-service-mapping"] as NavigationTarget[]).forEach((target) => consumed.add(target));
         const serviceChildren: NavItem[] = [
           { id: "services", icon: Wrench, label: "Catálogo de serviços", subtitle: "Mão de obra" },
         ];

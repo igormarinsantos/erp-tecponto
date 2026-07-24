@@ -1101,6 +1101,7 @@ export function App() {
               agendaStorageKey={state.boot.user.name}
               agendaPreferenceVersion={agendaPreferenceVersion}
               canApprove={rolePanels.includes("gestor") || rolePanels.includes("diretor")}
+              homePanel={rolePanels.length === 1 ? visualUser.panel : "unified"}
               showSales={state.metrics.sales_visible}
             />
           ) : (
@@ -1685,6 +1686,7 @@ function OverviewContent({
   agendaStorageKey,
   agendaPreferenceVersion,
   canApprove,
+  homePanel,
   showSales,
 }: {
   actions: ActionDefinition[];
@@ -1697,6 +1699,7 @@ function OverviewContent({
   agendaStorageKey: string;
   agendaPreferenceVersion: number;
   canApprove: boolean;
+  homePanel: RolePanel | "unified";
   showSales: boolean;
 }) {
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
@@ -1733,16 +1736,27 @@ function OverviewContent({
       displayValue: item.key === "amount" ? item.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : undefined,
     })),
   ];
+  const isManagerHome = homePanel === "gestor";
 
   return (
     <>
-      <HomeSectorActions actions={actions} onNavigate={onNavigate} onStartCheckin={onStartCheckin} />
+      <HomeSectorActions
+        actions={actions}
+        heading={isManagerHome ? "Ações de gestão" : "Atalhos do setor"}
+        onNavigate={onNavigate}
+        onStartCheckin={onStartCheckin}
+        subtitle={isManagerHome ? "Decisões e filas que mantêm a operação da loja fluindo." : "Ações frequentes para manter o balcão em movimento."}
+      />
       <section className="mt-4">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h2 className="text-xl font-bold text-white">Operacao agora</h2>
+            <h2 className="text-xl font-bold text-white">{isManagerHome ? "Operação da loja" : "Operação agora"}</h2>
             <p className="mt-1 text-sm text-tec-muted">
-              {showSales ? "OS por etapa e vendas do dia. Sem custo, margem ou lucro." : "Suas OS por etapa. Sem dados de vendas, custo ou margem."}
+              {isManagerHome
+                ? "OS por etapa e vendas do dia. Custo, margem, lucro e comissões de terceiros não aparecem aqui."
+                : showSales
+                  ? "OS por etapa e vendas do dia. Sem custo, margem ou lucro."
+                  : "Suas OS por etapa. Sem dados de vendas, custo ou margem."}
             </p>
           </div>
           <button className="text-sm font-bold text-tec-orange hover:text-tec-digital-orange" onClick={() => onOpenServiceOrderList("all")} type="button">
@@ -1766,12 +1780,16 @@ function OverviewContent({
 
 function HomeSectorActions({
   actions,
+  heading = "Atalhos do setor",
   onNavigate,
   onStartCheckin,
+  subtitle = "Ações frequentes para manter o balcão em movimento.",
 }: {
   actions: ActionDefinition[];
+  heading?: string;
   onNavigate: (target: NavigationTarget) => void;
   onStartCheckin: () => void;
+  subtitle?: string;
 }) {
   const shortcuts = actions.slice(0, 4).map((action, index) => ({ action, key: `F${index + 2}` }));
 
@@ -1809,8 +1827,8 @@ function HomeSectorActions({
   return (
     <section>
       <div className="mb-3">
-        <h2 className="text-xl font-bold text-white">Atalhos do setor</h2>
-        <p className="mt-1 text-sm text-tec-muted">Acoes frequentes para manter o balcao em movimento.</p>
+        <h2 className="text-xl font-bold text-white">{heading}</h2>
+        <p className="mt-1 text-sm text-tec-muted">{subtitle}</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         {shortcuts.map(({ action, key }) => {
