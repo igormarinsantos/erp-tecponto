@@ -168,7 +168,9 @@ def save_public_acceptance_selfie(token: str, image_data: str) -> dict:
 			is_private=1,
 		)
 	finally:
-		frappe.set_user(previous_user)
+		# Public requests normally run as Guest; shell calls may have no user context.
+		if previous_user:
+			frappe.set_user(previous_user)
 	_assert_private_evidence_file(file_doc, doc.service_order, "selfie")
 	doc.db_set("selfie_file", file_doc.name, update_modified=False)
 	return {"saved": True, "acceptance": doc.name}
@@ -208,7 +210,9 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 			is_private=1,
 		)
 	finally:
-		frappe.set_user(previous_user)
+		# Public requests normally run as Guest; shell calls may have no user context.
+		if previous_user:
+			frappe.set_user(previous_user)
 	_assert_private_evidence_file(signature_file, doc.service_order, "assinatura")
 	accepted_on = now_datetime()
 	try:
