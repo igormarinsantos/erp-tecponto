@@ -16,6 +16,7 @@ import {
   ClipboardCheck,
   Clock3,
   Copy,
+  CircleDollarSign,
   CreditCard,
   FileText,
   History,
@@ -62,6 +63,7 @@ import {
   type CustomerDeviceSummary,
   type CustomerSummary,
   type DashboardMetrics,
+  type DirectorFinancialSummary,
   type TechnicianWorkloadItem,
   type AgendaCalendarEvent,
   type DailyActionsResponse,
@@ -1108,6 +1110,7 @@ export function App() {
               homePanel={rolePanels.length === 1 ? visualUser.panel : "unified"}
               showSales={state.metrics.sales_visible}
               metrics={state.metrics}
+              canViewDirectorFinancial={state.boot.user.roles.includes("Tecponto Diretor")}
             />
           ) : (
             <NavigationContent
@@ -1695,6 +1698,7 @@ function OverviewContent({
   homePanel,
   showSales,
   metrics,
+  canViewDirectorFinancial,
 }: {
   actions: ActionDefinition[];
   onNavigate: (target: NavigationTarget) => void;
@@ -1709,9 +1713,11 @@ function OverviewContent({
   homePanel: RolePanel | "unified";
   showSales: boolean;
   metrics: DashboardMetrics;
+  canViewDirectorFinancial: boolean;
 }) {
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
   const [salesStats, setSalesStats] = useState<Array<{ key: string; label: string; value: number; amount?: number }>>([]);
+  const [directorFinancial, setDirectorFinancial] = useState<DirectorFinancialSummary | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1736,7 +1742,23 @@ function OverviewContent({
     };
   }, [showSales]);
 
-  const isManagerHome = homePanel === "gestor" || (homePanel === "unified" && canApprove);
+  useEffect(() => {
+    let cancelled = false;
+    if (!canViewDirectorFinancial) {
+      setDirectorFinancial(null);
+      return () => { cancelled = true; };
+    }
+    void balcao.getDirectorFinancialSummary()
+      .then((summary) => {
+        if (!cancelled) setDirectorFinancial(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setDirectorFinancial(null);
+      });
+    return () => { cancelled = true; };
+  }, [canViewDirectorFinancial]);
+
+  const isManagerHome = homePanel === "gestor" || homePanel === "diretor" || (homePanel === "unified" && canApprove);
   const managerTicketItems = isManagerHome ? [
     {
       key: "retail-ticket",
@@ -1785,6 +1807,7 @@ function OverviewContent({
         onStartCheckin={onStartCheckin}
         subtitle={isManagerHome ? "Decisões e filas que mantêm a operação da loja fluindo." : "Ações frequentes para manter o balcão em movimento."}
       />
+      {directorFinancial ? <DirectorFinancialPanel summary={directorFinancial} /> : null}
       <section className="mt-4">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
@@ -1813,6 +1836,38 @@ function OverviewContent({
         <ApprovalRequestsPanel compact onOpenAll={() => onNavigate("approval-requests")} onToast={onToast} />
       </div> : null}
     </>
+  );
+}
+
+function DirectorFinancialPanel({ summary }: { summary: DirectorFinancialSummary }) {
+  const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const cards = [
+    { label: "Receita realizada", value: money(summary.revenue), detail: "Vendas faturadas hoje", icon: <CreditCard size={19} />, tone: "text-tec-green" },
+    { label: "Custo operacional", value: money(summary.operational_cost), detail: "Mercadoria e pecas baixadas", icon: <Box size={19} />, tone: "text-tec-orange" },
+    { label: "Lucro bruto operacional", value: money(summary.gross_operating_profit), detail: `Margem bruta: ${summary.gross_margin_pct.toFixed(1)}%`, icon: <CircleDollarSign size={19} />, tone: "text-tec-blue" },
+    { label: "Comissoes provisionadas", value: money(summary.team_earnings_accrued), detail: "Lancamentos de mao de obra", icon: <Target size={19} />, tone: "text-tec-purple" },
+  ];
+
+  return (
+    <section className="mt-4 rounded-card border border-tec-border/20 bg-tec-panel p-4">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-xl font-bold text-white">Resultado operacional</h2>
+          <p className="mt-1 text-sm text-tec-muted">{summary.period.label}. Nao inclui despesas fixas, impostos ou folha salarial fixa.</p>
+        </div>
+        <span className="rounded-full bg-tec-field px-3 py-1 text-xs font-bold text-tec-subtle">Resultado bruto, nao lucro liquido</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card) => (
+          <Card className="border-tec-border/15 bg-tec-field/55 p-4" key={card.label}>
+            <span className={`grid h-9 w-9 place-items-center rounded-control bg-tec-panel-strong ${card.tone}`}>{card.icon}</span>
+            <p className="mt-3 text-sm font-semibold text-tec-muted">{card.label}</p>
+            <p className="mt-1 text-2xl font-bold text-white">{card.value}</p>
+            <p className="mt-1 text-xs text-tec-subtle">{card.detail}</p>
+          </Card>
+        ))}
+      </div>
+    </section>
   );
 }
 

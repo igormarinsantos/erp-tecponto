@@ -20,6 +20,7 @@ from tecponto_app.tecponto.customer import CUSTOMER_NO_CPF_FIELD
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
 	get_dashboard_metrics,
+	get_director_financial_summary,
 	get_technician_workload,
 	get_boot,
 	get_list_statbar,
@@ -164,6 +165,12 @@ def run_foundation_checks() -> dict:
 		device_search_check = _check_customer_device_search(users["Tecponto Atendente"])
 		statbar_guard = _check_statbar_guard(users["Tecponto Atendente"])
 		manager_home_guard = _check_manager_home_guard(users["Tecponto Gestor"])
+		director_financial_guard = _check_director_financial_guard(
+			users["Tecponto Diretor"],
+			users["Tecponto Gestor"],
+			users["Tecponto Tecnico"],
+			users["Tecponto Atendente"],
+		)
 		manager_operation_check = _check_manager_operation_scope(users["Tecponto Gestor"], users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		technician_scope_check = run_technician_scope_checks()
@@ -211,6 +218,7 @@ def run_foundation_checks() -> dict:
 			"customer_device_search": device_search_check,
 			"statbar_guard": statbar_guard,
 			"manager_home_guard": manager_home_guard,
+			"director_financial_guard": director_financial_guard,
 			"manager_operation_scope": manager_operation_check,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
@@ -4050,6 +4058,45 @@ def _check_manager_home_guard(user: str) -> dict:
 			"purchase_queue_exception": "estimated_cost_only",
 			"purchase_queue_leaked_fields": queue_leaks,
 			"third_party_commissions": "blocked",
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+def _check_director_financial_guard(director: str, manager: str, technician: str, attendant: str) -> dict:
+	"""Director-only financial projection; other operational roles must be denied."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user(director)
+		payload = get_director_financial_summary()
+		expected = {
+			"period",
+			"revenue",
+			"operational_cost",
+			"retail_cost",
+			"service_part_cost",
+			"gross_operating_profit",
+			"gross_margin_pct",
+			"team_earnings_accrued",
+			"net_profit_available",
+		}
+		if set(payload) != expected:
+			raise AssertionError(f"Resumo financeiro do Diretor retornou campos inesperados: {sorted(set(payload) - expected)}")
+		if payload["net_profit_available"]:
+			raise AssertionError("Resultado financeiro foi rotulado como lucro liquido sem despesas completas.")
+
+		blocked_roles = []
+		for label, user in (("gestor", manager), ("tecnico", technician), ("atendente", attendant)):
+			frappe.set_user(user)
+			try:
+				get_director_financial_summary()
+			except frappe.PermissionError:
+				blocked_roles.append(label)
+			else:
+				raise AssertionError(f"{label.title()} acessou o endpoint financeiro exclusivo do Diretor.")
+		return {
+			"director_sees": sorted(expected - {"period", "net_profit_available"}),
+			"blocked_roles": blocked_roles,
+			"net_profit_available": payload["net_profit_available"],
 		}
 	finally:
 		frappe.set_user(previous_user)

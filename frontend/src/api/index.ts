@@ -39,6 +39,7 @@ export type {
   CustomerSearchResponse,
   CustomerSummary,
   DashboardMetrics,
+  DirectorFinancialSummary,
   TechnicianWorkloadItem,
   TechnicianWorkloadResponse,
   DeliverySuggestion,

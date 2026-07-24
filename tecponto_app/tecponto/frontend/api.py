@@ -76,6 +76,7 @@ POS_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 SERVICE_CATALOG_EDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 STORE_OPERATION_MANAGER_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 TECHNICIAN_COMMISSION_ROLES = {"System Manager", "Tecponto Tecnico"}
+DIRECTOR_FINANCIAL_ROLES = {"Tecponto Diretor"}
 APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp", "Link"}
 STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
 STATE_APROVADO = "Aprovado"
@@ -241,6 +242,14 @@ def _require_technician_commission_role() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(TECHNICIAN_COMMISSION_ROLES):
 		return
 	frappe.throw(_("Only technicians can consult their own commissions."), frappe.PermissionError)
+
+
+def _require_director_financial_role() -> None:
+	"""Financial cost and profit data is exclusive to the Director role."""
+	_require_frontend_role()
+	if set(frappe.get_roles(frappe.session.user)).intersection(DIRECTOR_FINANCIAL_ROLES):
+		return
+	frappe.throw(_("Somente o Diretor pode consultar indicadores financeiros detalhados."), frappe.PermissionError)
 
 
 def _initials(full_name: str, fallback: str) -> str:
@@ -1408,6 +1417,75 @@ def get_dashboard_metrics() -> dict[str, Any]:
 		"sales_visible": sales_visible,
 		"sales_tickets": sales_tickets,
 		"service_orders": service_orders,
+	}
+
+
+@frappe.whitelist()
+def get_director_financial_summary() -> dict[str, Any]:
+	"""Today\'s operational gross result, intentionally separate from net profit.
+
+	Fixed expenses and taxes do not yet have Tecponto postings, so this endpoint
+	never labels the result as net profit. It only uses submitted sales, the
+	actual item/part cost tied to those sales, and submitted commission entries.
+	"""
+	_require_director_financial_role()
+	date = today()
+	revenue = frappe.db.sql(
+		"""
+		select coalesce(sum(case when is_return = 1 then -abs(grand_total) else grand_total end), 0)
+		from `tabSales Invoice`
+		where docstatus = 1 and posting_date = %(posting_date)s
+		""",
+		{"posting_date": date},
+	)[0][0]
+	retail_cost = frappe.db.sql(
+		"""
+		select coalesce(sum(
+			case when invoice.is_return = 1 then -1 else 1 end
+			* coalesce(item.incoming_rate, 0) * abs(coalesce(item.stock_qty, item.qty, 0))
+		), 0)
+		from `tabSales Invoice Item` item
+		inner join `tabSales Invoice` invoice on invoice.name = item.parent
+		where invoice.docstatus = 1 and invoice.is_pos = 1 and invoice.posting_date = %(posting_date)s
+		""",
+		{"posting_date": date},
+	)[0][0]
+	service_part_cost = frappe.db.sql(
+		"""
+		select coalesce(sum(coalesce(part.valuation_rate, 0) * coalesce(part.qty, 0)), 0)
+		from `tabService Order` service_order
+		inner join `tabSales Invoice` invoice on invoice.name = service_order.sales_invoice
+		inner join `tabService Order Part` part on part.parent = service_order.name
+		where invoice.docstatus = 1
+			and invoice.is_return = 0
+			and invoice.posting_date = %(posting_date)s
+			and part.outcome = 'Usada no reparo'
+		""",
+		{"posting_date": date},
+	)[0][0]
+	commissions = frappe.db.sql(
+		"""
+		select coalesce(sum(amount), 0)
+		from `tabAdditional Salary`
+		where docstatus = 1
+			and salary_component = 'Comissão'
+			and type = 'Earning'
+			and payroll_date = %(payroll_date)s
+		""",
+		{"payroll_date": date},
+	)[0][0]
+	cost = flt(retail_cost) + flt(service_part_cost)
+	gross_profit = flt(revenue) - cost
+	return {
+		"period": {"key": "today", "label": _("Hoje"), "date": str(date)},
+		"revenue": float(flt(revenue)),
+		"operational_cost": float(cost),
+		"retail_cost": float(flt(retail_cost)),
+		"service_part_cost": float(flt(service_part_cost)),
+		"gross_operating_profit": float(gross_profit),
+		"gross_margin_pct": float((gross_profit / flt(revenue) * 100) if flt(revenue) else 0),
+		"team_earnings_accrued": float(flt(commissions)),
+		"net_profit_available": False,
 	}
 
 

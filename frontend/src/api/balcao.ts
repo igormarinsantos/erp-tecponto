@@ -8,6 +8,7 @@ import type {
   CustomerDeviceListResponse,
   CustomerSearchResponse,
   DashboardMetrics,
+  DirectorFinancialSummary,
   ListStatBarResponse,
 	TechnicianWorkloadResponse,
 	SaleListResponse,
@@ -28,6 +29,10 @@ export const balcao = {
 	},
   getDashboardMetrics() {
     return rpc<DashboardMetrics>(`${API}.get_dashboard_metrics`);
+  },
+
+  getDirectorFinancialSummary() {
+    return rpc<DirectorFinancialSummary>(`${API}.get_director_financial_summary`);
   },
 	getTechnicianWorkload() {
 		return rpc<TechnicianWorkloadResponse>(`${API}.get_technician_workload`);

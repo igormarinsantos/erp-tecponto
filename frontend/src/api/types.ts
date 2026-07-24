@@ -733,6 +733,18 @@ export interface DashboardMetrics {
   };
 }
 
+export interface DirectorFinancialSummary {
+  period: { key: "today"; label: string; date: string };
+  revenue: number;
+  operational_cost: number;
+  retail_cost: number;
+  service_part_cost: number;
+  gross_operating_profit: number;
+  gross_margin_pct: number;
+  team_earnings_accrued: number;
+  net_profit_available: false;
+}
+
 export interface TechnicianWorkloadItem {
   technician: string;
   technician_name: string;
