@@ -31,6 +31,8 @@ import {
   ShoppingCart,
   Smartphone,
   Tag,
+  Ticket,
+  Target,
 	QrCode,
   UserRound,
   Wrench,
@@ -1105,6 +1107,7 @@ export function App() {
               canApprove={rolePanels.includes("gestor") || rolePanels.includes("diretor")}
               homePanel={rolePanels.length === 1 ? visualUser.panel : "unified"}
               showSales={state.metrics.sales_visible}
+              metrics={state.metrics}
             />
           ) : (
             <NavigationContent
@@ -1691,6 +1694,7 @@ function OverviewContent({
   canApprove,
   homePanel,
   showSales,
+  metrics,
 }: {
   actions: ActionDefinition[];
   onNavigate: (target: NavigationTarget) => void;
@@ -1704,6 +1708,7 @@ function OverviewContent({
   canApprove: boolean;
   homePanel: RolePanel | "unified";
   showSales: boolean;
+  metrics: DashboardMetrics;
 }) {
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
   const [salesStats, setSalesStats] = useState<Array<{ key: string; label: string; value: number; amount?: number }>>([]);
@@ -1731,6 +1736,36 @@ function OverviewContent({
     };
   }, [showSales]);
 
+  const isManagerHome = homePanel === "gestor" || (homePanel === "unified" && canApprove);
+  const managerTicketItems = isManagerHome ? [
+    {
+      key: "retail-ticket",
+      label: "Ticket balcão",
+      value: metrics.sales_tickets.retail.average ?? 0,
+      displayValue: metrics.sales_tickets.retail.average === null ? "Sem vendas" : metrics.sales_tickets.retail.average.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
+      detail: `${metrics.sales_tickets.retail.count} venda(s) no dia`,
+      icon: <Ticket size={19} />,
+      tone: "blue" as const,
+    },
+    {
+      key: "service-ticket",
+      label: "Ticket de OS",
+      value: metrics.sales_tickets.service_order.average ?? 0,
+      displayValue: metrics.sales_tickets.service_order.average === null ? "Sem OS faturada" : metrics.sales_tickets.service_order.average.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
+      detail: `${metrics.sales_tickets.service_order.count} OS faturada(s) no dia`,
+      icon: <Wrench size={19} />,
+      tone: "orange" as const,
+    },
+    {
+      key: "daily-goal",
+      label: "Meta diária",
+      value: 0,
+      displayValue: "Não configurada",
+      detail: "Defina período e indicador",
+      icon: <Target size={19} />,
+      tone: "amber" as const,
+    },
+  ] : [];
   const statItems = [
     ...serviceOrderStats.map((item) => ({ ...item, ...getStatBarVisual("service_orders", item.key) })),
     ...salesStats.map((item) => ({
@@ -1738,8 +1773,8 @@ function OverviewContent({
       ...getStatBarVisual("sales", item.key),
       displayValue: item.key === "amount" ? item.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : undefined,
     })),
+    ...managerTicketItems,
   ];
-  const isManagerHome = homePanel === "gestor";
 
   return (
     <>

@@ -1383,9 +1383,30 @@ def get_dashboard_metrics() -> dict[str, Any]:
 			{"posting_date": today()},
 		)[0][0]
 
+	sales_tickets = {
+		"retail": {"count": 0, "total": 0.0, "average": None},
+		"service_order": {"count": 0, "total": 0.0, "average": None},
+	}
+	if sales_visible:
+		for row in frappe.db.sql(
+			"""
+			select is_pos, count(*) as sales_count, coalesce(sum(grand_total), 0) as sales_total
+			from `tabSales Invoice`
+			where docstatus = 1 and is_return = 0 and posting_date = %(posting_date)s
+			group by is_pos
+			""",
+			{"posting_date": today()},
+			as_dict=True,
+		):
+			key = "retail" if cint(row.is_pos) else "service_order"
+			count = int(row.sales_count or 0)
+			total = float(row.sales_total or 0)
+			sales_tickets[key] = {"count": count, "total": total, "average": total / count if count else None}
+
 	return {
 		"sales_today_total": float(sales_today_total or 0),
 		"sales_visible": sales_visible,
+		"sales_tickets": sales_tickets,
 		"service_orders": service_orders,
 	}
 

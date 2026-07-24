@@ -3245,6 +3245,13 @@ def _check_dashboard_metrics(user: str) -> dict:
 	if leaks:
 		raise AssertionError(f"Campos sensíveis vazaram nas métricas do painel: {', '.join(leaks)}")
 
+	tickets = payload["sales_tickets"]
+	if set(tickets) != {"retail", "service_order"}:
+		raise AssertionError("Metricas de ticket nao foram separadas por balcao e OS.")
+	for ticket in tickets.values():
+		if not {"count", "total", "average"}.issubset(ticket):
+			raise AssertionError("Ticket medio nao trouxe contagem, total e media.")
+
 	service_orders = payload["service_orders"]
 	if not {
 		"awaiting_approval",

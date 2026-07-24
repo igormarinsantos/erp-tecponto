@@ -715,6 +715,10 @@ export interface PickupPayload {
 
 export interface DashboardMetrics {
   sales_today_total: number;
+  sales_tickets: {
+    retail: { count: number; total: number; average: number | null };
+    service_order: { count: number; total: number; average: number | null };
+  };
 	/** False when the backend intentionally withholds sales for a technical-only account. */
 	sales_visible: boolean;
   service_orders: {
