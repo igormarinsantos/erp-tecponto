@@ -28,12 +28,12 @@ RUN --mount=type=secret,id=apps_json,target=/opt/frappe/apps.json,uid=1000,gid=1
 
 # Tecponto's React/Vite app is outside the Python package directory in the
 # repository. Build it explicitly, then let bench materialize public assets.
-RUN cd /home/frappe/frappe-bench/apps/erp-tecponto/frontend && \
+RUN cd /home/frappe/frappe-bench/apps/tecponto_app/frontend && \
     npm ci && \
     npm run build && \
     cd /home/frappe/frappe-bench && \
     bench build --app tecponto_app && \
-    rm -rf apps/erp-tecponto/frontend/node_modules
+    rm -rf apps/tecponto_app/frontend/node_modules
 
 FROM ${FRAPPE_IMAGE_PREFIX}/base:${FRAPPE_BRANCH} AS backend
 
