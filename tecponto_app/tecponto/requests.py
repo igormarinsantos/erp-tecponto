@@ -17,11 +17,12 @@ REQUEST_TYPES = {
 	"tradein_over_max": {"label": "Troca acima da tabela", "doctype": "Device Trade Evaluation"},
 	"stock_transfer": {"label": "Transferência entre estoques", "doctype": "Stock Entry"},
 	"billed_service_order_cancel": {"label": "Cancelar OS faturada", "doctype": "Service Order"},
+	"courtesy_warranty": {"label": "Garantia-cortesia", "doctype": "Service Order"},
 	"acceptance_selfie_exception": {"label": "Dispensar selfie do aceite", "doctype": "OS Acceptance"},
 	"part_purchase_above_threshold": {"label": "Compra de peça acima do teto", "doctype": "Tecponto Part Request"},
 }
 MANAGER_ROLE = "Tecponto Gestor"
-MANAGER_TYPES = {"service_order_discount", "pos_discount", "pos_price_floor", "tradein_over_max", "stock_transfer", "billed_service_order_cancel", "acceptance_selfie_exception", "part_purchase_above_threshold"}
+MANAGER_TYPES = {"service_order_discount", "pos_discount", "pos_price_floor", "tradein_over_max", "stock_transfer", "billed_service_order_cancel", "courtesy_warranty", "acceptance_selfie_exception", "part_purchase_above_threshold"}
 FRONTEND_ROLES = {"Tecponto Atendente", "Tecponto Tecnico", "Tecponto Gestor", "Tecponto Diretor", "System Manager"}
 
 
@@ -106,7 +107,7 @@ def expire_requests() -> int:
 @frappe.whitelist()
 def list_my_requests() -> list[dict[str, Any]]:
 	_require_frontend_role()
-	return [_serialize(row) for row in frappe.get_all("Tecponto Request", filters={"requested_by": frappe.session.user}, fields=["name", "status", "requested_by", "approver_role", "expires_on", "request_type", "reason"], order_by="creation desc", limit_page_length=50)]
+	return [_serialize(row) for row in frappe.get_all("Tecponto Request", filters={"requested_by": frappe.session.user}, fields=["name", "status", "requested_by", "approver_role", "expires_on", "request_type", "reason", "reference_name"], order_by="creation desc", limit_page_length=50)]
 
 
 @frappe.whitelist()
@@ -114,7 +115,7 @@ def list_pending_approvals() -> list[dict[str, Any]]:
 	_require_frontend_role()
 	roles = set(frappe.get_roles())
 	filters = {"status": "Pendente"}
-	rows = frappe.get_all("Tecponto Request", filters=filters, fields=["name", "status", "requested_by", "approver_role", "expires_on", "request_type", "reason"], order_by="creation desc", limit_page_length=50)
+	rows = frappe.get_all("Tecponto Request", filters=filters, fields=["name", "status", "requested_by", "approver_role", "expires_on", "request_type", "reason", "reference_name"], order_by="creation desc", limit_page_length=50)
 	return [_serialize(row) for row in rows if row.approver_role in roles or "System Manager" in roles or frappe.session.user == "Administrator"]
 
 
@@ -161,6 +162,18 @@ def _execute_as_approver(
 		if request_type == "billed_service_order_cancel":
 			from tecponto_app.tecponto.frontend.api import move_service_order
 			return move_service_order(reference_name, "Cancelado")
+		if request_type == "courtesy_warranty":
+			doc = frappe.get_doc("Service Order", reference_name)
+			doc.is_warranty = 1
+			doc.original_service_order = data["original_service_order"]
+			doc.courtesy_warranty = 1
+			doc.courtesy_warranty_reason = reason
+			doc.save()
+			return {
+				"service_order": doc.name,
+				"original_service_order": doc.original_service_order,
+				"courtesy_warranty": True,
+			}
 		if request_type == "acceptance_selfie_exception":
 			doc = frappe.get_doc("OS Acceptance", reference_name)
 			if doc.status != "Pendente":
@@ -202,6 +215,20 @@ def _validate_payload(request_type: str, reference_name: str, data: dict[str, An
 		frappe.throw(_("Informe o valor da troca."), frappe.ValidationError)
 	if request_type == "billed_service_order_cancel" and not frappe.db.get_value("Service Order", reference_name, "sales_invoice"):
 		frappe.throw(_("A OS não está faturada."), frappe.ValidationError)
+	if request_type == "courtesy_warranty":
+		original_name = (data.get("original_service_order") or "").strip()
+		if not original_name:
+			frappe.throw(_("Informe a OS original para a garantia-cortesia."), frappe.ValidationError)
+		order = frappe.get_doc("Service Order", reference_name)
+		original = frappe.get_doc("Service Order", original_name)
+		if order.get("sales_invoice"):
+			frappe.throw(_("OS faturada nao pode ser convertida em garantia-cortesia."), frappe.ValidationError)
+		if order.get("is_warranty"):
+			frappe.throw(_("Esta OS ja e um retrabalho em garantia."), frappe.ValidationError)
+		if original.get("workflow_state") != "Entregue":
+			frappe.throw(_("A OS original precisa estar entregue."), frappe.ValidationError)
+		if original.get("customer") != order.get("customer") or original.get("customer_device") != order.get("customer_device"):
+			frappe.throw(_("A OS original precisa ser do mesmo cliente e aparelho."), frappe.ValidationError)
 	if request_type == "acceptance_selfie_exception":
 		doc = frappe.get_doc("OS Acceptance", reference_name)
 		if doc.status != "Pendente":
@@ -254,7 +281,10 @@ def _preserve_user():
 	try:
 		yield
 	finally:
-		frappe.set_user(previous)
+		# Test and shell calls may not carry a request session. This context never
+		# changes user, so there is nothing to restore when no prior user exists.
+		if previous:
+			frappe.set_user(previous)
 
 
 def _serialize(doc) -> dict[str, Any]:
@@ -263,6 +293,7 @@ def _serialize(doc) -> dict[str, Any]:
 		"status": doc.status,
 		"request_type": doc.get("request_type"),
 		"reason": doc.get("reason"),
+		"reference_name": doc.get("reference_name"),
 		"requested_by": doc.requested_by,
 		"approver_role": doc.approver_role,
 		"expires_on": str(doc.expires_on),

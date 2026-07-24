@@ -2282,6 +2282,30 @@ def run_action_request_checks() -> dict:
 		)
 		frappe.set_user(manager)
 		approve_request(billed_cancel_request["name"])
+
+		# Garantia-cortesia: a OS nasce normal; somente a decisao individual do Gestor
+		# a converte em retrabalho gratuito, com a OS original revalidada pelo motor.
+		frappe.set_user("Administrator")
+		original_warranty_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			original_warranty_order,
+			{"workflow_state": "Entregue", "warranty_expiry": add_days(nowdate(), -1)},
+			update_modified=False,
+		)
+		courtesy_target = _create_action_request_service_order(attendant)
+		frappe.set_user(attendant)
+		courtesy_request = create_request(
+			"courtesy_warranty",
+			courtesy_target,
+			"Cliente solicitou cobertura excepcional apos a garantia contratual.",
+			{"original_service_order": original_warranty_order},
+		)
+		frappe.set_user(manager)
+		approve_request(courtesy_request["name"])
+		courtesy_doc = frappe.get_doc("Service Order", courtesy_target)
+		if not courtesy_doc.is_warranty or not courtesy_doc.courtesy_warranty or courtesy_doc.original_service_order != original_warranty_order:
+			raise AssertionError("Aprovacao nao reexecutou a garantia-cortesia sob as regras da OS.")
 		if frappe.db.get_value("Service Order", billed_order, "workflow_state") != "Cancelado":
 			raise AssertionError("Aprovação não cancelou a OS faturada pelo workflow real.")
 
@@ -2299,6 +2323,7 @@ def run_action_request_checks() -> dict:
 			"service_order_move": {"request": move_request["name"], "state": "Em diagnóstico", "executed": True},
 			"stock_transfer": {"request": transfer_request["name"], "stock_entry": transfer["item"]["name"], "executed": True},
 			"billed_service_order_cancel": {"request": billed_cancel_request["name"], "service_order": billed_order, "executed": True},
+			"courtesy_warranty": {"request": courtesy_request["name"], "service_order": courtesy_target, "executed": True},
 		}
 	finally:
 		frappe.set_user(previous_user)

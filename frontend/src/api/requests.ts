@@ -2,7 +2,7 @@ import { rpc } from "./client";
 
 const API = "tecponto_app.tecponto.requests";
 
-export type ApprovalRequest = { name: string; status: string; requested_by: string; approver_role: string; expires_on: string; request_type?: string; reason?: string };
+export type ApprovalRequest = { name: string; status: string; requested_by: string; approver_role: string; expires_on: string; request_type?: string; reason?: string; reference_name?: string };
 
 export const approvalRequests = {
   create(requestType: string, referenceName: string, reason: string, payload: Record<string, unknown>) {

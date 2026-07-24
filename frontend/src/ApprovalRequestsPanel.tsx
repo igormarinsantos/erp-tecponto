@@ -7,7 +7,15 @@ import { Button, Card } from "./ui";
 type Toast = (message: string, tone?: "success" | "error") => void;
 
 const REQUEST_TYPE_LABELS: Record<string, string> = {
+  "Cancelar OS faturada": "Cancelar OS faturada",
+  "Compra de peça acima do teto": "Compra de peça acima do teto",
+  "Desconto acima do limite": "Desconto acima do limite",
+  "Garantia-cortesia": "Garantia-cortesia",
+  "Transferência entre estoques": "Transferência entre estoques",
+  "Troca acima da tabela": "Troca acima da tabela",
+  "Venda abaixo do custo": "Venda abaixo do custo",
   billed_service_order_cancel: "Cancelar OS faturada",
+  courtesy_warranty: "Garantia-cortesia",
   pos_discount: "Desconto no PDV",
   pos_price_floor: "Venda abaixo do piso",
   part_purchase_above_threshold: "Compra de peca acima do teto",
@@ -40,6 +48,7 @@ function RequestRow({ item, pending, onDecide }: {
         <span>Solicitante: {item.requested_by}</span>
         <span className="inline-flex items-center gap-1"><Clock3 size={13} />Expira: {formatExpiry(item.expires_on)}</span>
       </div>
+      {item.reference_name ? <p className="mt-2 text-xs font-semibold text-tec-muted">Documento: {item.reference_name}</p> : null}
       {pending && onDecide ? (
         <div className="mt-3 flex justify-end gap-2">
           <Button icon={<X size={15} />} onClick={() => onDecide(item.name, "reject")} variant="danger">Reprovar</Button>

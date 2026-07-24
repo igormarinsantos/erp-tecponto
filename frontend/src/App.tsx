@@ -39,6 +39,7 @@ import {
 
 import {
   balcao,
+	 approvalRequests,
 	 catalogListings,
   productCategories,
   dailyActions,
@@ -2599,6 +2600,7 @@ function ServiceOrderDetail({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [quoteSendOpen, setQuoteSendOpen] = useState(false);
   const [acceptanceType, setAcceptanceType] = useState<"Entrada" | "Retirada" | null>(null);
+  const [courtesyWarrantyOpen, setCourtesyWarrantyOpen] = useState(false);
   const [moveApproval, setMoveApproval] = useState<{ targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
   const [checkinTracking, setCheckinTracking] = useState<TrackingLinkResponse | null>(null);
   const initialFlowRef = useRef(initialFlow);
@@ -2630,6 +2632,7 @@ function ServiceOrderDetail({
     setHistoryOpen(false);
     setQuoteSendOpen(false);
 		setAcceptanceType(null);
+    setCourtesyWarrantyOpen(false);
     setMoveApproval(null);
     setState({ status: "loading" });
     serviceOrders
@@ -2852,6 +2855,10 @@ function ServiceOrderDetail({
       <ServiceOrderActionsModal
         detail={detail}
         onClose={() => setActionsOpen(false)}
+		onOpenCourtesyWarranty={() => {
+			setActionsOpen(false);
+			setCourtesyWarrantyOpen(true);
+		}}
 		onOpenAcceptance={(type) => {
 			setActionsOpen(false);
 			setAcceptanceType(type);
@@ -2877,6 +2884,12 @@ function ServiceOrderDetail({
 			onClose={() => setAcceptanceType(null)}
 			onToast={onToast}
 		/>
+      <CourtesyWarrantyRequestModal
+        detail={detail}
+        onClose={() => setCourtesyWarrantyOpen(false)}
+        onToast={onToast}
+        open={courtesyWarrantyOpen}
+      />
       <ApprovalRequestModal
         onClose={() => setMoveApproval(null)}
         onCreated={() => setMoveApproval(null)}
@@ -4551,10 +4564,87 @@ function timelineIcon(tone: ServiceOrderTimelineEvent["tone"]) {
   return <History size={16} />;
 }
 
+function CourtesyWarrantyRequestModal({
+  detail,
+  onClose,
+  onToast,
+  open,
+}: {
+  detail: ServiceOrderDetailResponse;
+  onClose: () => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+  open: boolean;
+}) {
+  const [originalServiceOrder, setOriginalServiceOrder] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setOriginalServiceOrder("");
+      setReason("");
+    }
+  }, [open]);
+
+  async function submit() {
+    if (!originalServiceOrder.trim() || !reason.trim()) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await approvalRequests.create(
+        "courtesy_warranty",
+        detail.name,
+        reason.trim(),
+        { original_service_order: originalServiceOrder.trim() },
+      );
+      onToast("Solicitacao de garantia-cortesia enviada, aguardando o Gestor.", "success");
+      onClose();
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Nao foi possivel solicitar a garantia-cortesia.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal className="max-w-lg" onClose={onClose} open={open} title="Solicitar garantia-cortesia">
+      <p className="text-sm leading-6 text-tec-subtle">
+        O Gestor decide individualmente e o motor valida de novo se a OS original esta entregue e pertence ao mesmo cliente e aparelho.
+      </p>
+      <label className="mt-5 block text-sm font-bold text-white">
+        OS original entregue
+        <input
+          className="mt-2 w-full rounded-control border border-tec-border/25 bg-tec-field p-3 text-white outline-none focus:border-tec-orange/70"
+          onChange={(event) => setOriginalServiceOrder(event.target.value)}
+          placeholder="Ex.: OS-2026-00001"
+          value={originalServiceOrder}
+        />
+      </label>
+      <label className="mt-4 block text-sm font-bold text-white">
+        Motivo obrigatorio
+        <textarea
+          className="mt-2 min-h-28 w-full rounded-control border border-tec-border/25 bg-tec-field p-3 text-white outline-none focus:border-tec-orange/70"
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="Explique por que a cobertura excepcional e necessaria."
+          value={reason}
+        />
+      </label>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button onClick={onClose} variant="ghost">Cancelar</Button>
+        <Button disabled={!originalServiceOrder.trim() || !reason.trim() || busy} onClick={() => void submit()} variant="primary">
+          {busy ? "Enviando..." : "Solicitar ao Gestor"}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 function ServiceOrderActionsModal({
   detail,
   onClose,
 	onOpenAcceptance,
+	onOpenCourtesyWarranty,
   onOpenBudgetEditor,
   onOpenHistory,
   onOpenQuoteSend,
@@ -4564,6 +4654,7 @@ function ServiceOrderActionsModal({
   detail: ServiceOrderDetailResponse;
   onClose: () => void;
 	onOpenAcceptance: (type: "Entrada" | "Retirada") => void;
+  onOpenCourtesyWarranty: () => void;
   onOpenBudgetEditor: (type: BudgetLineType) => void;
   onOpenHistory: () => void;
   onOpenQuoteSend: () => void;
@@ -4623,6 +4714,20 @@ function ServiceOrderActionsModal({
           <span className="mt-4 block text-base font-bold text-white">Adicionar peça</span>
           <span className="mt-1 block text-sm text-tec-muted">Inclui peça do estoque de reparo no orçamento.</span>
         </button>
+
+        {!detail.warranty.is_warranty ? (
+          <button
+            className="rounded-card border border-tec-amber/25 bg-tec-amber/5 p-4 text-left transition hover:border-tec-amber/55 hover:bg-tec-amber/10"
+            onClick={onOpenCourtesyWarranty}
+            type="button"
+          >
+            <span className="grid h-10 w-10 place-items-center rounded-control bg-tec-amber/15 text-tec-amber">
+              <BadgeInfo size={20} />
+            </span>
+            <span className="mt-4 block text-base font-bold text-white">Solicitar garantia-cortesia</span>
+            <span className="mt-1 block text-sm text-tec-muted">Encaminha a excecao ao Gestor com motivo e OS original.</span>
+          </button>
+        ) : null}
 
         <button
           className="rounded-card border border-tec-border/15 bg-tec-field/65 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10 disabled:cursor-not-allowed disabled:opacity-55"
