@@ -31,9 +31,9 @@ e passe-o como `--secret id=git_config,src=/caminho/gitconfig`, junto com
 ## Compose no Coolify
 
 Cole `deployment/docker-compose.coolify.yaml` em **Docker Compose Empty**.
-Troque/preencha `SITE_DOMAIN` com `SISTEMA.MEUDOMINIO.COM.BR`; a regra Traefik que
-consome esse valor está na label `traefik.http.routers.tecponto.rule` do serviço
-`frontend`. O site Frappe deve ter o mesmo valor em `SITE_NAME`.
+O Coolify gera o domínio público automaticamente com a variável mágica
+`SERVICE_FQDN_FRONTEND_8080`. Ela também é usada como nome do site Frappe, então
+não há domínio, `SITE_NAME` ou label Traefik para preencher manualmente.
 
 O `create-site` instala `erpnext` e `tecponto_app` na criação. Não há terminal
 manual pós-deploy. Em deploys seguintes, `migrate` roda antes do backend.
@@ -43,8 +43,6 @@ manual pós-deploy. Em deploys seguintes, `migrate` roda antes do backend.
 Preencha:
 
 - `FRAPPE_IMAGE=ghcr.io/igormarinsantos/erp-tecponto:version-16`
-- `SITE_DOMAIN=SISTEMA.MEUDOMINIO.COM.BR`
-- `SITE_NAME=SISTEMA.MEUDOMINIO.COM.BR`
 - `DB_PASSWORD` (gere uma senha longa no Coolify)
 - `SITE_ADMIN_PASSWORD` (senha inicial do Administrator, longa e exclusiva)
 - Opcional: `GUNICORN_WORKERS=2`, `GUNICORN_THREADS=4`, `GUNICORN_TIMEOUT=120`
@@ -66,5 +64,5 @@ o registry ao serviço/ambiente antes do primeiro deploy.
   acima e crie usuários operacionais reais após o primeiro acesso.
 - O banco, sites, logs e fila Redis usam volumes próprios. Nenhum dado do WSL é
   levado por este compose.
-- O domínio e `SITE_NAME` devem ser reais e iguais. Dados/migração e backup
+- O Coolify fornece o domínio público automaticamente. Dados/migração e backup
   automático ficam deliberadamente fora deste artefato.

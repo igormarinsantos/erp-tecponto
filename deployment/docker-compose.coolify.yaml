@@ -92,7 +92,7 @@ services:
             --set-default;
         fi;
     environment:
-      SITE_NAME: ${SITE_NAME:?Defina SITE_NAME no Coolify}
+      SITE_NAME: ${SERVICE_FQDN_FRONTEND_8080:?FQDN gerada pelo Coolify}
       SITE_ADMIN_PASSWORD: ${SITE_ADMIN_PASSWORD:?Defina SITE_ADMIN_PASSWORD no Coolify}
       DB_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no Coolify}
     depends_on:
@@ -106,7 +106,7 @@ services:
     entrypoint: ["bash", "-c"]
     command: ["bench --site $$SITE_NAME migrate"]
     environment:
-      SITE_NAME: ${SITE_NAME:?Defina SITE_NAME no Coolify}
+      SITE_NAME: ${SERVICE_FQDN_FRONTEND_8080:?FQDN gerada pelo Coolify}
     depends_on:
       create-site:
         condition: service_completed_successfully
@@ -161,7 +161,7 @@ services:
     environment:
       BACKEND: backend:8000
       SOCKETIO: websocket:9000
-      FRAPPE_SITE_NAME_HEADER: ${SITE_NAME:?Defina SITE_NAME no Coolify}
+      FRAPPE_SITE_NAME_HEADER: ${SERVICE_FQDN_FRONTEND_8080:?FQDN gerada pelo Coolify}
       UPSTREAM_REAL_IP_ADDRESS: "127.0.0.1"
       UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
       UPSTREAM_REAL_IP_RECURSIVE: "off"
@@ -175,15 +175,7 @@ services:
         condition: service_started
       websocket:
         condition: service_started
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=coolify
-      - traefik.http.routers.tecponto.rule=Host(`${SITE_DOMAIN:?Defina SITE_DOMAIN no Coolify}`)
-      - traefik.http.routers.tecponto.entrypoints=https
-      - traefik.http.routers.tecponto.tls=true
-      - traefik.http.routers.tecponto.tls.certresolver=letsencrypt
-      - traefik.http.services.tecponto.loadbalancer.server.port=8080
-    networks: [tecponto-internal, coolify]
+    networks: [tecponto-internal]
 
 volumes:
   tecponto-db:
@@ -194,5 +186,3 @@ volumes:
 networks:
   tecponto-internal:
     internal: true
-  coolify:
-    external: true
