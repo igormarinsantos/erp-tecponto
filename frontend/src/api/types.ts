@@ -745,6 +745,15 @@ export interface DirectorFinancialSummary {
   net_profit_available: false;
 }
 
+export interface DirectorStrategicReport {
+  period: { key: "7d" | "month"; label: string; from_date: string; to_date: string };
+  categories: Array<{ category: string; revenue: number }>;
+  technicians: Array<{ technician: string; service_orders: number; labor_revenue: number; team_earnings: number }>;
+  item_costs: Array<{ item_code: string; item_name: string; cost: number }>;
+  service_order_costs: Array<{ service_order: string; cost: number }>;
+  trend: Array<{ date: string; revenue: number }>;
+}
+
 export interface TechnicianWorkloadItem {
   technician: string;
   technician_name: string;

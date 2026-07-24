@@ -21,6 +21,7 @@ from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
 	get_dashboard_metrics,
 	get_director_financial_summary,
+	get_director_strategic_report,
 	get_technician_workload,
 	get_boot,
 	get_list_statbar,
@@ -171,6 +172,12 @@ def run_foundation_checks() -> dict:
 			users["Tecponto Tecnico"],
 			users["Tecponto Atendente"],
 		)
+		director_report_guard = _check_director_strategic_report_guard(
+			users["Tecponto Diretor"],
+			users["Tecponto Gestor"],
+			users["Tecponto Tecnico"],
+			users["Tecponto Atendente"],
+		)
 		manager_operation_check = _check_manager_operation_scope(users["Tecponto Gestor"], users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		technician_scope_check = run_technician_scope_checks()
@@ -219,6 +226,7 @@ def run_foundation_checks() -> dict:
 			"statbar_guard": statbar_guard,
 			"manager_home_guard": manager_home_guard,
 			"director_financial_guard": director_financial_guard,
+			"director_report_guard": director_report_guard,
 			"manager_operation_scope": manager_operation_check,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
@@ -4097,6 +4105,46 @@ def _check_director_financial_guard(director: str, manager: str, technician: str
 			"director_sees": sorted(expected - {"period", "net_profit_available"}),
 			"blocked_roles": blocked_roles,
 			"net_profit_available": payload["net_profit_available"],
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _check_director_strategic_report_guard(director: str, manager: str, technician: str, attendant: str) -> dict:
+	"""Strategic cost, margin and team earnings remain Director-only."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user(director)
+		payload = get_director_strategic_report("month")
+		expected = {"period", "categories", "technicians", "item_costs", "service_order_costs", "trend"}
+		if set(payload) != expected:
+			raise AssertionError("Relatorio estrategico retornou uma projeção inesperada.")
+		for row in payload["categories"]:
+			if set(row) != {"category", "revenue"}:
+				raise AssertionError("Categoria estrategica retornou campos inesperados.")
+		for row in payload["technicians"]:
+			if set(row) != {"technician", "service_orders", "labor_revenue", "team_earnings"}:
+				raise AssertionError("Desempenho tecnico retornou campos inesperados.")
+		for row in payload["item_costs"]:
+			if set(row) != {"item_code", "item_name", "cost"}:
+				raise AssertionError("Custo por produto retornou campos inesperados.")
+		for row in payload["service_order_costs"]:
+			if set(row) != {"service_order", "cost"}:
+				raise AssertionError("Custo por OS retornou campos inesperados.")
+
+		blocked_roles = []
+		for label, user in (("gestor", manager), ("tecnico", technician), ("atendente", attendant)):
+			frappe.set_user(user)
+			try:
+				get_director_strategic_report("month")
+			except frappe.PermissionError:
+				blocked_roles.append(label)
+			else:
+				raise AssertionError(f"{label.title()} acessou o relatorio estrategico exclusivo do Diretor.")
+		return {
+			"period": payload["period"]["key"],
+			"director_fields": sorted(expected - {"period"}),
+			"blocked_roles": blocked_roles,
 		}
 	finally:
 		frappe.set_user(previous_user)

@@ -40,6 +40,7 @@ export type {
   CustomerSummary,
   DashboardMetrics,
   DirectorFinancialSummary,
+  DirectorStrategicReport,
   TechnicianWorkloadItem,
   TechnicianWorkloadResponse,
   DeliverySuggestion,

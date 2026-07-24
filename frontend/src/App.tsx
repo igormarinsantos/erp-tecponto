@@ -64,6 +64,7 @@ import {
   type CustomerSummary,
   type DashboardMetrics,
   type DirectorFinancialSummary,
+  type DirectorStrategicReport,
   type TechnicianWorkloadItem,
   type AgendaCalendarEvent,
   type DailyActionsResponse,
@@ -1718,6 +1719,8 @@ function OverviewContent({
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
   const [salesStats, setSalesStats] = useState<Array<{ key: string; label: string; value: number; amount?: number }>>([]);
   const [directorFinancial, setDirectorFinancial] = useState<DirectorFinancialSummary | null>(null);
+  const [directorStrategic, setDirectorStrategic] = useState<DirectorStrategicReport | null>(null);
+  const [directorPeriod, setDirectorPeriod] = useState<"7d" | "month">("month");
 
   useEffect(() => {
     let cancelled = false;
@@ -1746,6 +1749,7 @@ function OverviewContent({
     let cancelled = false;
     if (!canViewDirectorFinancial) {
       setDirectorFinancial(null);
+      setDirectorStrategic(null);
       return () => { cancelled = true; };
     }
     void balcao.getDirectorFinancialSummary()
@@ -1755,8 +1759,15 @@ function OverviewContent({
       .catch(() => {
         if (!cancelled) setDirectorFinancial(null);
       });
+    void balcao.getDirectorStrategicReport(directorPeriod)
+      .then((report) => {
+        if (!cancelled) setDirectorStrategic(report);
+      })
+      .catch(() => {
+        if (!cancelled) setDirectorStrategic(null);
+      });
     return () => { cancelled = true; };
-  }, [canViewDirectorFinancial]);
+  }, [canViewDirectorFinancial, directorPeriod]);
 
   const isManagerHome = homePanel === "gestor" || homePanel === "diretor" || (homePanel === "unified" && canApprove);
   const managerTicketItems = isManagerHome ? [
@@ -1808,6 +1819,7 @@ function OverviewContent({
         subtitle={isManagerHome ? "Decisões e filas que mantêm a operação da loja fluindo." : "Ações frequentes para manter o balcão em movimento."}
       />
       {directorFinancial ? <DirectorFinancialPanel summary={directorFinancial} /> : null}
+      {directorStrategic ? <DirectorStrategicPanel onPeriodChange={setDirectorPeriod} period={directorPeriod} report={directorStrategic} /> : null}
       <section className="mt-4">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
@@ -1867,6 +1879,130 @@ function DirectorFinancialPanel({ summary }: { summary: DirectorFinancialSummary
           </Card>
         ))}
       </div>
+    </section>
+  );
+}
+
+function DirectorStrategicPanel({
+  report,
+  period,
+  onPeriodChange,
+}: {
+  report: DirectorStrategicReport;
+  period: "7d" | "month";
+  onPeriodChange: (period: "7d" | "month") => void;
+}) {
+  const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const trendMaximum = Math.max(...report.trend.map((item) => item.revenue), 1);
+  const listEmpty = <p className="py-4 text-sm text-tec-muted">Sem dados no periodo.</p>;
+
+  return (
+    <section className="mt-4 grid gap-4 xl:grid-cols-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 xl:col-span-2">
+        <div>
+          <h2 className="text-xl font-bold text-white">Indicadores estrategicos</h2>
+          <p className="mt-1 text-sm text-tec-muted">Cortes financeiros exclusivos da diretoria.</p>
+        </div>
+        <div className="flex rounded-control border border-tec-border/25 bg-tec-field p-1">
+          {[{ key: "month" as const, label: "Este mes" }, { key: "7d" as const, label: "7 dias" }].map((option) => (
+            <button className={`rounded-control px-3 py-1.5 text-xs font-bold transition ${period === option.key ? "bg-tec-orange text-tec-graphite" : "text-tec-muted hover:text-white"}`} key={option.key} onClick={() => onPeriodChange(option.key)} type="button">
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Card className="border-tec-border/20 bg-tec-panel p-4">
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-white">Receita por categoria</h2>
+            <p className="text-sm text-tec-muted">Hierarquia comercial e de servicos no periodo.</p>
+          </div>
+          <Tag className="text-tec-orange" size={18} />
+        </div>
+        {report.categories.length ? <div className="space-y-3">
+          {report.categories.map((item) => (
+            <div className="flex items-center justify-between gap-3" key={item.category}>
+              <span className="min-w-0 truncate text-sm font-semibold text-white">{item.category}</span>
+              <span className="shrink-0 text-sm font-bold text-tec-orange">{money(item.revenue)}</span>
+            </div>
+          ))}
+        </div> : listEmpty}
+      </Card>
+
+      <Card className="border-tec-border/20 bg-tec-panel p-4">
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-white">Desempenho tecnico</h2>
+            <p className="text-sm text-tec-muted">OS faturadas, mao de obra e comissoes provisionadas.</p>
+          </div>
+          <UserRound className="text-tec-purple" size={18} />
+        </div>
+        {report.technicians.length ? <div className="space-y-3">
+          {report.technicians.map((item) => (
+            <div className="flex items-center justify-between gap-3" key={item.technician}>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">{item.technician}</p>
+                <p className="text-xs text-tec-muted">{item.service_orders} OS faturada(s) · MO {money(item.labor_revenue)}</p>
+              </div>
+              <span className="shrink-0 text-sm font-bold text-tec-purple">{money(item.team_earnings)}</span>
+            </div>
+          ))}
+        </div> : listEmpty}
+      </Card>
+
+      <Card className="border-tec-border/20 bg-tec-panel p-4">
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-white">Maior custo por produto</h2>
+            <p className="text-sm text-tec-muted">Custos das saídas faturadas no periodo.</p>
+          </div>
+          <Package className="text-tec-amber" size={18} />
+        </div>
+        {report.item_costs.length ? <div className="space-y-3">
+          {report.item_costs.map((item) => (
+            <div className="flex items-center justify-between gap-3" key={item.item_code}>
+              <div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{item.item_name}</p><p className="truncate text-xs text-tec-muted">{item.item_code}</p></div>
+              <span className="shrink-0 text-sm font-bold text-tec-amber">{money(item.cost)}</span>
+            </div>
+          ))}
+        </div> : listEmpty}
+      </Card>
+
+      <Card className="border-tec-border/20 bg-tec-panel p-4">
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-white">Maior custo por OS</h2>
+            <p className="text-sm text-tec-muted">Pecas usadas em reparos faturados.</p>
+          </div>
+          <Wrench className="text-tec-red" size={18} />
+        </div>
+        {report.service_order_costs.length ? <div className="space-y-3">
+          {report.service_order_costs.map((item) => (
+            <div className="flex items-center justify-between gap-3" key={item.service_order}>
+              <span className="text-sm font-semibold text-white">{item.service_order}</span>
+              <span className="shrink-0 text-sm font-bold text-tec-red">{money(item.cost)}</span>
+            </div>
+          ))}
+        </div> : listEmpty}
+      </Card>
+
+      <Card className="border-tec-border/20 bg-tec-panel p-4 xl:col-span-2">
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-white">Tendencia de faturamento</h2>
+            <p className="text-sm text-tec-muted">{report.period.label}: receita faturada por dia.</p>
+          </div>
+          <Ticket className="text-tec-blue" size={18} />
+        </div>
+        {report.trend.length ? <div className="flex h-28 items-end gap-2">
+          {report.trend.map((item) => (
+            <div className="flex min-w-0 flex-1 flex-col items-center gap-2" key={item.date} title={`${item.date}: ${money(item.revenue)}`}>
+              <div className="w-full rounded-t-control bg-tec-blue/75" style={{ height: `${Math.max(8, (item.revenue / trendMaximum) * 88)}px` }} />
+              <span className="text-[10px] text-tec-subtle">{item.date.slice(8, 10)}</span>
+            </div>
+          ))}
+        </div> : listEmpty}
+      </Card>
     </section>
   );
 }

@@ -1490,6 +1490,142 @@ def get_director_financial_summary() -> dict[str, Any]:
 
 
 @frappe.whitelist()
+def get_director_strategic_report(period: str = "month") -> dict[str, Any]:
+	"""Director-only commercial, service and cost projections for one period."""
+	_require_director_financial_role()
+	period = (period or "month").strip()
+	if period == "7d":
+		from_date = add_days(today(), -6)
+		label = _("Ultimos 7 dias")
+	elif period == "month":
+		from_date = getdate(today()).replace(day=1)
+		label = _("Este mes")
+	else:
+		frappe.throw(_("Periodo estrategico invalido."), frappe.ValidationError)
+	values = {"from_date": from_date, "to_date": today()}
+
+	category_rows = frappe.db.sql(
+		"""
+		select
+			coalesce(nullif(item.item_group, ''), 'Sem categoria') as category,
+			sum(case when invoice.is_return = 1 then -abs(item.base_net_amount) else item.base_net_amount end) as revenue
+		from `tabSales Invoice Item` item
+		inner join `tabSales Invoice` invoice on invoice.name = item.parent
+		where invoice.docstatus = 1 and invoice.posting_date between %(from_date)s and %(to_date)s
+		group by item.item_group
+		order by revenue desc
+		limit 8
+		""",
+		values,
+		as_dict=True,
+	)
+	technician_rows = frappe.db.sql(
+		"""
+		select
+			service_row.technician as employee,
+			coalesce(employee.employee_name, service_row.technician, 'Nao atribuido') as technician,
+			count(distinct service_order.name) as service_orders,
+			coalesce(sum(service_row.qty * service_row.rate), 0) as labor_revenue
+		from `tabService Order Service` service_row
+		inner join `tabService Order` service_order on service_order.name = service_row.parent
+		inner join `tabSales Invoice` invoice on invoice.name = service_order.sales_invoice
+		left join `tabEmployee` employee on employee.name = service_row.technician
+		where invoice.docstatus = 1
+			and invoice.is_return = 0
+			and invoice.posting_date between %(from_date)s and %(to_date)s
+		group by service_row.technician, employee.employee_name
+		order by labor_revenue desc
+		limit 8
+		""",
+		values,
+		as_dict=True,
+	)
+	commission_rows = frappe.db.sql(
+		"""
+		select additional_salary.employee, coalesce(sum(additional_salary.amount), 0) as amount
+		from `tabAdditional Salary` additional_salary
+		where additional_salary.docstatus = 1
+			and additional_salary.salary_component = 'Comissão'
+			and additional_salary.type = 'Earning'
+			and additional_salary.payroll_date between %(from_date)s and %(to_date)s
+		group by additional_salary.employee
+		""",
+		values,
+		as_dict=True,
+	)
+	commissions = {row.employee: flt(row.amount) for row in commission_rows}
+	technicians = [
+		{
+			"technician": row.technician,
+			"service_orders": int(row.service_orders or 0),
+			"labor_revenue": float(flt(row.labor_revenue)),
+			"team_earnings": float(commissions.get(row.get("employee"), 0)),
+		}
+		for row in technician_rows
+	]
+	item_costs = frappe.db.sql(
+		"""
+		select
+			item.item_code,
+			coalesce(max(item.item_name), item.item_code) as item_name,
+			coalesce(sum(
+				case when invoice.is_return = 1 then -1 else 1 end
+				* coalesce(item.incoming_rate, 0) * abs(coalesce(item.stock_qty, item.qty, 0))
+			), 0) as cost
+		from `tabSales Invoice Item` item
+		inner join `tabSales Invoice` invoice on invoice.name = item.parent
+		where invoice.docstatus = 1 and invoice.posting_date between %(from_date)s and %(to_date)s
+		group by item.item_code
+		having cost > 0
+		order by cost desc
+		limit 8
+		""",
+		values,
+		as_dict=True,
+	)
+	service_order_costs = frappe.db.sql(
+		"""
+		select
+			service_order.name as service_order,
+			coalesce(sum(part.valuation_rate * part.qty), 0) as cost
+		from `tabService Order` service_order
+		inner join `tabSales Invoice` invoice on invoice.name = service_order.sales_invoice
+		inner join `tabService Order Part` part on part.parent = service_order.name
+		where invoice.docstatus = 1
+			and invoice.is_return = 0
+			and invoice.posting_date between %(from_date)s and %(to_date)s
+			and part.outcome = 'Usada no reparo'
+		group by service_order.name
+		order by cost desc
+		limit 8
+		""",
+		values,
+		as_dict=True,
+	)
+	trend_rows = frappe.db.sql(
+		"""
+		select
+			invoice.posting_date as date,
+			coalesce(sum(case when invoice.is_return = 1 then -abs(invoice.grand_total) else invoice.grand_total end), 0) as revenue
+		from `tabSales Invoice` invoice
+		where invoice.docstatus = 1 and invoice.posting_date between %(from_date)s and %(to_date)s
+		group by invoice.posting_date
+		order by invoice.posting_date asc
+		""",
+		values,
+		as_dict=True,
+	)
+	return {
+		"period": {"key": period, "label": label, "from_date": str(from_date), "to_date": str(today())},
+		"categories": [{"category": row.category, "revenue": float(flt(row.revenue))} for row in category_rows],
+		"technicians": technicians,
+		"item_costs": [{"item_code": row.item_code, "item_name": row.item_name, "cost": float(flt(row.cost))} for row in item_costs],
+		"service_order_costs": [{"service_order": row.service_order, "cost": float(flt(row.cost))} for row in service_order_costs],
+		"trend": [{"date": str(row.date), "revenue": float(flt(row.revenue))} for row in trend_rows],
+	}
+
+
+@frappe.whitelist()
 def get_technician_workload() -> dict[str, Any]:
 	"""Safe store-wide workload projection for management, without financial data."""
 	_require_store_operation_manager()
