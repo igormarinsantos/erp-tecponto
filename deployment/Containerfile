@@ -28,8 +28,10 @@ RUN --mount=type=secret,id=apps_json,target=/opt/frappe/apps.json,uid=1000,gid=1
 
 # Tecponto's React/Vite app is outside the Python package directory in the
 # repository. Build it explicitly, then let bench materialize public assets.
+# npm install is intentional: Vite's optional native packages resolve per
+# platform, while npm ci rejects the Linux builder's optional dependency graph.
 RUN cd /home/frappe/frappe-bench/apps/tecponto_app/frontend && \
-    npm ci && \
+    npm install --include=dev && \
     npm run build && \
     cd /home/frappe/frappe-bench && \
     bench build --app tecponto_app && \
