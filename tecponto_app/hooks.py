@@ -37,7 +37,6 @@ fixtures = [
 			]
 		],
 	},
-	{"dt": "Tecponto Settings"},
 	{
 		"dt": "Custom DocPerm",
 		"filters": [
@@ -123,7 +122,6 @@ fixtures = [
 			]
 		],
 	},
-	{"dt": "POS Profile", "filters": [["name", "=", "Tecponto Balcão"]]},
 ]
 
 # Apps
@@ -207,7 +205,7 @@ fixtures = [
 # ------------
 
 # before_install = "tecponto_app.install.before_install"
-# after_install = "tecponto_app.install.after_install"
+after_install = "tecponto_app.install.after_install"
 
 # Uninstallation
 # ------------

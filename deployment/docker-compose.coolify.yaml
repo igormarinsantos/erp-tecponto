@@ -78,19 +78,39 @@ services:
     restart: "no"
     entrypoint: ["bash", "-c"]
     command:
-      - >-
-        if [ -f "sites/$$SITE_NAME/site_config.json" ]; then
-          echo "Site $$SITE_NAME already exists";
+      - |
+        set -eu
+        cd /home/frappe/frappe-bench
+        if [ -f "sites/$$SITE_NAME/.tecponto_bootstrapped" ]; then
+          echo "Site $$SITE_NAME already bootstrapped"
         else
-          bench new-site "$$SITE_NAME"
-            --mariadb-user-host-login-scope='%'
-            --admin-password="$$SITE_ADMIN_PASSWORD"
-            --db-root-username=root
-            --db-root-password="$$DB_PASSWORD"
-            --install-app erpnext
-            --install-app tecponto_app
-            --set-default;
-        fi;
+          bench new-site "$$SITE_NAME" \
+            --mariadb-user-host-login-scope='%' \
+            --admin-password="$$SITE_ADMIN_PASSWORD" \
+            --db-root-username=root \
+            --db-root-password="$$DB_PASSWORD" \
+            --install-app erpnext \
+            --set-default
+          ./env/bin/python - "$$SITE_NAME" <<'PY'
+        import frappe
+        import os
+        import sys
+        from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
+
+        sites_path = "/home/frappe/frappe-bench/sites"
+        os.chdir(sites_path)
+        frappe.init(site=sys.argv[1], sites_path=sites_path)
+        frappe.connect()
+        frappe.set_user("Administrator")
+        setup_complete('{"country":"Brazil","company_name":"Tecponto","company_abbr":"TEC","currency":"BRL","timezone":"America/Sao_Paulo","fy_start_date":"2026-01-01","fy_end_date":"2026-12-31","chart_of_accounts":"Standard"}')
+        from tecponto_app.install import bootstrap_erpnext_foundation
+        bootstrap_erpnext_foundation()
+        frappe.db.commit()
+        frappe.destroy()
+        PY
+          bench --site "$$SITE_NAME" install-app tecponto_app
+          touch "sites/$$SITE_NAME/.tecponto_bootstrapped"
+        fi
     environment:
       SITE_NAME: ${SERVICE_FQDN_FRONTEND_8080:?FQDN gerada pelo Coolify}
       SITE_ADMIN_PASSWORD: ${SITE_ADMIN_PASSWORD:?Defina SITE_ADMIN_PASSWORD no Coolify}
