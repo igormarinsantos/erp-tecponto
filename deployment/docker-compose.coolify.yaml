@@ -30,19 +30,16 @@ services:
       retries: 12
     volumes:
       - tecponto-db:/var/lib/mysql
-    networks: [tecponto-internal]
 
   redis-cache:
     image: redis:8.6-alpine
     restart: unless-stopped
-    networks: [tecponto-internal]
 
   redis-queue:
     image: redis:8.6-alpine
     restart: unless-stopped
     volumes:
       - tecponto-redis-queue:/data
-    networks: [tecponto-internal]
 
   configurator:
     <<: *bench
@@ -71,7 +68,6 @@ services:
         condition: service_started
       redis-queue:
         condition: service_started
-    networks: [tecponto-internal]
 
   create-site:
     <<: *bench
@@ -118,7 +114,6 @@ services:
     depends_on:
       configurator:
         condition: service_completed_successfully
-    networks: [tecponto-internal]
 
   migrate:
     <<: *bench
@@ -130,7 +125,6 @@ services:
     depends_on:
       create-site:
         condition: service_completed_successfully
-    networks: [tecponto-internal]
 
   backend:
     <<: *bench
@@ -141,7 +135,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [tecponto-internal]
 
   websocket:
     <<: *bench
@@ -149,7 +142,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [tecponto-internal]
 
   queue-short:
     <<: *bench
@@ -157,7 +149,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [tecponto-internal]
 
   queue-long:
     <<: *bench
@@ -165,7 +156,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [tecponto-internal]
 
   scheduler:
     <<: *bench
@@ -173,7 +163,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [tecponto-internal]
 
   frontend:
     <<: *image
@@ -195,14 +184,9 @@ services:
         condition: service_started
       websocket:
         condition: service_started
-    networks: [tecponto-internal]
 
 volumes:
   tecponto-db:
   tecponto-redis-queue:
   tecponto-sites:
   tecponto-logs:
-
-networks:
-  tecponto-internal:
-    internal: true
