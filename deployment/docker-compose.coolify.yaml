@@ -44,6 +44,7 @@ services:
   configurator:
     <<: *bench
     restart: on-failure
+    exclude_from_hc: true
     entrypoint: ["bash", "-c"]
     command:
       - >-
@@ -72,6 +73,7 @@ services:
   create-site:
     <<: *bench
     restart: "no"
+    exclude_from_hc: true
     entrypoint: ["bash", "-c"]
     command:
       - |
@@ -118,6 +120,7 @@ services:
   migrate:
     <<: *bench
     restart: on-failure:5
+    exclude_from_hc: true
     entrypoint: ["bash", "-c"]
     command: ["bench --site $$SITE_NAME migrate"]
     environment:
