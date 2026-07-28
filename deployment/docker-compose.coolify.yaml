@@ -167,6 +167,14 @@ services:
   frontend:
     <<: *image
     command: ["nginx-entrypoint.sh"]
+    expose: ["8080"]
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.tecponto-frontend.rule=Host(`${SERVICE_FQDN_FRONTEND_8080}`)"
+      - traefik.http.routers.tecponto-frontend.entrypoints=https
+      - traefik.http.routers.tecponto-frontend.tls=true
+      - traefik.http.routers.tecponto-frontend.tls.certresolver=letsencrypt
+      - traefik.http.services.tecponto-frontend.loadbalancer.server.port=8080
     environment:
       BACKEND: backend:8000
       SOCKETIO: websocket:9000
