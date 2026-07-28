@@ -169,14 +169,6 @@ services:
     <<: *image
     command: ["nginx-entrypoint.sh"]
     expose: ["8080"]
-    labels:
-      - traefik.enable=true
-      - "traefik.http.routers.tecponto-router.rule=Host(`${SERVICE_FQDN_FRONTEND_8080}`)"
-      - traefik.http.routers.tecponto-router.entrypoints=https
-      - traefik.http.routers.tecponto-router.service=tecponto-frontend
-      - traefik.http.routers.tecponto-router.tls=true
-      - traefik.http.routers.tecponto-router.tls.certresolver=letsencrypt
-      - traefik.http.services.tecponto-frontend.loadbalancer.server.port=8080
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/method/ping >/dev/null || exit 1"]
       interval: 15s
@@ -184,14 +176,15 @@ services:
       retries: 8
       start_period: 30s
     environment:
-      BACKEND: backend:8000
-      SOCKETIO: websocket:9000
-      FRAPPE_SITE_NAME_HEADER: ${SERVICE_FQDN_FRONTEND_8080:?FQDN gerada pelo Coolify}
-      UPSTREAM_REAL_IP_ADDRESS: "127.0.0.1"
-      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
-      UPSTREAM_REAL_IP_RECURSIVE: "off"
-      PROXY_READ_TIMEOUT: "120"
-      CLIENT_MAX_BODY_SIZE: "50m"
+      - SERVICE_URL_FRONTEND_8080
+      - BACKEND=backend:8000
+      - SOCKETIO=websocket:9000
+      - FRAPPE_SITE_NAME_HEADER=${SERVICE_FQDN_FRONTEND_8080:?FQDN gerada pelo Coolify}
+      - UPSTREAM_REAL_IP_ADDRESS=127.0.0.1
+      - UPSTREAM_REAL_IP_HEADER=X-Forwarded-For
+      - UPSTREAM_REAL_IP_RECURSIVE=off
+      - PROXY_READ_TIMEOUT=120
+      - CLIENT_MAX_BODY_SIZE=50m
     volumes:
       - tecponto-sites:/home/frappe/frappe-bench/sites
       - tecponto-logs:/home/frappe/frappe-bench/logs
