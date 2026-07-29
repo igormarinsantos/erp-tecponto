@@ -81,7 +81,23 @@ services:
         if [ -f "$$SITE_PATH/.tecponto_bootstrapped" ]; then
           echo "Site $$SITE_NAME already bootstrapped"
         else
-          if [ ! -f "$$SITE_PATH/site_config.json" ]; then
+          SITE_EXISTS=0
+          SITE_VALID=0
+          if [ -f "$$SITE_PATH/site_config.json" ]; then
+            SITE_EXISTS=1
+            if bench --site "$$SITE_NAME" list-apps >/tmp/tecponto_apps.txt 2>/tmp/tecponto_site_check.log; then
+              SITE_VALID=1
+            else
+              echo "Site $$SITE_NAME exists but is not usable yet:"
+              cat /tmp/tecponto_site_check.log || true
+              PARTIAL_PATH="sites/partial-$$SITE_NAME-$$(date +%Y%m%d%H%M%S)"
+              echo "Moving partial site folder to $$PARTIAL_PATH"
+              mv "$$SITE_PATH" "$$PARTIAL_PATH"
+              SITE_EXISTS=0
+            fi
+          fi
+
+          if [ "$$SITE_EXISTS" = "0" ]; then
             bench new-site "$$SITE_NAME" \
               --mariadb-user-host-login-scope='%' \
               --admin-password="$$SITE_ADMIN_PASSWORD" \
@@ -92,7 +108,7 @@ services:
           else
             echo "Site $$SITE_NAME already exists; repairing bootstrap"
             bench use "$$SITE_NAME"
-            if ! bench --site "$$SITE_NAME" list-apps | grep -qx erpnext; then
+            if ! grep -qx erpnext /tmp/tecponto_apps.txt; then
               bench --site "$$SITE_NAME" install-app erpnext
             fi
           fi
@@ -114,7 +130,8 @@ services:
         frappe.db.commit()
         frappe.destroy()
         PY
-          if ! bench --site "$$SITE_NAME" list-apps | grep -qx tecponto_app; then
+          bench --site "$$SITE_NAME" list-apps >/tmp/tecponto_apps.txt
+          if ! grep -qx tecponto_app /tmp/tecponto_apps.txt; then
             bench --site "$$SITE_NAME" install-app tecponto_app
           fi
           bench --site "$$SITE_NAME" migrate
