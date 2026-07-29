@@ -9,9 +9,9 @@ COMPANY_NAME = "Tecponto"
 def bootstrap_erpnext_foundation() -> None:
 	"""Create the Tecponto stock and catalog foundation on a new ERPNext site.
 
-	This runs before installing tecponto_app in production. Its records are the
-	links referenced by the app fixtures, so a completely empty ERPNext site can
-	be provisioned without relying on local development data.
+	This runs after ERPNext setup creates the company. Its records are the links
+	referenced by the app fixtures, so a completely empty ERPNext site can be
+	provisioned without relying on local development data.
 	"""
 	if not frappe.db.exists("Company", COMPANY_NAME):
 		frappe.throw("A empresa Tecponto deve existir antes da fundacao do aplicativo.")
@@ -103,6 +103,9 @@ def bootstrap_erpnext_foundation() -> None:
 
 def after_install() -> None:
 	"""Finish Tecponto defaults after the app DocTypes are available."""
+	if not frappe.db.exists("Company", COMPANY_NAME):
+		return
+
 	bootstrap_erpnext_foundation()
 
 	settings = frappe.get_single("Tecponto Settings")
