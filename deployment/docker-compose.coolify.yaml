@@ -1,130 +1,55 @@
-x-image: &image
-  image: ${FRAPPE_IMAGE:?Defina FRAPPE_IMAGE no Coolify}
-  pull_policy: always
-  restart: unless-stopped
-
-x-bench: &bench
-  <<: *image
-  volumes:
-    - tecponto-sites:/home/frappe/frappe-bench/sites
-    - tecponto-logs:/home/frappe/frappe-bench/logs
-
 services:
-  db:
-    image: mariadb:11.8
-    restart: unless-stopped
+  configure:
+    image: '${FRAPPE_IMAGE:-ghcr.io/igormarinsantos/erp-tecponto:version-16}'
+    pull_policy: always
+    deploy:
+      restart_policy:
+        condition: none
+    entrypoint:
+      - bash
+      - '-c'
     command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      - --skip-character-set-client-handshake
-    environment:
-      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no Coolify}
-      MARIADB_AUTO_UPGRADE: "1"
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      start_period: 10s
-      interval: 10s
-      timeout: 5s
-      retries: 12
+      - "ls -1 apps > sites/apps.txt; bench set-config -g db_host db; bench set-config -gp db_port 3306; bench set-config -g redis_cache redis://redis-cache:6379; bench set-config -g redis_queue redis://redis-queue:6379; bench set-config -g redis_socketio redis://redis-queue:6379; bench set-config -gp socketio_port 9000; bench set-config -g chromium_path /usr/bin/chromium-headless-shell; echo \"Configuration Complete\";\n"
     volumes:
-      - tecponto-db:/var/lib/mysql
-
-  redis-cache:
-    image: redis:8.6-alpine
-    restart: unless-stopped
-
-  redis-queue:
-    image: redis:8.6-alpine
-    restart: unless-stopped
-    volumes:
-      - tecponto-redis-queue:/data
-
-  configurator:
-    <<: *bench
-    restart: on-failure
-    exclude_from_hc: true
-    entrypoint: ["bash", "-c"]
-    command:
-      - >-
-        ls -1 apps > sites/apps.txt;
-        bench set-config -g db_host $$DB_HOST;
-        bench set-config -gp db_port $$DB_PORT;
-        bench set-config -g redis_cache "redis://$$REDIS_CACHE";
-        bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
-        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
-        bench set-config -gp socketio_port $$SOCKETIO_PORT;
-        bench set-config -g chromium_path /usr/bin/chromium-headless-shell;
-    environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      REDIS_CACHE: redis-cache:6379
-      REDIS_QUEUE: redis-queue:6379
-      SOCKETIO_PORT: "9000"
-    depends_on:
-      db:
-        condition: service_healthy
-      redis-cache:
-        condition: service_started
-      redis-queue:
-        condition: service_started
+      - 'sites:/home/frappe/frappe-bench/sites'
+      - 'logs:/home/frappe/frappe-bench/logs'
 
   create-site:
-    <<: *bench
-    restart: "no"
-    exclude_from_hc: true
-    entrypoint: ["bash", "-c"]
+    image: '${FRAPPE_IMAGE:-ghcr.io/igormarinsantos/erp-tecponto:version-16}'
+    pull_policy: always
+    deploy:
+      restart_policy:
+        condition: none
+    volumes:
+      - 'sites:/home/frappe/frappe-bench/sites'
+      - 'logs:/home/frappe/frappe-bench/logs'
+    environment:
+      SITE_NAME: '${SITE_NAME:?Defina SITE_NAME no Coolify}'
+      ADMIN_PASSWORD: '${SERVICE_PASSWORD_ADMIN}'
+      DB_ROOT_PASSWORD: '${SERVICE_PASSWORD_DB}'
+    entrypoint:
+      - bash
+      - '-c'
     command:
       - |
         set -eu
+        wait-for-it -t 120 db:3306
+        wait-for-it -t 120 redis-cache:6379
         cd /home/frappe/frappe-bench
-        SITE_PATH="sites/$$SITE_NAME"
-        if [ -f "$$SITE_PATH/.tecponto_bootstrapped" ]; then
-          echo "Site $$SITE_NAME already bootstrapped"
+        if [ ! -d "sites/$${SITE_NAME}" ]; then
+          echo "Site $${SITE_NAME} does not exist. Creating now..."
+          bench new-site "$${SITE_NAME}" \
+            --mariadb-root-password "$${DB_ROOT_PASSWORD}" \
+            --db-root-username root \
+            --admin-password "$${ADMIN_PASSWORD}" \
+            --mariadb-user-host-login-scope '%' \
+            --install-app erpnext \
+            --set-default
+          echo "Site created successfully."
         else
-          SITE_EXISTS=0
-          SITE_VALID=0
-          if [ -f "$$SITE_PATH/site_config.json" ]; then
-            SITE_EXISTS=1
-            if bench --site "$$SITE_NAME" list-apps >/tmp/tecponto_apps.txt 2>/tmp/tecponto_site_check.log; then
-              SITE_VALID=1
-            else
-              echo "Site $$SITE_NAME exists but is not usable yet:"
-              cat /tmp/tecponto_site_check.log || true
-              echo "Dropping partial site database before retry"
-              bench drop-site "$$SITE_NAME" \
-                --force \
-                --no-backup \
-                --db-root-username root \
-                --db-root-password "$$DB_PASSWORD" || true
-              PARTIAL_PATH="sites/partial-$$SITE_NAME-$$(date +%Y%m%d%H%M%S)"
-              echo "Moving partial site folder to $$PARTIAL_PATH"
-              if [ -d "$$SITE_PATH" ]; then
-                mv "$$SITE_PATH" "$$PARTIAL_PATH"
-              fi
-              SITE_EXISTS=0
-            fi
-          fi
-
-          if [ "$$SITE_EXISTS" = "0" ]; then
-            bench new-site "$$SITE_NAME" \
-              --mariadb-user-host-login-scope='%' \
-              --admin-password="$$SITE_ADMIN_PASSWORD" \
-              --db-root-username=root \
-              --db-root-password="$$DB_PASSWORD" \
-              --install-app erpnext \
-              --set-default
-          else
-            echo "Site $$SITE_NAME already exists; repairing bootstrap"
-            bench use "$$SITE_NAME"
-            if ! grep -qx erpnext /tmp/tecponto_apps.txt; then
-              bench --site "$$SITE_NAME" install-app erpnext
-            fi
-          fi
-          bench --site "$$SITE_NAME" list-apps >/tmp/tecponto_apps.txt
-          if ! grep -qx tecponto_app /tmp/tecponto_apps.txt; then
-            bench --site "$$SITE_NAME" install-app tecponto_app
-          fi
-          ./env/bin/python - "$$SITE_NAME" <<'PY'
+          echo "Site $${SITE_NAME} already exists. Skipping creation."
+        fi
+        ./env/bin/python - "$${SITE_NAME}" <<'PY'
         import frappe
         import os
         import sys
@@ -137,103 +62,185 @@ services:
         if not frappe.db.exists("Company", "Tecponto"):
             from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
             setup_complete('{"country":"Brazil","company_name":"Tecponto","company_abbr":"TEC","currency":"BRL","timezone":"America/Sao_Paulo","fy_start_date":"2026-01-01","fy_end_date":"2026-12-31","chart_of_accounts":"Standard"}')
-        from tecponto_app.install import after_install
-        after_install()
+        from tecponto_app.install import bootstrap_erpnext_foundation
+        bootstrap_erpnext_foundation()
         frappe.db.commit()
         frappe.destroy()
         PY
-          bench --site "$$SITE_NAME" migrate
-          touch "$$SITE_PATH/.tecponto_bootstrapped"
+        if ! bench --site "$${SITE_NAME}" list-apps | grep -qx tecponto_app; then
+          bench --site "$${SITE_NAME}" install-app tecponto_app
         fi
-    environment:
-      SITE_NAME: ${SERVICE_FQDN_FRONTEND_8080:?FQDN gerada pelo Coolify}
-      SITE_ADMIN_PASSWORD: ${SITE_ADMIN_PASSWORD:?Defina SITE_ADMIN_PASSWORD no Coolify}
-      DB_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no Coolify}
+        bench --site "$${SITE_NAME}" execute tecponto_app.install.after_install
+        bench --site "$${SITE_NAME}" migrate
+        echo "Tecponto site bootstrap complete."
     depends_on:
-      configurator:
+      configure:
         condition: service_completed_successfully
-
-  migrate:
-    <<: *bench
-    restart: on-failure:5
-    exclude_from_hc: true
-    entrypoint: ["bash", "-c"]
-    command: ["bench --site $$SITE_NAME migrate"]
-    environment:
-      SITE_NAME: ${SERVICE_FQDN_FRONTEND_8080:?FQDN gerada pelo Coolify}
-    depends_on:
-      create-site:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
 
   backend:
-    <<: *bench
-    environment:
-      GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
-      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
-      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+    image: '${FRAPPE_IMAGE:-ghcr.io/igormarinsantos/erp-tecponto:version-16}'
+    pull_policy: always
+    deploy:
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - 'sites:/home/frappe/frappe-bench/sites'
+      - 'logs:/home/frappe/frappe-bench/logs'
     depends_on:
-      migrate:
+      configure:
         condition: service_completed_successfully
-
-  websocket:
-    <<: *bench
-    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  queue-short:
-    <<: *bench
-    command: ["bench", "worker", "--queue", "short,default"]
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  queue-long:
-    <<: *bench
-    command: ["bench", "worker", "--queue", "long,default,short"]
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  scheduler:
-    <<: *bench
-    command: ["bench", "schedule"]
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
 
   frontend:
-    <<: *image
-    command: ["nginx-entrypoint.sh"]
-    expose: ["8080"]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/method/ping >/dev/null || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 8
-      start_period: 30s
+    image: '${FRAPPE_IMAGE:-ghcr.io/igormarinsantos/erp-tecponto:version-16}'
+    pull_policy: always
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - nginx-entrypoint.sh
     environment:
-      - SERVICE_URL_FRONTEND_8080
-      - BACKEND=backend:8000
-      - SOCKETIO=websocket:9000
-      - FRAPPE_SITE_NAME_HEADER=${SERVICE_FQDN_FRONTEND_8080:?FQDN gerada pelo Coolify}
-      - UPSTREAM_REAL_IP_ADDRESS=127.0.0.1
-      - UPSTREAM_REAL_IP_HEADER=X-Forwarded-For
-      - UPSTREAM_REAL_IP_RECURSIVE=off
-      - PROXY_READ_TIMEOUT=120
-      - CLIENT_MAX_BODY_SIZE=50m
+      BACKEND: 'backend:8000'
+      SOCKETIO: 'websocket:9000'
+      FRAPPE_SITE_NAME_HEADER: '${SITE_NAME:?Defina SITE_NAME no Coolify}'
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: 'off'
+      PROXY_READ_TIMEOUT: 300
+      CLIENT_MAX_BODY_SIZE: 50m
     volumes:
-      - tecponto-sites:/home/frappe/frappe-bench/sites
-      - tecponto-logs:/home/frappe/frappe-bench/logs
+      - 'sites:/home/frappe/frappe-bench/sites'
+      - 'logs:/home/frappe/frappe-bench/logs'
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.tecponto-router.rule=Host(`${SITE_NAME:?Defina SITE_NAME no Coolify}`)
+      - traefik.http.routers.tecponto-router.entryPoints=https
+      - traefik.http.routers.tecponto-router.tls=true
+      - traefik.http.routers.tecponto-router.tls.certresolver=letsencrypt
+      - traefik.http.services.tecponto-frontend.loadbalancer.server.port=8080
     depends_on:
       backend:
         condition: service_started
-      websocket:
-        condition: service_started
+
+  websocket:
+    image: '${FRAPPE_IMAGE:-ghcr.io/igormarinsantos/erp-tecponto:version-16}'
+    pull_policy: always
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+    volumes:
+      - 'sites:/home/frappe/frappe-bench/sites'
+      - 'logs:/home/frappe/frappe-bench/logs'
+    depends_on:
+      configure:
+        condition: service_completed_successfully
+
+  queue-long:
+    image: '${FRAPPE_IMAGE:-ghcr.io/igormarinsantos/erp-tecponto:version-16}'
+    pull_policy: always
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - worker
+      - '--queue'
+      - 'long,default,short'
+    volumes:
+      - 'sites:/home/frappe/frappe-bench/sites'
+      - 'logs:/home/frappe/frappe-bench/logs'
+    depends_on:
+      configure:
+        condition: service_completed_successfully
+
+  queue-short:
+    image: '${FRAPPE_IMAGE:-ghcr.io/igormarinsantos/erp-tecponto:version-16}'
+    pull_policy: always
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - worker
+      - '--queue'
+      - 'short,default'
+    volumes:
+      - 'sites:/home/frappe/frappe-bench/sites'
+      - 'logs:/home/frappe/frappe-bench/logs'
+    depends_on:
+      configure:
+        condition: service_completed_successfully
+
+  scheduler:
+    image: '${FRAPPE_IMAGE:-ghcr.io/igormarinsantos/erp-tecponto:version-16}'
+    pull_policy: always
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - schedule
+    volumes:
+      - 'sites:/home/frappe/frappe-bench/sites'
+      - 'logs:/home/frappe/frappe-bench/logs'
+    depends_on:
+      configure:
+        condition: service_completed_successfully
+
+  db:
+    image: '${MARIADB_IMAGE:-mariadb:10.6}'
+    command:
+      - '--character-set-server=utf8mb4'
+      - '--collation-server=utf8mb4_unicode_ci'
+      - '--skip-character-set-client-handshake'
+      - '--skip-innodb-read-only-compressed'
+    environment:
+      MYSQL_ROOT_PASSWORD: '${SERVICE_PASSWORD_DB}'
+      MARIADB_ROOT_PASSWORD: '${SERVICE_PASSWORD_DB}'
+    volumes:
+      - 'db-data:/var/lib/mysql'
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - '-h'
+        - localhost
+        - '--password=${SERVICE_PASSWORD_DB}'
+      interval: 5s
+      retries: 20
+
+  redis-cache:
+    image: '${REDIS_IMAGE:-redis:6.2-alpine}'
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 5s
+      retries: 5
+
+  redis-queue:
+    image: '${REDIS_IMAGE:-redis:6.2-alpine}'
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 5s
+      retries: 5
 
 volumes:
-  tecponto-db:
-  tecponto-redis-queue:
-  tecponto-sites:
-  tecponto-logs:
+  db-data:
+  sites:
+  logs:
