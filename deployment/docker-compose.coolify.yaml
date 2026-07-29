@@ -77,16 +77,25 @@ services:
       - |
         set -eu
         cd /home/frappe/frappe-bench
-        if [ -f "sites/$$SITE_NAME/.tecponto_bootstrapped" ]; then
+        SITE_PATH="sites/$$SITE_NAME"
+        if [ -f "$$SITE_PATH/.tecponto_bootstrapped" ]; then
           echo "Site $$SITE_NAME already bootstrapped"
         else
-          bench new-site "$$SITE_NAME" \
-            --mariadb-user-host-login-scope='%' \
-            --admin-password="$$SITE_ADMIN_PASSWORD" \
-            --db-root-username=root \
-            --db-root-password="$$DB_PASSWORD" \
-            --install-app erpnext \
-            --set-default
+          if [ ! -f "$$SITE_PATH/site_config.json" ]; then
+            bench new-site "$$SITE_NAME" \
+              --mariadb-user-host-login-scope='%' \
+              --admin-password="$$SITE_ADMIN_PASSWORD" \
+              --db-root-username=root \
+              --db-root-password="$$DB_PASSWORD" \
+              --install-app erpnext \
+              --set-default
+          else
+            echo "Site $$SITE_NAME already exists; repairing bootstrap"
+            bench use "$$SITE_NAME"
+            if ! bench --site "$$SITE_NAME" list-apps | grep -qx erpnext; then
+              bench --site "$$SITE_NAME" install-app erpnext
+            fi
+          fi
           ./env/bin/python - "$$SITE_NAME" <<'PY'
         import frappe
         import os
@@ -98,14 +107,18 @@ services:
         frappe.init(site=sys.argv[1], sites_path=sites_path)
         frappe.connect()
         frappe.set_user("Administrator")
-        setup_complete('{"country":"Brazil","company_name":"Tecponto","company_abbr":"TEC","currency":"BRL","timezone":"America/Sao_Paulo","fy_start_date":"2026-01-01","fy_end_date":"2026-12-31","chart_of_accounts":"Standard"}')
+        if not frappe.db.exists("Company", "Tecponto"):
+            setup_complete('{"country":"Brazil","company_name":"Tecponto","company_abbr":"TEC","currency":"BRL","timezone":"America/Sao_Paulo","fy_start_date":"2026-01-01","fy_end_date":"2026-12-31","chart_of_accounts":"Standard"}')
         from tecponto_app.install import bootstrap_erpnext_foundation
         bootstrap_erpnext_foundation()
         frappe.db.commit()
         frappe.destroy()
         PY
-          bench --site "$$SITE_NAME" install-app tecponto_app
-          touch "sites/$$SITE_NAME/.tecponto_bootstrapped"
+          if ! bench --site "$$SITE_NAME" list-apps | grep -qx tecponto_app; then
+            bench --site "$$SITE_NAME" install-app tecponto_app
+          fi
+          bench --site "$$SITE_NAME" migrate
+          touch "$$SITE_PATH/.tecponto_bootstrapped"
         fi
     environment:
       SITE_NAME: ${SERVICE_FQDN_FRONTEND_8080:?FQDN gerada pelo Coolify}
