@@ -2981,14 +2981,6 @@ def _get_or_create_demo_device(customer: str) -> str:
 
 
 def _get_demo_item(is_stock_item: int) -> str:
-	item = frappe.db.get_value(
-		"Item",
-		{"disabled": 0, "is_stock_item": is_stock_item, "has_serial_no": 0},
-		"name",
-	)
-	if item:
-		return item
-
 	# A full CI run starts from an empty ERPNext site. Keep the service-order
 	# fixtures self-contained instead of relying on locally seeded Items.
 	item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
@@ -3007,6 +2999,11 @@ def _get_demo_item(is_stock_item: int) -> str:
 				"disabled": 0,
 			}
 		).insert(ignore_permissions=True)
+	if is_stock_item:
+		warehouse = _get_demo_warehouse()
+		if not warehouse:
+			raise AssertionError("Não há depósito para criar o estoque de teste da OS.")
+		_ensure_pos_demo_stock(item_code, warehouse, valuation_rate=10)
 	return item_code
 
 
