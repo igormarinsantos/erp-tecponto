@@ -306,7 +306,11 @@ def _liberar_reserva(reservation: str | None) -> None:
 	if reservation_doc.docstatus != 1:
 		return
 
-	reservation_doc.cancel()
+	# Part execution is invoked through a scoped Service Order endpoint. The
+	# technician has already been authorized for that OS and its exact child row;
+	# cancelling this reservation is an internal stock-engine operation, not a
+	# generic Stock Reservation Entry permission grant.
+	reservation_doc.cancel(ignore_permissions=True)
 
 
 def _validate_stock_part(part_row) -> None:
