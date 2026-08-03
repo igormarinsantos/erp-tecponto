@@ -858,7 +858,11 @@ def set_service_order_part_outcome(
 
 	part.outcome = outcome
 	part.loss_reason = loss_reason
-	doc.save()
+	# The technical role intentionally has no generic Desk permission on the child
+	# table. This narrowly-scoped endpoint has already validated role, OS scope,
+	# workflow stage, part ownership and allowed values; Frappe validations and
+	# Service Order on_update hooks still run and own the actual stock issue.
+	doc.save(ignore_permissions=True)
 	return get_service_order_detail(doc.name)
 
 
