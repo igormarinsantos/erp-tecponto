@@ -378,6 +378,10 @@ website_route_rules = [
 	{"from_route": "/tecponto/rastreio/<token>", "to_route": "rastreio"},
 ]
 
+# The main domain is the Tecponto operational interface. Frappe Desk remains
+# available at /app for technical administration.
+home_page = "tecponto"
+
 role_home_page = {
 	"Tecponto Atendente": "tecponto",
 	"Tecponto Tecnico": "tecponto",
