@@ -3558,7 +3558,6 @@ def run_technician_part_execution_checks() -> dict:
 				doc.parts[0].name,
 				{
 					"item_code": part_item,
-					"description": f"Peça de execução técnica {label}",
 					"warehouse": repair_warehouse,
 					"outcome": None,
 					"loss_reason": None,
