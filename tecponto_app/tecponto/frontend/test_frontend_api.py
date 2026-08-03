@@ -192,6 +192,10 @@ def run_foundation_checks() -> dict:
 		technician_part_request_check = run_technician_part_request_checks()
 		part_purchase_cycle_check = run_part_purchase_cycle_checks()
 		part_receipt_check = run_part_receipt_reservation_checks()
+		management_stock_scope_routing = _check_management_stock_scope_routing(
+			users["Tecponto Gestor"],
+			users["Tecponto Diretor"],
+		)
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
@@ -242,6 +246,7 @@ def run_foundation_checks() -> dict:
 			"technician_part_requests": technician_part_request_check,
 			"part_purchase_cycle": part_purchase_cycle_check,
 			"part_receipt_reservation": part_receipt_check,
+			"management_stock_scope_routing": management_stock_scope_routing,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
@@ -4243,6 +4248,43 @@ def _check_manager_operation_scope(manager: str, attendant: str) -> dict:
 			"technicians": len(payload["items"]),
 			"attendant_blocked": True,
 			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _check_management_stock_scope_routing(manager: str, director: str) -> dict:
+	"""Management stock navigation must keep Reparo and Comercial physically separate."""
+	previous_user = frappe.session.user
+	try:
+		repair_warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+		commercial_warehouse = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
+		if not repair_warehouse or not commercial_warehouse:
+			raise AssertionError("Depósitos de Reparo e Comercial precisam estar configurados.")
+
+		repair_item = _ensure_part_request_repair_item()
+		_ensure_pos_demo_stock(repair_item, repair_warehouse, valuation_rate=10)
+		commercial_item = _ensure_pos_demo_records()["items"][0]
+
+		checked_roles = []
+		for role, user in (("manager", manager), ("director", director)):
+			frappe.set_user(user)
+			repair = list_stock_items(query=repair_item, limit=5, scope="repair-parts")
+			commercial = list_stock_items(query=commercial_item, limit=5, scope="commercial-products")
+			if not repair["items"] or any(row["warehouse"] != repair_warehouse for row in repair["items"]):
+				raise AssertionError(f"{role.title()} não recebeu o estoque exclusivo de Reparo.")
+			if not commercial["items"] or any(row["warehouse"] != commercial_warehouse for row in commercial["items"]):
+				raise AssertionError(f"{role.title()} não recebeu o estoque exclusivo Comercial.")
+			leaks = contains_sensitive_field({"repair": repair, "commercial": commercial})
+			if leaks:
+				raise AssertionError(f"Estoque gerencial expôs campos sensíveis: {', '.join(leaks)}")
+			checked_roles.append(role)
+
+		return {
+			"roles": checked_roles,
+			"repair_warehouse": repair_warehouse,
+			"commercial_warehouse": commercial_warehouse,
+			"leaked_fields": [],
 		}
 	finally:
 		frappe.set_user(previous_user)

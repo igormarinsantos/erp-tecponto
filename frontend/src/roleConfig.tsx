@@ -196,8 +196,8 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         label: "Reparo",
         items: [
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Acompanhar e controlar" },
-          { id: "parts-stock", icon: Boxes, label: "Peças", subtitle: "Estoque e compras", children: [
-            { id: "parts-stock", icon: Boxes, label: "Estoque de Reparo", subtitle: "Disponibilidade" },
+          { id: "repair-parts", icon: Boxes, label: "Peças", subtitle: "Estoque e compras", children: [
+            { id: "repair-parts", icon: Boxes, label: "Estoque de Reparo", subtitle: "Disponibilidade" },
             { id: "part-requests", icon: ClipboardList, label: "Solicitações de peça", subtitle: "Fila de compras" },
           ] },
         ],
@@ -260,7 +260,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
           { id: "trade-ins", icon: Handshake, label: "Trocas", subtitle: "Avaliações e ofertas" },
           { id: "customers", icon: Users, label: "Clientes", subtitle: "Relacionamento" },
           { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e preços base" },
-          { id: "parts-stock", icon: Boxes, label: "Peças e estoque", subtitle: "Produtos e insumos" },
+			{ id: "repair-parts", icon: Boxes, label: "Estoque de Reparo", subtitle: "Disponibilidade de peças" },
 			{ id: "commercial-products", icon: ShoppingCart, label: "Produtos", subtitle: "Prateleira comercial" },
 			{ id: "used-devices", icon: Smartphone, label: "Aparelhos usados", subtitle: "Itens únicos de trade-in" },
           { id: "product-categories", icon: Grid2X2, label: "Categorias", subtitle: "Estrutura comercial" },
