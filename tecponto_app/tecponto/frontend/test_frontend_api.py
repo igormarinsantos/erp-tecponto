@@ -781,8 +781,15 @@ def run_stage_clock_checks() -> dict:
 		manager = _find_or_create_user("Tecponto Gestor")
 		frappe.set_user(manager)
 		order = frappe.get_doc("Service Order", _create_action_request_service_order(manager))
-		old = add_to_date(now_datetime(), hours=-48)
-		frappe.db.set_value("Service Order", order.name, {"workflow_state": "Entrada criada", "stage_entered_at": old, "estimated_deadline": add_days(now_datetime().date(), -1)}, update_modified=False)
+		# Keep this independent from a manager-edited SLA left by earlier checks.
+		# Thirty calendar days is deliberately beyond every seeded operational SLA.
+		old = add_to_date(now_datetime(), days=-30)
+		frappe.db.set_value(
+			"Service Order",
+			order.name,
+			{"workflow_state": "Entrada criada", "stage_entered_at": old, "estimated_deadline": add_days(now_datetime().date(), -30)},
+			update_modified=False,
+		)
 		order.reload()
 		overdue = get_stage_clock(order)
 		if not overdue["is_stage_overdue"] or not overdue["is_total_overdue"] or not overdue["is_overdue"]:
