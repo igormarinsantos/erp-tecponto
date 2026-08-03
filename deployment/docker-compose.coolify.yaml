@@ -52,6 +52,9 @@ services:
         else
           echo "Site $${SITE_NAME} already exists. Skipping creation."
         fi
+        if ! bench --site "$${SITE_NAME}" list-apps | grep -qx hrms; then
+          bench --site "$${SITE_NAME}" install-app hrms
+        fi
         ./env/bin/python - "$${SITE_NAME}" <<'PY'
         import frappe
         import os

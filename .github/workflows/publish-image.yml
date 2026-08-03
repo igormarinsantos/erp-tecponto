@@ -116,6 +116,8 @@ jobs:
             --install-app erpnext \
             --set-default
 
+          bench --site "$SITE_NAME" install-app hrms
+
           ./env/bin/python - "$SITE_NAME" <<'PY'
           import os
           import sys

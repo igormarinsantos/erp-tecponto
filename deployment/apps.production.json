@@ -4,6 +4,10 @@
     "branch": "version-16"
   },
   {
+    "url": "https://github.com/frappe/hrms.git",
+    "branch": "version-16"
+  },
+  {
     "url": "https://github.com/igormarinsantos/erp-tecponto.git",
     "branch": "version-16"
   }
