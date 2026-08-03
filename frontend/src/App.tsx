@@ -3012,6 +3012,16 @@ function ServiceOrderDetail({
 						throw caught;
 					}
 				}}
+				onSetPartOutcome={async (partName, outcome, lossReason) => {
+					try {
+						const updated = await serviceOrders.setPartOutcome(detail.name, partName, outcome, lossReason);
+						setState({ status: "ready", detail: updated });
+						onToast(outcome === "Perdida" ? "Perda de peça registrada e encaminhada pelo motor." : "Peça baixada no estoque de Reparo.");
+					} catch (caught) {
+						onToast(caught instanceof Error ? caught.message : "Não foi possível registrar a peça.", "error");
+						throw caught;
+					}
+				}}
 			/>
 		);
 	}
@@ -3408,17 +3418,20 @@ function TechnicalServiceOrderDetail({
   onMove,
   onRefresh,
   onSaveDiagnosis,
+	 onSetPartOutcome,
 }: {
   detail: ServiceOrderDetailResponse;
   onBack: () => void;
   onMove: (nextState: string) => Promise<void>;
   onRefresh: (message?: string) => Promise<void>;
   onSaveDiagnosis: (problemFound: string) => Promise<void>;
+	 onSetPartOutcome: (partName: string, outcome: "Usada no reparo" | "Perdida", lossReason?: string) => Promise<void>;
 }) {
   const [diagnosis, setDiagnosis] = useState(detail.diagnosis.problem_found ?? "");
   const [savingDiagnosis, setSavingDiagnosis] = useState(false);
   const [moving, setMoving] = useState(false);
   const [partRequestOpen, setPartRequestOpen] = useState(false);
+	const [partOutcomeTarget, setPartOutcomeTarget] = useState<ServiceOrderBudgetLine | null>(null);
   const deviceLabel =
     [detail.device?.brand, detail.device?.model, detail.device?.color].filter(Boolean).join(" ") ||
     detail.device?.name ||
@@ -3508,7 +3521,7 @@ function TechnicalServiceOrderDetail({
 
             <TechnicalLineList lines={detail.services} title="Serviços" type="service" />
             <div className="mt-4">
-              <TechnicalLineList lines={detail.parts} title="Peças aplicadas" type="part" />
+					<TechnicalLineList lines={detail.parts} onRecordPartOutcome={setPartOutcomeTarget} title="Peças aplicadas" type="part" />
             </div>
           </Card>
 
@@ -3540,16 +3553,27 @@ function TechnicalServiceOrderDetail({
         </aside>
       </div>
       <PartRequestModal onClose={() => setPartRequestOpen(false)} onCreated={() => void onRefresh("Solicitação de peça registrada. OS movida para Aguardando peça.")} open={partRequestOpen} serviceOrder={detail.name} />
+		<PartOutcomeModal
+			onClose={() => setPartOutcomeTarget(null)}
+			onSubmit={async (outcome, lossReason) => {
+				if (!partOutcomeTarget?.name) return;
+				await onSetPartOutcome(partOutcomeTarget.name, outcome, lossReason);
+				setPartOutcomeTarget(null);
+			}}
+			part={partOutcomeTarget}
+		/>
     </div>
   );
 }
 
 function TechnicalLineList({
   lines,
+	 onRecordPartOutcome,
   title,
   type,
 }: {
   lines: ServiceOrderBudgetLine[];
+	 onRecordPartOutcome?: (line: ServiceOrderBudgetLine) => void;
   title: string;
   type: "service" | "part";
 }) {
@@ -3561,7 +3585,7 @@ function TechnicalLineList({
       </div>
       <div className="overflow-hidden rounded-card border border-tec-border/15">
         {lines.length ? lines.map((line, index) => (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-tec-border/15 bg-tec-field/40 px-3 py-3 text-sm last:border-0" key={`${line.item_code ?? title}-${index}`}>
+			<div className="flex flex-wrap items-center justify-between gap-3 border-b border-tec-border/15 bg-tec-field/40 px-3 py-3 text-sm last:border-0" key={`${line.name ?? line.item_code ?? title}-${index}`}>
             <div className="min-w-0">
               <p className="truncate font-semibold text-white">{line.description || line.item_code || "Item sem descrição"}</p>
               <p className="mt-1 text-xs text-tec-muted">
@@ -3570,12 +3594,92 @@ function TechnicalLineList({
                 {type === "part" && line.outcome ? ` · ${line.outcome}` : ""}
               </p>
             </div>
-            {type === "service" && line.unit_price !== undefined ? <span className="shrink-0 text-sm font-bold text-tec-subtle">MO {formatCurrency(line.unit_price)}</span> : null}
+				<div className="flex shrink-0 items-center gap-2">
+					{type === "service" && line.unit_price !== undefined ? <span className="text-sm font-bold text-tec-subtle">MO {formatCurrency(line.unit_price)}</span> : null}
+					{type === "part" ? <TechnicalPartStatus line={line} /> : null}
+					{type === "part" && !line.stock_entry && line.name && onRecordPartOutcome ? (
+						<Button className="!min-h-8 !px-2.5 !py-1.5 text-xs" icon={<CheckCircle2 size={14} />} onClick={() => onRecordPartOutcome(line)}>
+							Registrar
+						</Button>
+					) : null}
+				</div>
           </div>
         )) : <p className="bg-tec-field/35 px-3 py-4 text-sm text-tec-muted">Nenhuma linha registrada.</p>}
       </div>
     </section>
   );
+}
+
+function TechnicalPartStatus({ line }: { line: ServiceOrderBudgetLine }) {
+	if (line.stock_entry) {
+		const lost = line.outcome === "Perdida";
+		return <span className={cx("rounded-full px-2 py-1 text-xs font-bold", lost ? "bg-tec-red/15 text-tec-red" : "bg-tec-success/15 text-tec-success")}>{lost ? "Perdida" : "Usada"}</span>;
+	}
+	if (line.reservation) {
+		return <span className="rounded-full bg-tec-blue/15 px-2 py-1 text-xs font-bold text-tec-blue">Reservada</span>;
+	}
+	return <span className="rounded-full bg-tec-field px-2 py-1 text-xs font-bold text-tec-muted">Pendente</span>;
+}
+
+function PartOutcomeModal({
+	onClose,
+	onSubmit,
+	part,
+}: {
+	onClose: () => void;
+	onSubmit: (outcome: "Usada no reparo" | "Perdida", lossReason?: string) => Promise<void>;
+	part: ServiceOrderBudgetLine | null;
+}) {
+	const [outcome, setOutcome] = useState<"Usada no reparo" | "Perdida">("Usada no reparo");
+	const [lossReason, setLossReason] = useState("");
+	const [submitting, setSubmitting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!part) return;
+		setOutcome("Usada no reparo");
+		setLossReason("");
+		setSubmitting(false);
+		setError(null);
+	}, [part]);
+
+	async function submit(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		if (outcome === "Perdida" && !lossReason) {
+			setError("Selecione o motivo obrigatório da perda.");
+			return;
+		}
+		setSubmitting(true);
+		setError(null);
+		try {
+			await onSubmit(outcome, lossReason);
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Não foi possível registrar a peça.");
+		} finally {
+			setSubmitting(false);
+		}
+	}
+
+	return (
+		<Modal className="max-w-lg" onClose={onClose} open={Boolean(part)} title="Registrar uso da peça">
+			<form className="space-y-4" onSubmit={submit}>
+				<div className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4">
+					<p className="font-bold text-white">{part?.description || part?.item_code}</p>
+					<p className="mt-1 text-sm text-tec-muted">Quantidade: {part?.qty.toLocaleString("pt-BR") ?? "0"}. A baixa é executada pelo motor no estoque de Reparo.</p>
+				</div>
+				<div className="grid gap-2 sm:grid-cols-2">
+					{(["Usada no reparo", "Perdida"] as const).map((value) => (
+						<button className={cx("rounded-control border px-3 py-3 text-left text-sm font-bold transition", outcome === value ? "border-tec-orange bg-tec-orange text-tec-ink shadow-glow" : "border-tec-border/20 bg-tec-field text-tec-subtle hover:border-tec-orange/50")} key={value} onClick={() => setOutcome(value)} type="button">
+							{value}
+						</button>
+					))}
+				</div>
+				{outcome === "Perdida" ? <label className="block"><span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Motivo da perda <span className="text-tec-orange">obrigatório</span></span><select className="tp-input" onChange={(event) => setLossReason(event.target.value)} required value={lossReason}><option value="">Selecione o motivo</option><option>Perda da loja</option><option>Responsabilidade do técnico</option><option>Garantia do fornecedor</option></select></label> : null}
+				{error ? <p className="rounded-control border border-tec-red/35 bg-tec-red/10 px-3 py-2 text-sm font-semibold text-tec-red">{error}</p> : null}
+				<div className="flex justify-end gap-2"><Button onClick={onClose}>Cancelar</Button><Button disabled={submitting || (outcome === "Perdida" && !lossReason)} icon={<CheckCircle2 size={16} />} type="submit" variant="primary">{submitting ? "Registrando..." : "Confirmar"}</Button></div>
+			</form>
+		</Modal>
+	);
 }
 
 function ServiceOrderHero({

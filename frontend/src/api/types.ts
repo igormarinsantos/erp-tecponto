@@ -447,7 +447,8 @@ export interface ServiceOrderDetailResponse {
 }
 
 export interface ServiceOrderBudgetLine {
-  item_code: string | null;
+	name?: string | null;
+	item_code: string | null;
   description: string | null;
   qty: number;
   unit_price?: number;
@@ -458,7 +459,10 @@ export interface ServiceOrderBudgetLine {
   technician?: string | null;
   warehouse?: string | null;
   outcome?: string | null;
-  loss_reason?: string | null;
+	loss_reason?: string | null;
+	reservation?: string | null;
+	stock_entry?: string | null;
+	used_date?: string | null;
 }
 
 export type BudgetLineType = "service" | "part";

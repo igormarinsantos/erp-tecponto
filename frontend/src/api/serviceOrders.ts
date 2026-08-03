@@ -82,6 +82,11 @@ export const serviceOrders = {
       body: { name, problem_found: problemFound },
     });
   },
+  setPartOutcome(name: string, partName: string, outcome: "Usada no reparo" | "Perdida", lossReason = "") {
+    return rpc<ServiceOrderDetailResponse>(`${API}.set_service_order_part_outcome`, {
+      body: { name, part_name: partName, outcome, loss_reason: lossReason },
+    });
+  },
   decideBudget(name: string, payload: BudgetDecisionPayload) {
     return rpc<ServiceOrderDetailResponse>(`${API}.decide_service_order_budget`, {
       body: { name, payload },

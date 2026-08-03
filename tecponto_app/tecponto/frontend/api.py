@@ -32,6 +32,13 @@ from tecponto_app.tecponto import defect_service_mapping
 from tecponto_app.tecponto import part_requests
 from tecponto_app.tecponto.permissions import is_restricted_technician, service_order_scope_filters
 from tecponto_app.tecponto.service_order import stage_clock, stage_sla
+from tecponto_app.tecponto.service_order.parts import (
+	LOSS_FORNECEDOR,
+	LOSS_LOJA,
+	LOSS_TECNICO,
+	OUTCOME_PERDIDA,
+	OUTCOME_USADA,
+)
 
 
 ROLE_PANELS = (
@@ -85,6 +92,7 @@ STATE_REPROVADO = "Reprovado"
 STATE_PRONTO_RETIRADA = "Pronto para retirada"
 STATE_ENTREGUE = "Entregue"
 APPROVAL_STATUS_APROVADO = "Aprovado"
+PART_EXECUTION_STATES = {"Aprovado", "Aguardando peça", "Em reparo", "Teste final"}
 APPROVAL_STATUS_REPROVADO = "Reprovado"
 KANBAN_BLOCKED_TARGETS = {
 	STATE_APROVADO: "Use o fluxo de aprovação para registrar canal, atendente e observação.",
@@ -806,6 +814,50 @@ def save_technical_diagnosis(name: str, problem_found: str) -> dict[str, Any]:
 
 	doc.problem_found = clean_problem
 	doc.diagnosis_date = now_datetime().date()
+	doc.save()
+	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def set_service_order_part_outcome(
+	name: str,
+	part_name: str,
+	outcome: str,
+	loss_reason: str = "",
+) -> dict[str, Any]:
+	"""Record technical part usage and let the existing part engine issue stock once."""
+	_require_frontend_role()
+	roles = set(frappe.get_roles(frappe.session.user))
+	if not roles.intersection({"Tecponto Tecnico", "Tecponto Gestor", "Tecponto Diretor", "System Manager"}):
+		frappe.throw(_("Somente a equipe técnica pode registrar o uso de peças."), frappe.PermissionError)
+
+	doc = frappe.get_doc("Service Order", (name or "").strip())
+	doc.check_permission("write")
+	if is_restricted_technician() and doc.get("technician") != frappe.session.user:
+		frappe.throw(_("Você só pode registrar peças nas suas OS."), frappe.PermissionError)
+	if doc.get("workflow_state") not in PART_EXECUTION_STATES:
+		frappe.throw(_("Registre peças somente após a aprovação do orçamento."), frappe.ValidationError)
+
+	part = next((row for row in doc.get("parts") or [] if row.name == (part_name or "").strip()), None)
+	if not part:
+		frappe.throw(_("Peça não encontrada nesta ordem de serviço."), frappe.ValidationError)
+
+	outcome = (outcome or "").strip()
+	loss_reason = (loss_reason or "").strip()
+	if outcome not in {OUTCOME_USADA, OUTCOME_PERDIDA}:
+		frappe.throw(_("Desfecho de peça inválido."), frappe.ValidationError)
+	if outcome == OUTCOME_PERDIDA and loss_reason not in {LOSS_LOJA, LOSS_TECNICO, LOSS_FORNECEDOR}:
+		frappe.throw(_("Informe um motivo válido para a perda da peça."), frappe.ValidationError)
+	if outcome == OUTCOME_USADA:
+		loss_reason = ""
+
+	if part.get("stock_entry"):
+		if part.get("outcome") == outcome and (outcome != OUTCOME_PERDIDA or part.get("loss_reason") == loss_reason):
+			return get_service_order_detail(doc.name)
+		frappe.throw(_("Esta peça já teve estoque baixado e não pode ter o desfecho alterado."), frappe.ValidationError)
+
+	part.outcome = outcome
+	part.loss_reason = loss_reason
 	doc.save()
 	return get_service_order_detail(doc.name)
 
@@ -2575,6 +2627,7 @@ def _serialize_part_row(row: Any) -> dict[str, Any]:
 	qty = flt(row.get("qty") or 0)
 	unit_price = flt(row.get("rate") or 0)
 	return {
+		"name": row.get("name"),
 		"item_code": row.get("item_code"),
 		"description": row.get("description"),
 		"qty": qty,
@@ -2583,6 +2636,9 @@ def _serialize_part_row(row: Any) -> dict[str, Any]:
 		"warehouse": row.get("warehouse"),
 		"outcome": row.get("outcome"),
 		"loss_reason": row.get("loss_reason"),
+		"reservation": row.get("reservation"),
+		"stock_entry": row.get("stock_entry"),
+		"used_date": str(row.get("used_date") or ""),
 	}
 
 

@@ -29,6 +29,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_service_order_statbar,
 	get_service_order_detail,
 	save_technical_diagnosis,
+	set_service_order_part_outcome,
 	get_service_order_kanban,
 	issue_os_acceptance,
 	add_catalog_service_to_service_order,
@@ -131,6 +132,7 @@ from tecponto_app.tecponto.pending import complete_manual_task, create_manual_ta
 from tecponto_app.tecponto.used_device_warranty import consultar_garantia_usado
 from tecponto_app.tecponto.service_order.stage_clock import get_stage_clock
 from tecponto_app.tecponto.service_order.stage_sla import add_commercial_business_hours, get_stage_slas
+from tecponto_app.tecponto.service_order.parts import processar_pecas
 
 
 TEST_USERS = {
@@ -188,6 +190,7 @@ def run_foundation_checks() -> dict:
 		manager_operation_check = _check_manager_operation_scope(users["Tecponto Gestor"], users["Tecponto Atendente"])
 		guard_check = _check_sensitive_guard(users["Tecponto Tecnico"])
 		technician_scope_check = run_technician_scope_checks()
+		technician_part_execution_check = run_technician_part_execution_checks()
 		technician_commission_check = run_technician_commission_checks()
 		technician_part_request_check = run_technician_part_request_checks()
 		part_purchase_cycle_check = run_part_purchase_cycle_checks()
@@ -242,6 +245,7 @@ def run_foundation_checks() -> dict:
 			"manager_operation_scope": manager_operation_check,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
+			"technician_part_execution": technician_part_execution_check,
 			"technician_commissions": technician_commission_check,
 			"technician_part_requests": technician_part_request_check,
 			"part_purchase_cycle": part_purchase_cycle_check,
@@ -1498,6 +1502,7 @@ def run_cashier_mode_checks() -> dict:
 		ensure_frontend_foundation()
 		attendant = _find_or_create_user("Tecponto Atendente")
 		technician = _find_or_create_user("Tecponto Tecnico")
+		manager = _find_or_create_user("Tecponto Gestor")
 		manager = _find_or_create_user("Tecponto Gestor")
 		customer = _get_or_create_demo_customer()
 		demo = _ensure_pos_demo_records()
@@ -3497,6 +3502,129 @@ def run_technician_scope_checks() -> dict:
 			"technical_detail_sanitized": True,
 			"own_diagnosis_saved": True,
 			"multi_role_union_preserved": True,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_technician_part_execution_checks() -> dict:
+	"""A technician records part outcomes through the same idempotent stock engine as Desk."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		part_item = _ensure_part_request_repair_item()
+		repair_warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+		if not repair_warehouse:
+			raise AssertionError("Depósito de Reparo não configurado para validar execução técnica.")
+		frappe.set_user("Administrator")
+		_ensure_pos_demo_stock(part_item, repair_warehouse, valuation_rate=10)
+		selfie = BytesIO()
+		Image.new("RGB", (24, 24), color=(22, 72, 110)).save(selfie, format="JPEG")
+		selfie_data = "data:image/jpeg;base64," + b64encode(selfie.getvalue()).decode()
+		signature = BytesIO()
+		Image.new("RGB", (160, 60), color=(245, 245, 245)).save(signature, format="PNG")
+		signature_data = "data:image/png;base64," + b64encode(signature.getvalue()).decode()
+
+		def prepare_order(label: str):
+			service_order = _create_action_request_service_order(attendant)
+			frappe.set_user(attendant)
+			issued = issue_os_acceptance(service_order, "Entrada")
+			raw_token = issued["link"].rstrip("/").rsplit("/", 1)[-1]
+			frappe.set_user("Guest")
+			save_public_acceptance_selfie(raw_token, selfie_data)
+			complete_public_acceptance(raw_token, signature_data, 1)
+			frappe.set_user("Administrator")
+			frappe.db.set_value(
+				"Service Order",
+				service_order,
+				{
+					"technician": technician,
+					"workflow_state": "Em reparo",
+					"approval_status": "Aprovado",
+					"approval_channel": "Presencial",
+					"approved_by_attendant": attendant,
+					"approval_date": now_datetime(),
+				},
+				update_modified=False,
+			)
+			doc = frappe.get_doc("Service Order", service_order)
+			frappe.db.set_value(
+				doc.parts[0].doctype,
+				doc.parts[0].name,
+				{
+					"item_code": part_item,
+					"description": f"Peça de execução técnica {label}",
+					"warehouse": repair_warehouse,
+					"outcome": None,
+					"loss_reason": None,
+					"stock_entry": None,
+					"reservation": None,
+				},
+				update_modified=False,
+			)
+			doc.reload()
+			processar_pecas(doc)
+			doc.reload()
+			if not doc.parts[0].reservation:
+				raise AssertionError("Peça aprovada não foi reservada antes da execução técnica.")
+			return doc
+
+		used_doc = prepare_order("usada")
+		qty_before_used = _bin_qty(part_item, repair_warehouse)
+		frappe.set_user(technician)
+		used = set_service_order_part_outcome(used_doc.name, used_doc.parts[0].name, "Usada no reparo")
+		used_part = used["parts"][0]
+		qty_after_used = _bin_qty(part_item, repair_warehouse)
+		if not used_part.get("stock_entry") or used_part.get("outcome") != "Usada no reparo" or qty_after_used >= qty_before_used:
+			raise AssertionError("Uso técnico não baixou a peça no estoque de Reparo.")
+		if any(key in used_part for key in ("unit_price", "amount", "valuation_rate", "rate")):
+			raise AssertionError("Execução técnica expôs custo ou preço de peça.")
+		retry = set_service_order_part_outcome(used_doc.name, used_doc.parts[0].name, "Usada no reparo")
+		if retry["parts"][0].get("stock_entry") != used_part["stock_entry"] or _bin_qty(part_item, repair_warehouse) != qty_after_used:
+			raise AssertionError("Reenvio da baixa técnica duplicou a saída de estoque.")
+
+		lost_doc = prepare_order("perdida")
+		loss_reason_required = False
+		try:
+			set_service_order_part_outcome(lost_doc.name, lost_doc.parts[0].name, "Perdida")
+		except frappe.ValidationError:
+			loss_reason_required = True
+		if not loss_reason_required:
+			raise AssertionError("Perda de peça foi aceita sem motivo obrigatório.")
+		lost = set_service_order_part_outcome(
+			lost_doc.name,
+			lost_doc.parts[0].name,
+			"Perdida",
+			"Perda da loja",
+		)
+		lost_part = lost["parts"][0]
+		if not lost_part.get("stock_entry") or lost_part.get("outcome") != "Perdida" or lost_part.get("loss_reason") != "Perda da loja":
+			raise AssertionError("Perda técnica não foi registrada pelo motor de peças.")
+		other_doc = prepare_order("alheia")
+		frappe.db.set_value("Service Order", other_doc.name, "technician", manager, update_modified=False)
+		other_order_blocked = False
+		try:
+			set_service_order_part_outcome(other_doc.name, other_doc.parts[0].name, "Usada no reparo")
+		except frappe.PermissionError:
+			other_order_blocked = True
+		if not other_order_blocked:
+			raise AssertionError("Técnico registrou peça em uma OS fora da sua carteira.")
+		leaks = contains_sensitive_field({"used": used, "lost": lost})
+		if leaks:
+			raise AssertionError(f"Execução técnica vazou dado sensível: {', '.join(leaks)}")
+
+		return {
+			"technician": technician,
+			"used_stock_entry": used_part["stock_entry"],
+			"used_qty_before": qty_before_used,
+			"used_qty_after": qty_after_used,
+			"idempotent": True,
+			"loss_reason_required": loss_reason_required,
+			"lost_stock_entry": lost_part["stock_entry"],
+			"other_order_blocked": other_order_blocked,
+			"leaked_fields": leaks,
 		}
 	finally:
 		frappe.set_user(previous_user)
