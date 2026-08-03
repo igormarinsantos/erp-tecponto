@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import quote
 
@@ -23,7 +24,7 @@ from tecponto_app.tecponto.pos import (
 	POS_PAYMENT_MODES,
 	POS_BARCODE_LABEL_PRINT_FORMAT,
 	POS_PROFILE_NAME,
-	POS_RECEIPT_PRINT_FORMAT,
+POS_RECEIPT_PRINT_FORMAT,
 	_company_currency,
 	_cost_center,
 	_default_company,
@@ -44,6 +45,18 @@ INVENTORY_RECEIPT_ROLES = {"Tecponto Gestor", "System Manager"}
 IDEMPOTENCY_DOCTYPE = "Tecponto POS Sale Request"
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,95}$")
 CONSUMER_FINAL_CUSTOMER = "CONSUMIDOR FINAL"
+
+
+@contextmanager
+def _preserve_session_user():
+	"""Temporarily use the system user for Frappe's account-controller checks."""
+	previous_user = getattr(frappe.session, "user", None)
+	try:
+		frappe.set_user("Administrator")
+		yield
+	finally:
+		if previous_user:
+			frappe.set_user(previous_user)
 
 
 @frappe.whitelist()
@@ -790,8 +803,12 @@ def _create_sales_invoice(
 		invoice.append("payments", payment)
 
 	invoice.flags.ignore_permissions = True
-	invoice.insert(ignore_permissions=True)
-	invoice.submit()
+	# The endpoint has already resolved server-owned price, stock, floor and
+	# payment accounts. ERPNext then performs its own account-controller checks,
+	# which require a sales role the cashier must never receive.
+	with _preserve_session_user():
+		invoice.insert(ignore_permissions=True)
+		invoice.submit()
 	return invoice
 
 
