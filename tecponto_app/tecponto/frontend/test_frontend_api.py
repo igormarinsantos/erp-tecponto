@@ -3524,7 +3524,10 @@ def run_technician_part_execution_checks() -> dict:
 		Image.new("RGB", (24, 24), color=(22, 72, 110)).save(selfie, format="JPEG")
 		selfie_data = "data:image/jpeg;base64," + b64encode(selfie.getvalue()).decode()
 		signature = BytesIO()
-		Image.new("RGB", (160, 60), color=(245, 245, 245)).save(signature, format="PNG")
+		signature_canvas = Image.new("RGB", (160, 60), color=(245, 245, 245))
+		signature_draw = ImageDraw.Draw(signature_canvas)
+		signature_draw.line([(12, 42), (46, 14), (82, 46), (116, 16), (148, 38)], fill=(32, 36, 40), width=4)
+		signature_canvas.save(signature, format="PNG")
 		signature_data = "data:image/png;base64," + b64encode(signature.getvalue()).decode()
 
 		def prepare_order(label: str):
