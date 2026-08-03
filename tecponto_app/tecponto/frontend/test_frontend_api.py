@@ -2986,9 +2986,28 @@ def _get_demo_item(is_stock_item: int) -> str:
 		{"disabled": 0, "is_stock_item": is_stock_item, "has_serial_no": 0},
 		"name",
 	)
-	if not item:
-		raise AssertionError("Não há item de teste disponível para montar o orçamento da OS.")
-	return item
+	if item:
+		return item
+
+	# A full CI run starts from an empty ERPNext site. Keep the service-order
+	# fixtures self-contained instead of relying on locally seeded Items.
+	item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
+	stock_uom = frappe.db.get_value("UOM", {"enabled": 1}, "name") or "Nos"
+	item_code = "TP-CI-PECA" if is_stock_item else "TP-CI-SERVICO"
+	item_name = "Peça de teste CI" if is_stock_item else "Serviço de teste CI"
+	if not frappe.db.exists("Item", item_code):
+		frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code,
+				"item_name": item_name,
+				"item_group": item_group,
+				"stock_uom": stock_uom,
+				"is_stock_item": is_stock_item,
+				"disabled": 0,
+			}
+		).insert(ignore_permissions=True)
+	return item_code
 
 
 def _get_demo_warehouse() -> str | None:
