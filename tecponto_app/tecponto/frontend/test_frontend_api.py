@@ -4262,6 +4262,9 @@ def _check_management_stock_scope_routing(manager: str, director: str) -> dict:
 		if not repair_warehouse or not commercial_warehouse:
 			raise AssertionError("Depósitos de Reparo e Comercial precisam estar configurados.")
 
+		# ERPNext creates a native Item Price while seeding the fixture. This is setup
+		# only; the assertions below always execute as Gestor and Diretor.
+		frappe.set_user("Administrator")
 		repair_item = _ensure_part_request_repair_item()
 		_ensure_pos_demo_stock(repair_item, repair_warehouse, valuation_rate=10)
 		commercial_item = _ensure_pos_demo_records()["items"][0]
