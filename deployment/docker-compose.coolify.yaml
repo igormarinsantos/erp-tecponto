@@ -24,7 +24,10 @@ services:
       - 'sites:/home/frappe/frappe-bench/sites'
       - 'logs:/home/frappe/frappe-bench/logs'
     environment:
-      SITE_NAME: '${SITE_NAME:?Defina SITE_NAME no Coolify}'
+      # Coolify Compose Empty does not reliably expand the ${VAR:?message}
+      # form into service environments. This must be the literal production
+      # site name so Frappe and Nginx always agree on the same tenant.
+      SITE_NAME: 'erp.tecponto.sbs'
       ADMIN_PASSWORD: '${SERVICE_PASSWORD_ADMIN}'
       DB_ROOT_PASSWORD: '${SERVICE_PASSWORD_DB}'
     entrypoint:
@@ -109,7 +112,7 @@ services:
     environment:
       BACKEND: 'backend:8000'
       SOCKETIO: 'websocket:9000'
-      FRAPPE_SITE_NAME_HEADER: '${SITE_NAME:?Defina SITE_NAME no Coolify}'
+      FRAPPE_SITE_NAME_HEADER: 'erp.tecponto.sbs'
       UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
       UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
       UPSTREAM_REAL_IP_RECURSIVE: 'off'
@@ -120,7 +123,7 @@ services:
       - 'logs:/home/frappe/frappe-bench/logs'
     labels:
       - traefik.enable=true
-      - traefik.http.routers.tecponto-router.rule=Host(`${SITE_NAME:?Defina SITE_NAME no Coolify}`)
+      - traefik.http.routers.tecponto-router.rule=Host(`erp.tecponto.sbs`)
       - traefik.http.routers.tecponto-router.entryPoints=https
       - traefik.http.routers.tecponto-router.tls=true
       - traefik.http.routers.tecponto-router.tls.certresolver=letsencrypt
