@@ -2946,6 +2946,7 @@ def _get_or_create_demo_customer() -> str:
 			"customer_name": customer_name,
 			"customer_type": "Individual",
 			"mobile_no": "(11) 90000-3101",
+			"custom_cpf": "12345678909",
 			"email_id": "cliente.demo.31b@tecponto.local",
 		}
 	)
