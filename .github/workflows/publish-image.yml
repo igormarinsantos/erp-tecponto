@@ -1,7 +1,9 @@
-name: Publish Tecponto production image
+name: Verify and publish Tecponto production image
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [version-16]
   push:
     branches: [version-16]
     paths:
@@ -10,13 +12,148 @@ on:
       - "deployment/**"
       - ".github/workflows/publish-image.yml"
 
-permissions:
-  contents: read
-  packages: write
-
 jobs:
-  build-and-push:
+  verify:
+    name: Test Frappe engine and frontend
     runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:6.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - name: Checkout Tecponto
+        uses: actions/checkout@v4
+        with:
+          path: tecponto
+
+      - name: Checkout frappe_docker build context
+        uses: actions/checkout@v4
+        with:
+          repository: frappe/frappe_docker
+          ref: main
+          path: frappe_docker
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tecponto/frontend/package-lock.json
+
+      - name: Typecheck, build and frontend guards
+        working-directory: tecponto/frontend
+        run: |
+          npm ci --include=dev
+          npm run build
+
+      - name: Prepare BuildKit secrets
+        shell: bash
+        env:
+          BUILD_TOKEN: ${{ github.token }}
+        run: |
+          cp tecponto/deployment/apps.production.json "$RUNNER_TEMP/apps.json"
+          printf '[url "https://x-access-token:%s@github.com/"]\n\tinsteadOf = https://github.com/\n' "$BUILD_TOKEN" > "$RUNNER_TEMP/gitconfig"
+          chmod 600 "$RUNNER_TEMP/apps.json" "$RUNNER_TEMP/gitconfig"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # This is a disposable image. It provides the exact Frappe/ERPNext runtime
+      # used by production; the checked-out app source is mounted below for tests.
+      - name: Build CI Frappe image
+        uses: docker/build-push-action@v6
+        with:
+          context: frappe_docker
+          file: ${{ github.workspace }}/tecponto/deployment/Containerfile
+          load: true
+          push: false
+          tags: tecponto-ci:${{ github.sha }}
+          build-args: |
+            FRAPPE_BRANCH=version-16
+            FRAPPE_IMAGE_PREFIX=frappe
+          secret-files: |
+            apps_json=${{ runner.temp }}/apps.json
+            git_config=${{ runner.temp }}/gitconfig
+
+      - name: Create an ephemeral Frappe site and run the full Tecponto suite
+        env:
+          CI_IMAGE: tecponto-ci:${{ github.sha }}
+        run: |
+          cat > "$RUNNER_TEMP/run-frappe-suite.sh" <<'SCRIPT'
+          set -euo pipefail
+
+          export SITE_NAME=ci.local
+          export DB_ROOT_PASSWORD=ci-root-password
+          cd /home/frappe/frappe-bench
+
+          bench set-config -g db_host 127.0.0.1
+          bench set-config -g redis_cache redis://127.0.0.1:6379
+          bench set-config -g redis_queue redis://127.0.0.1:6379
+          bench set-config -g redis_socketio redis://127.0.0.1:6379
+
+          bench new-site "$SITE_NAME" \
+            --mariadb-root-password "$DB_ROOT_PASSWORD" \
+            --db-root-username root \
+            --admin-password ci-admin-password \
+            --mariadb-user-host-login-scope '%' \
+            --install-app erpnext \
+            --set-default
+
+          ./env/bin/python - "$SITE_NAME" <<'PY'
+          import os
+          import sys
+
+          import frappe
+
+          sites_path = "/home/frappe/frappe-bench/sites"
+          os.chdir(sites_path)
+          frappe.init(site=sys.argv[1], sites_path=sites_path)
+          frappe.connect()
+          frappe.set_user("Administrator")
+          from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
+          setup_complete('{"country":"Brazil","company_name":"Tecponto","company_abbr":"TEC","currency":"BRL","timezone":"America/Sao_Paulo","fy_start_date":"2026-01-01","fy_end_date":"2026-12-31","chart_of_accounts":"Standard"}')
+          from tecponto_app.install import bootstrap_erpnext_foundation
+          bootstrap_erpnext_foundation()
+          frappe.db.commit()
+          frappe.destroy()
+          PY
+
+          bench --site "$SITE_NAME" install-app tecponto_app
+          bench --site "$SITE_NAME" migrate
+          bench --site "$SITE_NAME" execute tecponto_app.tecponto.frontend.test_frontend_api.run_foundation_checks
+          SCRIPT
+          chmod +x "$RUNNER_TEMP/run-frappe-suite.sh"
+          docker run --rm --network host \
+            --volume "$GITHUB_WORKSPACE/tecponto:/home/frappe/frappe-bench/apps/tecponto_app:ro" \
+            --volume "$RUNNER_TEMP/run-frappe-suite.sh:/tmp/run-frappe-suite.sh:ro" \
+            --entrypoint bash \
+            "$CI_IMAGE" /tmp/run-frappe-suite.sh
+
+  publish:
+    name: Publish GHCR image
+    needs: verify
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout Tecponto
         uses: actions/checkout@v4
