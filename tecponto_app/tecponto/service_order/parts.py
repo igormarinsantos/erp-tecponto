@@ -310,7 +310,8 @@ def _liberar_reserva(reservation: str | None) -> None:
 	# technician has already been authorized for that OS and its exact child row;
 	# cancelling this reservation is an internal stock-engine operation, not a
 	# generic Stock Reservation Entry permission grant.
-	reservation_doc.cancel(ignore_permissions=True)
+	reservation_doc.flags.ignore_permissions = True
+	reservation_doc.cancel()
 
 
 def _validate_stock_part(part_row) -> None:
