@@ -3605,7 +3605,7 @@ def run_technician_part_execution_checks() -> dict:
 		if not lost_part.get("stock_entry") or lost_part.get("outcome") != "Perdida" or lost_part.get("loss_reason") != "Perda da loja":
 			raise AssertionError("Perda técnica não foi registrada pelo motor de peças.")
 		other_doc = prepare_order("alheia")
-		frappe.db.set_value("Service Order", other_doc.name, "technician", manager, update_modified=False)
+		frappe.db.set_value("Service Order", other_doc.name, "technician", attendant, update_modified=False)
 		other_order_blocked = False
 		try:
 			set_service_order_part_outcome(other_doc.name, other_doc.parts[0].name, "Usada no reparo")
