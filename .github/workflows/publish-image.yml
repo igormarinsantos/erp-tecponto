@@ -1,4 +1,4 @@
-name: Verify and publish Tecponto production image
+name: Validate, integrate and publish Tecponto production image
 
 on:
   workflow_dispatch:
@@ -13,9 +13,52 @@ on:
       - ".github/workflows/publish-image.yml"
 
 jobs:
-  verify:
-    name: Test Frappe engine and frontend
+  changes:
+    name: Detect runtime image changes
     runs-on: ubuntu-latest
+    outputs:
+      runtime: ${{ steps.filter.outputs.runtime }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            runtime:
+              - 'deployment/Containerfile'
+              - 'deployment/apps.production.json'
+              - 'deployment/**/requirements*.txt'
+
+  validate:
+    name: Fast frontend and Python validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Tecponto
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Typecheck, build and frontend guards
+        working-directory: frontend
+        run: |
+          npm ci --include=dev
+          npm run build
+
+      - name: Compile Python application sources
+        run: python3 -m compileall -q tecponto_app
+
+  integration:
+    name: Full Frappe integration suite
+    needs: [changes, validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     services:
       mariadb:
         image: mariadb:10.6
@@ -43,27 +86,28 @@ jobs:
         with:
           path: tecponto
 
+      - name: Log in to GHCR for the published runtime image
+        if: needs.changes.outputs.runtime != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull published runtime image
+        if: needs.changes.outputs.runtime != 'true'
+        run: docker pull ghcr.io/${{ github.repository_owner }}/erp-tecponto:version-16
+
       - name: Checkout frappe_docker build context
+        if: needs.changes.outputs.runtime == 'true'
         uses: actions/checkout@v4
         with:
           repository: frappe/frappe_docker
           ref: main
           path: frappe_docker
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: tecponto/frontend/package-lock.json
-
-      - name: Typecheck, build and frontend guards
-        working-directory: tecponto/frontend
-        run: |
-          npm ci --include=dev
-          npm run build
-
       - name: Prepare BuildKit secrets
+        if: needs.changes.outputs.runtime == 'true'
         shell: bash
         env:
           BUILD_TOKEN: ${{ github.token }}
@@ -72,12 +116,12 @@ jobs:
           printf '[url "https://x-access-token:%s@github.com/"]\n\tinsteadOf = https://github.com/\n' "$BUILD_TOKEN" > "$RUNNER_TEMP/gitconfig"
           chmod 600 "$RUNNER_TEMP/apps.json" "$RUNNER_TEMP/gitconfig"
 
-      - name: Set up Buildx
+      - name: Set up Buildx for runtime changes
+        if: needs.changes.outputs.runtime == 'true'
         uses: docker/setup-buildx-action@v3
 
-      # This is a disposable image. It provides the exact Frappe/ERPNext runtime
-      # used by production; the checked-out app source is mounted below for tests.
-      - name: Build CI Frappe image
+      - name: Build an ephemeral runtime image when its definition changed
+        if: needs.changes.outputs.runtime == 'true'
         uses: docker/build-push-action@v6
         with:
           context: frappe_docker
@@ -94,7 +138,7 @@ jobs:
 
       - name: Create an ephemeral Frappe site and run the full Tecponto suite
         env:
-          CI_IMAGE: tecponto-ci:${{ github.sha }}
+          CI_IMAGE: ${{ needs.changes.outputs.runtime == 'true' && format('tecponto-ci:{0}', github.sha) || format('ghcr.io/{0}/erp-tecponto:version-16', github.repository_owner) }}
         run: |
           cat > "$RUNNER_TEMP/run-frappe-suite.sh" <<'SCRIPT'
           set -euo pipefail
@@ -150,8 +194,8 @@ jobs:
 
   publish:
     name: Publish GHCR image
-    needs: verify
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: integration
+    if: github.event_name == 'push' && github.ref == 'refs/heads/version-16'
     runs-on: ubuntu-latest
     permissions:
       contents: read
