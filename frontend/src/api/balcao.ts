@@ -17,7 +17,12 @@ import type {
   StockItemListResponse,
 	StockTransferResponse,
 	TradeEvaluationListResponse,
+	TradeEvaluationSummary,
 	SetTradeInApprovedValueResponse,
+	CreateTradeEvaluationPayload,
+	CompleteTradeBuybackResponse,
+	ConfirmTradeInOperationResponse,
+	TradeOutputDeviceListResponse,
 } from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
@@ -81,6 +86,18 @@ export const balcao = {
 		return rpc<SetTradeInApprovedValueResponse>(`${API}.set_tradein_approved_value`, {
 			body: { name, approved_value: approvedValue },
 		});
+	},
+	createTradeEvaluation(payload: CreateTradeEvaluationPayload) {
+		return rpc<{ item: TradeEvaluationSummary }>(`${API}.create_trade_evaluation`, { body: { payload } });
+	},
+	completeTradeBuyback(name: string) {
+		return rpc<CompleteTradeBuybackResponse>(`${API}.complete_trade_buyback`, { body: { name } });
+	},
+	listTradeInOutputDevices(query = "", limit = 20) {
+		return rpc<TradeOutputDeviceListResponse>(`${API}.list_tradein_output_devices`, { query: { query, limit } });
+	},
+	confirmTradeInOperation(payload: { evaluation: string; device_out: string; difference: number; payment_mode?: string; notes?: string }) {
+		return rpc<ConfirmTradeInOperationResponse>(`${API}.confirm_tradein_operation`, { body: { payload } });
 	},
   listStockItems(query = "", limit = 12, scope = "parts-stock", category = "") {
     return rpc<StockItemListResponse>(`${API}.list_stock_items`, {

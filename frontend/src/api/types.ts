@@ -909,11 +909,14 @@ export interface TradeEvaluationSummary {
   model: string | null;
   imei: string | null;
   physical_state: string | null;
-  destination: string | null;
+	destination: string | null;
+	suggested_value: number;
 	approved_value: number;
 	table_max: number;
-  workflow_state: string | null;
-  modified: string;
+	workflow_state: string | null;
+	created_item: string | null;
+	trade_category: string | null;
+	modified: string;
 }
 
 export interface SetTradeInApprovedValueResponse {
@@ -924,6 +927,55 @@ export interface TradeEvaluationListResponse {
   items: TradeEvaluationSummary[];
   count: number;
   fields: string[];
+}
+
+export interface CreateTradeEvaluationPayload {
+	customer: string;
+	device_type: "iPhone" | "Android";
+	evaluated_device_desc?: string;
+	model: string;
+	imei: string;
+	capacity?: string;
+	physical_state: "A" | "B" | "C" | "Sucata";
+	destination: "Venda" | "Peças" | "Descarte";
+	suggested_value: number;
+	table_min?: number;
+	table_max?: number;
+	icloud_google_lock?: boolean;
+	has_invoice?: boolean;
+	defects?: string;
+}
+
+export interface TradeOutputDevice {
+	name: string;
+	serial_no: string;
+	item_code: string;
+	item_name: string;
+}
+
+export interface TradeOutputDeviceListResponse {
+	items: TradeOutputDevice[];
+	count: number;
+}
+
+export interface TradeInOperationSummary {
+	name: string;
+	evaluation: string;
+	device_out: string;
+	difference: number;
+	atomic_status: string;
+	used_device_fiscal_ref: string | null;
+	sale_fiscal_ref: string | null;
+}
+
+export interface CompleteTradeBuybackResponse {
+	item: TradeEvaluationSummary;
+	created_item: string | null;
+}
+
+export interface ConfirmTradeInOperationResponse {
+	operation: TradeInOperationSummary;
+	evaluation: TradeEvaluationSummary;
 }
 
 export interface StockItemSummary {

@@ -116,6 +116,11 @@ export type {
   TecpontoNotification,
   TecpontoTask,
   TradeEvaluationListResponse,
-  TradeEvaluationSummary,
+	TradeEvaluationSummary,
+	CreateTradeEvaluationPayload,
+	TradeOutputDevice,
+	CompleteTradeBuybackResponse,
+	ConfirmTradeInOperationResponse,
+	TradeOutputDeviceListResponse,
 	SetTradeInApprovedValueResponse,
 } from "./types";

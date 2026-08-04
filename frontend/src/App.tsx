@@ -90,6 +90,8 @@ import {
   type TecpontoNotification,
   type TecpontoTask,
   type TradeEvaluationSummary,
+	 type CreateTradeEvaluationPayload,
+	 type TradeOutputDevice,
 } from "./api";
 import { login } from "./api/auth";
 import { isAuthRequiredError } from "./api/client";
@@ -5735,6 +5737,8 @@ function TradeLookup({ onToast }: { onToast: (message: string, tone?: ToastState
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<TradeEvaluationSummary[]>([]);
   const [selectedTrade, setSelectedTrade] = useState<TradeEvaluationSummary | null>(null);
+	const [createOpen, setCreateOpen] = useState(false);
+	const [operationOpen, setOperationOpen] = useState(false);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [statItems, setStatItems] = useState<Array<{ key: string; label: string; value: number }>>([]);
   const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.trades.presentation"));
@@ -5798,6 +5802,7 @@ function TradeLookup({ onToast }: { onToast: (message: string, tone?: ToastState
         statBar={<StatBar items={statItems.map((item) => ({ ...item, ...getStatBarVisual("trades", item.key) }))} />}
         status={status}
         title="Trocas"
+		headerAction={<Button icon={<Plus size={16} />} onClick={() => setCreateOpen(true)}>Nova avaliação</Button>}
         activeQuickFilter={quickFilter}
         advancedFilters={<label className="block text-xs font-bold text-tec-subtle">Identificação do aparelho<select className="tp-input mt-1 w-full" onChange={(event) => setAdvancedFilter(event.target.value)} value={advancedFilter}><option value="all">Todas</option><option value="with_imei">Com IMEI ou serial</option><option value="without_imei">Sem IMEI ou serial</option></select></label>}
         onClear={() => { setQuickFilter("open"); setAdvancedFilter("all"); }}
@@ -5813,7 +5818,30 @@ function TradeLookup({ onToast }: { onToast: (message: string, tone?: ToastState
 				setRows((current) => current.map((row) => row.name === updated.name ? updated : row));
 				setSelectedTrade(updated);
 			}}
+			onOpenOperation={() => setOperationOpen(true)}
 			onToast={onToast}
+		/>
+		<TradeEvaluationCreateModal
+			onClose={() => setCreateOpen(false)}
+			onCreated={(created) => {
+				setRows((current) => [created, ...current]);
+				setCreateOpen(false);
+				setSelectedTrade(created);
+				onToast("Avaliação criada. Registre o valor aprovado para concluir a operação.", "success");
+			}}
+			onToast={onToast}
+			open={createOpen}
+		/>
+		<TradeInOperationModal
+			evaluation={selectedTrade}
+			onClose={() => setOperationOpen(false)}
+			onCompleted={(updated) => {
+				setRows((current) => current.map((row) => row.name === updated.name ? updated : row));
+				setSelectedTrade(updated);
+				setOperationOpen(false);
+			}}
+			onToast={onToast}
+			open={operationOpen}
 		/>
     </>
   );
@@ -5823,16 +5851,19 @@ function TradeEvaluationDetailModal({
   evaluation,
   onClose,
 	onSaved,
+	onOpenOperation,
 	onToast,
 }: {
   evaluation: TradeEvaluationSummary | null;
   onClose: () => void;
 	onSaved: (evaluation: TradeEvaluationSummary) => void;
+	onOpenOperation: () => void;
 	onToast: (message: string, tone?: ToastState["tone"]) => void;
 }) {
 	const [approvedValue, setApprovedValue] = useState("");
 	const [saving, setSaving] = useState(false);
 	const [approvalNeeded, setApprovalNeeded] = useState(false);
+	const [buying, setBuying] = useState(false);
 
 	useEffect(() => {
 		setApprovedValue(evaluation?.approved_value ? String(evaluation.approved_value) : "");
@@ -5867,6 +5898,20 @@ function TradeEvaluationDetailModal({
 		}
 	};
 
+	const completeBuyback = async () => {
+		if (!evaluation) return;
+		setBuying(true);
+		try {
+			const response = await balcao.completeTradeBuyback(evaluation.name);
+			onSaved(response.item);
+			onToast(response.created_item ? `Compra concluída. Item ${response.created_item} entrou no estoque.` : "Compra concluída.", "success");
+		} catch (error) {
+			onToast(error instanceof Error ? error.message : "Não foi possível concluir a compra.", "error");
+		} finally {
+			setBuying(false);
+		}
+	};
+
   return (
     <Modal className="max-w-2xl" onClose={onClose} open={Boolean(evaluation)} title="Detalhe da avaliação">
       {evaluation ? (
@@ -5895,6 +5940,11 @@ function TradeEvaluationDetailModal({
 					<Button disabled={saving} onClick={() => void saveApprovedValue()} variant="primary">{saving ? "Validando..." : "Registrar valor"}</Button>
 				</div>
 			</div>
+			{evaluation.approved_value > 0 && !evaluation.created_item && evaluation.destination !== "Descarte" ? <div className="mt-4 flex flex-wrap justify-end gap-2">
+				<Button disabled={buying} onClick={() => void completeBuyback()} variant="secondary">{buying ? "Concluindo..." : "Concluir buyback"}</Button>
+				<Button icon={<ArrowRightLeft size={16} />} onClick={onOpenOperation}>Confirmar troca</Button>
+			</div> : null}
+			{evaluation.created_item ? <div className="mt-4 rounded-control border border-tec-success/25 bg-tec-success/10 px-3 py-2 text-sm font-semibold text-tec-success">Aparelho recebido como item único: {evaluation.created_item}</div> : null}
         </Card>
       ) : null}
 		<ApprovalRequestModal
@@ -5909,6 +5959,146 @@ function TradeEvaluationDetailModal({
 		/>
     </Modal>
   );
+}
+
+function TradeEvaluationCreateModal({
+	onClose,
+	onCreated,
+	onToast,
+	open,
+}: {
+	onClose: () => void;
+	onCreated: (evaluation: TradeEvaluationSummary) => void;
+	onToast: (message: string, tone?: ToastState["tone"]) => void;
+	open: boolean;
+}) {
+	const [customerQuery, setCustomerQuery] = useState("");
+	const [customers, setCustomers] = useState<CustomerSummary[]>([]);
+	const [customer, setCustomer] = useState<CustomerSummary | null>(null);
+	const [model, setModel] = useState("");
+	const [imei, setImei] = useState("");
+	const [deviceType, setDeviceType] = useState<"iPhone" | "Android">("iPhone");
+	const [physicalState, setPhysicalState] = useState<"A" | "B" | "C" | "Sucata">("B");
+	const [destination, setDestination] = useState<"Venda" | "Peças" | "Descarte">("Venda");
+	const [suggestedValue, setSuggestedValue] = useState("");
+	const [tableMax, setTableMax] = useState("");
+	const [defects, setDefects] = useState("");
+	const [saving, setSaving] = useState(false);
+
+	useEffect(() => {
+		if (!open) return;
+		setCustomerQuery(""); setCustomers([]); setCustomer(null); setModel(""); setImei(""); setDeviceType("iPhone"); setPhysicalState("B"); setDestination("Venda"); setSuggestedValue(""); setTableMax(""); setDefects("");
+	}, [open]);
+
+	useEffect(() => {
+		if (!open || customer) return;
+		const normalized = customerQuery.trim();
+		if (normalized.length < 2) { setCustomers([]); return; }
+		const timer = window.setTimeout(() => {
+			void balcao.searchCustomers(normalized, 8).then((response) => setCustomers(response.items)).catch(() => setCustomers([]));
+		}, 220);
+		return () => window.clearTimeout(timer);
+	}, [customer, customerQuery, open]);
+
+	const submit = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		const value = Number(suggestedValue.replace(",", "."));
+		if (!customer || !model.trim() || !imei.trim() || !Number.isFinite(value) || value <= 0) {
+			onToast("Selecione o cliente e informe modelo, IMEI/serial e valor avaliado.", "error");
+			return;
+		}
+		setSaving(true);
+		try {
+			const payload: CreateTradeEvaluationPayload = {
+				customer: customer.name,
+				device_type: deviceType,
+				model: model.trim(),
+				evaluated_device_desc: `${deviceType} ${model.trim()}`,
+				imei: imei.trim(),
+				physical_state: physicalState,
+				destination,
+				suggested_value: value,
+				table_max: Number(tableMax.replace(",", ".")) || undefined,
+				defects: defects.trim() || undefined,
+			};
+			const response = await balcao.createTradeEvaluation(payload);
+			onCreated(response.item);
+		} catch (error) {
+			onToast(error instanceof Error ? error.message : "Não foi possível criar a avaliação.", "error");
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	return <Modal className="max-w-3xl" onClose={onClose} open={open} title="Nova avaliação de troca">
+		<form className="space-y-5" onSubmit={(event) => void submit(event)}>
+			<section className="rounded-card border border-tec-border/15 bg-tec-field/40 p-4">
+				<label className="block text-sm font-bold text-white">Cliente</label>
+				{customer ? <div className="mt-2 flex items-center justify-between gap-3 rounded-control border border-tec-success/30 bg-tec-success/10 px-3 py-2"><span className="min-w-0 truncate text-sm font-semibold text-tec-text">{customer.customer_name || customer.name}</span><button className="text-xs font-bold text-tec-success" onClick={() => { setCustomer(null); setCustomerQuery(""); }} type="button">Trocar</button></div> : <div className="relative mt-2"><input className="tp-input w-full" onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Buscar por nome, telefone, CPF ou RG" value={customerQuery} />{customers.length ? <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-control border border-tec-border/25 bg-tec-panel shadow-xl">{customers.map((item) => <button className="block w-full border-b border-tec-border/15 px-3 py-2.5 text-left text-sm transition last:border-b-0 hover:bg-tec-orange/10" key={item.name} onClick={() => { setCustomer(item); setCustomers([]); }} type="button"><span className="block font-bold text-white">{item.customer_name || item.name}</span><span className="text-xs text-tec-muted">{item.mobile_no || item.custom_whatsapp || item.name}</span></button>)}</div> : null}</div>}
+			</section>
+			<div className="grid gap-4 sm:grid-cols-2">
+				<label className="text-sm font-bold text-white">Tipo<select className="tp-input mt-2 w-full" onChange={(event) => setDeviceType(event.target.value as "iPhone" | "Android")} value={deviceType}><option value="iPhone">iPhone</option><option value="Android">Android</option></select></label>
+				<label className="text-sm font-bold text-white">Estado físico<select className="tp-input mt-2 w-full" onChange={(event) => setPhysicalState(event.target.value as "A" | "B" | "C" | "Sucata")} value={physicalState}><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="Sucata">Sucata</option></select></label>
+				<label className="text-sm font-bold text-white">Modelo<input className="tp-input mt-2 w-full" onChange={(event) => setModel(event.target.value)} placeholder="Ex.: iPhone 13 128GB" value={model} /></label>
+				<label className="text-sm font-bold text-white">IMEI / Serial<input className="tp-input mt-2 w-full" onChange={(event) => setImei(event.target.value)} placeholder="Identificação do aparelho" value={imei} /></label>
+				<label className="text-sm font-bold text-white">Destino<select className="tp-input mt-2 w-full" onChange={(event) => setDestination(event.target.value as "Venda" | "Peças" | "Descarte")} value={destination}><option value="Venda">Venda</option><option value="Peças">Peças</option><option value="Descarte">Descarte</option></select></label>
+				<label className="text-sm font-bold text-white">Valor avaliado<input className="tp-input mt-2 w-full" inputMode="decimal" onChange={(event) => setSuggestedValue(event.target.value)} placeholder="R$ 0,00" value={suggestedValue} /></label>
+				<label className="text-sm font-bold text-white">Teto da tabela <span className="font-medium text-tec-muted">(opcional)</span><input className="tp-input mt-2 w-full" inputMode="decimal" onChange={(event) => setTableMax(event.target.value)} placeholder="R$ 0,00" value={tableMax} /></label>
+				<label className="text-sm font-bold text-white">Defeitos <span className="font-medium text-tec-muted">(opcional)</span><input className="tp-input mt-2 w-full" onChange={(event) => setDefects(event.target.value)} placeholder="Resumo do estado técnico" value={defects} /></label>
+			</div>
+			<div className="flex justify-end gap-2"><Button onClick={onClose} variant="ghost">Cancelar</Button><Button disabled={saving} type="submit">{saving ? "Criando..." : "Criar avaliação"}</Button></div>
+		</form>
+	</Modal>;
+}
+
+function TradeInOperationModal({
+	evaluation,
+	onClose,
+	onCompleted,
+	onToast,
+	open,
+}: {
+	evaluation: TradeEvaluationSummary | null;
+	onClose: () => void;
+	onCompleted: (evaluation: TradeEvaluationSummary) => void;
+	onToast: (message: string, tone?: ToastState["tone"]) => void;
+	open: boolean;
+}) {
+	const [query, setQuery] = useState("");
+	const [devices, setDevices] = useState<TradeOutputDevice[]>([]);
+	const [device, setDevice] = useState<TradeOutputDevice | null>(null);
+	const [difference, setDifference] = useState("");
+	const [busy, setBusy] = useState(false);
+
+	useEffect(() => { if (open) { setQuery(""); setDevices([]); setDevice(null); setDifference(""); } }, [open]);
+	useEffect(() => {
+		if (!open || device) return;
+		const timer = window.setTimeout(() => { void balcao.listTradeInOutputDevices(query, 12).then((response) => setDevices(response.items)).catch(() => setDevices([])); }, 180);
+		return () => window.clearTimeout(timer);
+	}, [device, open, query]);
+
+	const confirm = async () => {
+		if (!evaluation || !device) { onToast("Selecione o aparelho que sairá da loja.", "error"); return; }
+		const value = Number(difference.replace(",", ".") || "0");
+		if (!Number.isFinite(value) || value < 0) { onToast("A diferença não pode ser negativa.", "error"); return; }
+		setBusy(true);
+		try {
+			const response = await balcao.confirmTradeInOperation({ evaluation: evaluation.name, device_out: device.name, difference: value });
+			onCompleted(response.evaluation);
+			onToast(`Troca ${response.operation.name} concluída com segurança.`, "success");
+		} catch (error) {
+			onToast(error instanceof Error ? error.message : "Não foi possível confirmar a troca.", "error");
+		} finally { setBusy(false); }
+	};
+
+	return <Modal className="max-w-2xl" onClose={onClose} open={open} title="Confirmar operação de troca">
+		{evaluation ? <div className="space-y-5"><p className="text-sm leading-6 text-tec-subtle">O motor registra em uma única operação a entrada do usado, a saída do aparelho escolhido e a diferença. Se qualquer perna falhar, nada é gravado.</p><DetailPill label="Aparelho recebido" value={`${evaluation.evaluated_device_desc || evaluation.model || evaluation.name} · ${formatCurrency(evaluation.approved_value)}`} />
+			<label className="block text-sm font-bold text-white">Aparelho que sai do Comercial<input className="tp-input mt-2 w-full" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por serial, IMEI ou item" value={query} /></label>
+			<div className="max-h-52 space-y-2 overflow-y-auto">{devices.map((item) => <button className={cx("flex w-full items-center justify-between gap-3 rounded-control border px-3 py-3 text-left transition", device?.name === item.name ? "border-tec-orange bg-tec-orange/10" : "border-tec-border/20 bg-tec-field/45 hover:border-tec-orange/45")} key={item.name} onClick={() => setDevice(item)} type="button"><span className="min-w-0"><span className="block truncate text-sm font-bold text-white">{item.item_name}</span><span className="block truncate text-xs text-tec-muted">{item.serial_no || item.item_code}</span></span><CheckCircle2 className={device?.name === item.name ? "text-tec-orange" : "text-tec-muted"} size={18} /></button>)}</div>
+			<label className="block text-sm font-bold text-white">Diferença recebida do cliente<input className="tp-input mt-2 w-full" inputMode="decimal" onChange={(event) => setDifference(event.target.value)} placeholder="R$ 0,00" value={difference} /></label>
+			<div className="flex justify-end gap-2"><Button onClick={onClose} variant="ghost">Cancelar</Button><Button disabled={busy || !device} icon={<ArrowRightLeft size={16} />} onClick={() => void confirm()}>{busy ? "Confirmando..." : "Confirmar troca"}</Button></div>
+		</div> : null}
+	</Modal>;
 }
 
 function StockLookup({

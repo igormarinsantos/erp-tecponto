@@ -46,6 +46,10 @@ from tecponto_app.tecponto.frontend.api import (
 	list_stock_items,
 	list_sales,
 	list_trade_evaluations,
+	create_trade_evaluation,
+	complete_trade_buyback,
+	list_tradein_output_devices,
+	confirm_tradein_operation,
 	move_service_order,
 	create_stock_transfer,
 	resolve_panel,
@@ -199,6 +203,7 @@ def run_foundation_checks() -> dict:
 			users["Tecponto Gestor"],
 			users["Tecponto Diretor"],
 		)
+		tradein_frontend_check = run_tradein_frontend_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
@@ -251,6 +256,7 @@ def run_foundation_checks() -> dict:
 			"part_purchase_cycle": part_purchase_cycle_check,
 			"part_receipt_reservation": part_receipt_check,
 			"management_stock_scope_routing": management_stock_scope_routing,
+			"tradein_frontend": tradein_frontend_check,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
@@ -3502,6 +3508,87 @@ def run_technician_scope_checks() -> dict:
 			"technical_detail_sanitized": True,
 			"own_diagnosis_saved": True,
 			"multi_role_union_preserved": True,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_tradein_frontend_checks() -> dict:
+	"""Exercise the React-facing trade-in endpoints while leaving the atomic engine authoritative."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		customer = _get_or_create_demo_customer()
+
+		def create_evaluation(*, suffix: str, value: float) -> dict:
+			return create_trade_evaluation(
+				{
+					"customer": customer,
+					"device_type": "iPhone",
+					"model": f"Trade-in React {suffix}",
+					"evaluated_device_desc": f"Trade-in React {suffix}",
+					"imei": f"TP-FRONT-TRADE-{suffix}-{frappe.generate_hash(length=10)}",
+					"physical_state": "B",
+					"destination": "Venda",
+					"suggested_value": value,
+				}
+			)["item"]
+
+		frappe.set_user(attendant)
+		seed = create_evaluation(suffix="SAIDA", value=300)
+		seed = set_tradein_approved_value(seed["name"], 300)["item"]
+		buyback = complete_trade_buyback(seed["name"])
+		if not buyback["created_item"] or not buyback["item"].get("created_item"):
+			raise AssertionError("Buyback pelo endpoint não criou o item único do aparelho usado.")
+		output_devices = list_tradein_output_devices(query=seed["imei"], limit=5)["items"]
+		output = next((item for item in output_devices if item["name"] == seed["imei"]), None)
+		if not output:
+			raise AssertionError("Aparelho recebido no Comercial não ficou disponível para a operação de troca.")
+
+		received = create_evaluation(suffix="ENTRADA", value=250)
+		received = set_tradein_approved_value(received["name"], 250)["item"]
+		operation = confirm_tradein_operation(
+			{"evaluation": received["name"], "device_out": output["name"], "difference": 100}
+		)
+		if operation["operation"]["atomic_status"] != "Concluída" or not operation["evaluation"].get("created_item"):
+			raise AssertionError("Troca pelo endpoint não concluiu as duas pernas atômicas.")
+		retry = confirm_tradein_operation(
+			{"evaluation": received["name"], "device_out": output["name"], "difference": 100}
+		)
+		if retry["operation"]["name"] != operation["operation"]["name"]:
+			raise AssertionError("Reenvio da troca criou uma segunda operação.")
+		below_floor = create_evaluation(suffix="PISO", value=100)
+		below_floor = set_tradein_approved_value(below_floor["name"], 100)["item"]
+		below_floor_blocked = False
+		try:
+			confirm_tradein_operation({"evaluation": below_floor["name"], "device_out": output["name"], "difference": 0})
+		except frappe.ValidationError:
+			below_floor_blocked = True
+		if not below_floor_blocked:
+			raise AssertionError("Atendente confirmou troca abaixo do custo após a elevação do hook.")
+		leaks = contains_sensitive_field({"buyback": buyback, "operation": operation, "devices": output_devices})
+		if leaks:
+			raise AssertionError(f"Endpoints de TROQUE vazaram campos sensíveis: {', '.join(leaks)}")
+
+		frappe.set_user(technician)
+		blocked = False
+		try:
+			create_evaluation(suffix="BLOQUEADO", value=100)
+		except frappe.PermissionError:
+			blocked = True
+		if not blocked:
+			raise AssertionError("Técnico acessou a criação de avaliação de troca.")
+
+		return {
+			"attendant": attendant,
+			"buyback_item": buyback["created_item"],
+			"operation": operation["operation"]["name"],
+			"operation_idempotent": True,
+			"below_cost_blocked_for_attendant": below_floor_blocked,
+			"technician_blocked": blocked,
+			"leaked_fields": leaks,
 		}
 	finally:
 		frappe.set_user(previous_user)

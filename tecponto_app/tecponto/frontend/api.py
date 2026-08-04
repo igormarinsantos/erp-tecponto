@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import quote
 
@@ -81,6 +82,7 @@ CHECKIN_ALLOWED_ROLES = {
 }
 ATTENDANT_FLOW_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POS_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
+TRADEIN_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES | {"Tecponto Diretor"}
 SERVICE_CATALOG_EDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 STORE_OPERATION_MANAGER_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 TECHNICIAN_COMMISSION_ROLES = {"System Manager", "Tecponto Tecnico"}
@@ -162,8 +164,11 @@ SAFE_TRADE_EVALUATION_FIELDS = (
 	"physical_state",
 	"destination",
 	"table_max",
+	"suggested_value",
 	"approved_value",
 	"workflow_state",
+	"created_item",
+	"trade_category",
 	"modified",
 )
 SAFE_SALES_INVOICE_FIELDS = (
@@ -228,6 +233,26 @@ def _require_pos_role() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(POS_ALLOWED_ROLES):
 		return
 	frappe.throw(_("Usuário sem permissão para operar o PDV do balcão."), frappe.PermissionError)
+
+
+def _require_tradein_role() -> None:
+	"""Trade-in is a counter/management flow; technicians cannot access it."""
+	_require_login()
+	if set(frappe.get_roles(frappe.session.user)).intersection(TRADEIN_ALLOWED_ROLES):
+		return
+	frappe.throw(_("Usuário sem permissão para operar avaliações de troca."), frappe.PermissionError)
+
+
+@contextmanager
+def _run_tradein_stock_mutation():
+	"""Temporarily run only the already-authorized trade-in stock/payment hook as Administrator."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		yield
+	finally:
+		if previous_user:
+			frappe.set_user(previous_user)
 
 
 def _require_service_catalog_editor() -> None:
@@ -2026,9 +2051,7 @@ def create_customer_device(payload: str | dict[str, Any] | None = None) -> dict[
 
 @frappe.whitelist()
 def list_trade_evaluations(query: str = "", limit: int = 12) -> dict[str, Any]:
-	_require_frontend_role()
-	if is_restricted_technician():
-		frappe.throw(_("O perfil técnico não consulta avaliações de troca."), frappe.PermissionError)
+	_require_tradein_role()
 	limit = max(1, min(int(limit or 12), 50))
 	query = (query or "").strip()
 	or_filters = _like_filters(
@@ -2050,11 +2073,60 @@ def list_trade_evaluations(query: str = "", limit: int = 12) -> dict[str, Any]:
 
 
 @frappe.whitelist()
+def create_trade_evaluation(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Create the evaluation document; table validation remains in the trade-in engine."""
+	_require_tradein_role()
+	data = _parse_payload(payload)
+	customer = (data.get("customer") or "").strip()
+	if not customer or not frappe.db.exists("Customer", customer):
+		frappe.throw(_("Selecione um cliente válido para a avaliação."), frappe.ValidationError)
+
+	device_type = (data.get("device_type") or "").strip()
+	if device_type not in {"iPhone", "Android"}:
+		frappe.throw(_("Selecione o tipo do aparelho."), frappe.ValidationError)
+
+	model = (data.get("model") or "").strip()
+	imei = (data.get("imei") or "").strip()
+	physical_state = (data.get("physical_state") or "").strip()
+	destination = (data.get("destination") or "").strip()
+	if not model or not imei or physical_state not in {"A", "B", "C", "Sucata"}:
+		frappe.throw(_("Informe modelo, IMEI/serial e estado físico."), frappe.ValidationError)
+	if destination not in {"Venda", "Peças", "Descarte"}:
+		frappe.throw(_("Selecione o destino do aparelho avaliado."), frappe.ValidationError)
+
+	suggested_value = flt(data.get("suggested_value"), 2)
+	if suggested_value <= 0:
+		frappe.throw(_("Informe o valor avaliado maior que zero."), frappe.ValidationError)
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "Device Trade Evaluation",
+			"customer": customer,
+			"device_type": device_type,
+			"evaluated_device_desc": (data.get("evaluated_device_desc") or model).strip(),
+			"model": model,
+			"imei": imei,
+			"capacity": (data.get("capacity") or "").strip(),
+			"physical_state": physical_state,
+			"icloud_google_lock": cint(bool(data.get("icloud_google_lock"))),
+			"has_invoice": cint(bool(data.get("has_invoice"))),
+			"defects": (data.get("defects") or "").strip(),
+			"table_min": flt(data.get("table_min"), 2),
+			"table_max": flt(data.get("table_max"), 2),
+			"suggested_value": suggested_value,
+			"destination": destination,
+			"workflow_state": STATE_AGUARDANDO_APROVACAO,
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	item = frappe.db.get_value("Device Trade Evaluation", doc.name, list(SAFE_TRADE_EVALUATION_FIELDS), as_dict=True)
+	return {"item": _serialize_trade_evaluation(item)}
+
+
+@frappe.whitelist()
 def set_tradein_approved_value(name: str, approved_value: float) -> dict[str, Any]:
 	"""Attempt the normal evaluation save so the trade table guard remains authoritative."""
-	_require_frontend_role()
-	if is_restricted_technician():
-		frappe.throw(_("O perfil técnico não define valores de troca."), frappe.PermissionError)
+	_require_tradein_role()
 	doc = frappe.get_doc("Device Trade Evaluation", (name or "").strip())
 	doc.approved_value = flt(approved_value, 2)
 	# This endpoint exposes only the table-governed value. Validation still runs under
@@ -2062,6 +2134,127 @@ def set_tradein_approved_value(name: str, approved_value: float) -> dict[str, An
 	doc.save(ignore_permissions=True)
 	item = frappe.db.get_value("Device Trade Evaluation", doc.name, list(SAFE_TRADE_EVALUATION_FIELDS), as_dict=True)
 	return {"item": _serialize_trade_evaluation(item)}
+
+
+@frappe.whitelist()
+def complete_trade_buyback(name: str) -> dict[str, Any]:
+	"""Conclude a pure buyback through the existing Device Trade Evaluation hook."""
+	_require_tradein_role()
+	doc = frappe.get_doc("Device Trade Evaluation", (name or "").strip())
+	if not doc.created_item:
+		frappe.db.savepoint("frontend_trade_buyback")
+		try:
+			with _run_tradein_stock_mutation():
+				doc.workflow_state = "Comprado"
+				doc.save(ignore_permissions=True)
+		except Exception:
+			frappe.db.rollback(save_point="frontend_trade_buyback")
+			raise
+
+	item = frappe.db.get_value("Device Trade Evaluation", doc.name, list(SAFE_TRADE_EVALUATION_FIELDS), as_dict=True)
+	return {"item": _serialize_trade_evaluation(item), "created_item": doc.created_item or None}
+
+
+@frappe.whitelist()
+def list_tradein_output_devices(query: str = "", limit: int = 20) -> dict[str, Any]:
+	"""Expose only serials currently held in Comercial; costs never leave this endpoint."""
+	_require_tradein_role()
+	warehouse = frappe.db.get_single_value("Tecponto Settings", "commercial_warehouse")
+	if not warehouse:
+		frappe.throw(_("Depósito Comercial não configurado."), frappe.ValidationError)
+	limit = max(1, min(int(limit or 20), 50))
+	query = (query or "").strip()
+	filters: dict[str, Any] = {"warehouse": warehouse}
+	or_filters = _like_filters(query, ("name", "serial_no", "item_code"))
+	serials = frappe.get_all(
+		"Serial No",
+		fields=["name", "serial_no", "item_code"],
+		filters=filters,
+		or_filters=or_filters,
+		order_by="modified desc",
+		limit_page_length=limit,
+	)
+	items = []
+	for serial in serials:
+		items.append(
+			{
+				"name": serial.name,
+				"serial_no": serial.serial_no,
+				"item_code": serial.item_code,
+				"item_name": frappe.db.get_value("Item", serial.item_code, "item_name") or serial.item_code,
+			}
+		)
+	return {"items": items, "count": len(items)}
+
+
+@frappe.whitelist()
+def confirm_tradein_operation(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Create and confirm the existing atomic Trade-In Operation without duplicating its rules."""
+	_require_tradein_role()
+	data = _parse_payload(payload)
+	evaluation_name = (data.get("evaluation") or "").strip()
+	device_out = (data.get("device_out") or "").strip()
+	if not evaluation_name or not device_out:
+		frappe.throw(_("Selecione a avaliação e o aparelho que sairá da loja."), frappe.ValidationError)
+
+	evaluation = frappe.get_doc("Device Trade Evaluation", evaluation_name)
+	if not evaluation.get("approved_value"):
+		frappe.throw(_("Registre o valor aprovado antes de confirmar a troca."), frappe.ValidationError)
+
+	existing_name = frappe.db.get_value(
+		"Trade-In Operation",
+		{"evaluation": evaluation.name, "device_out": device_out, "atomic_status": ["in", ["Confirmada", "Concluída"]]},
+		"name",
+	)
+	if existing_name:
+		existing = frappe.get_doc("Trade-In Operation", existing_name)
+		return {"operation": _serialize_tradein_operation(existing), "evaluation": _serialize_trade_evaluation(evaluation)}
+
+	difference = flt(data.get("difference"), 2)
+	if difference < 0:
+		frappe.throw(_("A diferença da troca não pode ser negativa."), frappe.ValidationError)
+	# The stock hook needs a narrow elevation to create native serial/batch records,
+	# but the caller's margin entitlement must be checked before that elevation.
+	from tecponto_app.tecponto.tradein.operation import _get_available_output_serial, _validar_margem_troca
+
+	preflight = frappe.get_doc(
+		{
+			"doctype": "Trade-In Operation",
+			"evaluation": evaluation.name,
+			"device_out": device_out,
+			"difference": difference,
+		}
+	)
+	_get_available_output_serial(preflight)
+	_validar_margem_troca(preflight, evaluation)
+
+	frappe.db.savepoint("frontend_tradein_operation")
+	try:
+		with _run_tradein_stock_mutation():
+			operation = frappe.get_doc(
+				{
+					"doctype": "Trade-In Operation",
+					"customer": evaluation.customer,
+					"evaluation": evaluation.name,
+					"device_out": device_out,
+					"difference": difference,
+					"payment_mode": (data.get("payment_mode") or "").strip(),
+					"notes": (data.get("notes") or "").strip(),
+					"atomic_status": "Rascunho",
+				}
+			)
+			operation.insert(ignore_permissions=True)
+			operation.atomic_status = "Pendente"
+			operation.save(ignore_permissions=True)
+	except Exception:
+		frappe.db.rollback(save_point="frontend_tradein_operation")
+		raise
+
+	updated_evaluation = frappe.get_doc("Device Trade Evaluation", evaluation.name)
+	return {
+		"operation": _serialize_tradein_operation(operation),
+		"evaluation": _serialize_trade_evaluation(updated_evaluation),
+	}
 
 
 @frappe.whitelist()
@@ -2338,10 +2531,25 @@ def _serialize_trade_evaluation(item: dict[str, Any]) -> dict[str, Any]:
 		"imei": item.get("imei"),
 		"physical_state": item.get("physical_state"),
 		"destination": item.get("destination"),
+		"suggested_value": flt(item.get("suggested_value") or 0),
 		"table_max": flt(item.get("table_max") or 0),
 		"approved_value": flt(item.get("approved_value") or 0),
+		"created_item": item.get("created_item") or None,
+		"trade_category": item.get("trade_category") or None,
 		"workflow_state": item.get("workflow_state"),
 		"modified": str(item.get("modified") or ""),
+	}
+
+
+def _serialize_tradein_operation(doc: Any) -> dict[str, Any]:
+	return {
+		"name": doc.name,
+		"evaluation": doc.get("evaluation"),
+		"device_out": doc.get("device_out"),
+		"difference": flt(doc.get("difference") or 0),
+		"atomic_status": doc.get("atomic_status"),
+		"used_device_fiscal_ref": doc.get("used_device_fiscal_ref") or None,
+		"sale_fiscal_ref": doc.get("sale_fiscal_ref") or None,
 	}
 
 
