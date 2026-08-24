@@ -42,6 +42,7 @@ from tecponto_app.tecponto.frontend.api import (
 	issue_os_acceptance,
 	add_catalog_service_to_service_order,
 	create_service_order_checkin,
+	decide_service_order_budget,
 	get_checkin_delivery_suggestion,
 	list_defect_service_mappings,
 	list_warranty_candidates,
@@ -256,6 +257,7 @@ def run_foundation_checks() -> dict:
 		stage_sla_checks = run_stage_sla_checks()
 		stage_clock_checks = run_stage_clock_checks()
 		public_acceptance_checks = run_public_acceptance_checks()
+		workflow_metadata_gate_checks = run_workflow_metadata_gate_checks()
 		inoperative_entry_term_checks = run_inoperative_entry_term_checks()
 		tracking_checks = run_public_tracking_checks()
 		tracking_budget_checks = run_public_tracking_budget_checks()
@@ -306,6 +308,7 @@ def run_foundation_checks() -> dict:
 			"stage_sla_checks": stage_sla_checks,
 			"stage_clock_checks": stage_clock_checks,
 			"public_acceptance_checks": public_acceptance_checks,
+			"workflow_metadata_gate_checks": workflow_metadata_gate_checks,
 			"tracking_checks": tracking_checks,
 			"tracking_budget_checks": tracking_budget_checks,
 			"tracking_lifecycle_checks": tracking_lifecycle_checks,
@@ -2052,6 +2055,70 @@ def run_inoperative_entry_term_checks() -> dict:
 			"accepted_on": str(acceptance.inoperative_device_term_accepted_on),
 			"entry_print_rendered": True,
 		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_workflow_metadata_gate_checks() -> dict:
+	"""Native Desk workflow actions cannot bypass budget decision evidence."""
+	from frappe.model.workflow import apply_workflow
+
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		results = {}
+		for decision, workflow_action, expected_status, notes in (
+			("approve", "Aprovado", "Aprovado", "Aprovação de teste pelo balcão."),
+			("reject", "Reprovado", "Reprovado", "Cliente recusou o orçamento de teste."),
+		):
+			service_order = _create_action_request_service_order(attendant)
+			frappe.db.set_value(
+				"Service Order",
+				service_order,
+				{
+					"workflow_state": "Aguardando aprovação",
+					"approval_status": "Pendente",
+					"approval_channel": None,
+					"approved_by": None,
+					"approved_by_attendant": None,
+					"approval_date": None,
+					"approval_notes": None,
+				},
+				update_modified=False,
+			)
+			frappe.set_user(attendant)
+			desk_bypassed_blocked = False
+			try:
+				apply_workflow(
+					frappe.as_json({"doctype": "Service Order", "name": service_order}),
+					workflow_action,
+				)
+			except frappe.ValidationError:
+				desk_bypassed_blocked = True
+			if not desk_bypassed_blocked:
+				raise AssertionError(f"Desk aprovou/reprovou a OS sem os metadados obrigatórios: {decision}.")
+			if frappe.db.get_value("Service Order", service_order, "workflow_state") != "Aguardando aprovação":
+				raise AssertionError("Transição nativa inválida persistiu apesar do bloqueio de metadados.")
+
+			decide_service_order_budget(
+				service_order,
+				{"decision": decision, "channel": "Presencial", "notes": notes},
+			)
+			order = frappe.get_doc("Service Order", service_order)
+			if (
+				order.workflow_state != workflow_action
+				or order.approval_status != expected_status
+				or order.approval_channel != "Presencial"
+				or order.approved_by_attendant != attendant
+				or not order.approval_date
+				or (decision == "reject" and order.approval_notes != notes)
+			):
+				raise AssertionError(f"Fluxo rastreável de orçamento não persistiu os metadados: {decision}.")
+			results[decision] = {"desk_bypass_blocked": True, "recorded_by_flow": True}
+
+		return {"status": "ok", "native_workflow": results}
 	finally:
 		frappe.set_user(previous_user)
 

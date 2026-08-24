@@ -4,7 +4,10 @@ from frappe.utils import add_days, now, nowdate
 
 STATE_ENTRADA_CRIADA = "Entrada criada"
 STATE_ENTREGUE = "Entregue"
+STATE_APROVADO = "Aprovado"
+STATE_REPROVADO = "Reprovado"
 APPROVAL_STATUS_APROVADO = "Aprovado"
+APPROVAL_STATUS_REPROVADO = "Reprovado"
 
 
 def validate_aceites(doc, method=None) -> None:
@@ -37,14 +40,22 @@ def _validate_entry_acceptance(doc) -> None:
 
 
 def _validate_approval_acceptance(doc) -> None:
-	if doc.get("approval_status") != APPROVAL_STATUS_APROVADO:
+	workflow_state = doc.get("workflow_state")
+	if workflow_state not in {STATE_APROVADO, STATE_REPROVADO}:
 		return
+
+	expected_status = APPROVAL_STATUS_APROVADO if workflow_state == STATE_APROVADO else APPROVAL_STATUS_REPROVADO
+	if doc.get("approval_status") != expected_status:
+		frappe.throw("Use o fluxo de aprovação para registrar a decisão do orçamento.")
 
 	if not (doc.get("approval_channel") and doc.get("approved_by_attendant")):
 		frappe.throw("Registre o canal e o atendente da aprovacao.")
 
 	if not doc.get("approval_date"):
 		doc.approval_date = now()
+
+	if workflow_state == STATE_REPROVADO and not (doc.get("approval_notes") or "").strip():
+		frappe.throw("Registre o motivo da reprovação do orçamento.")
 
 
 def _validate_delivery_acceptance(doc) -> None:
