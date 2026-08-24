@@ -282,7 +282,7 @@ def complete_public_acceptance(
 	return {"completed": True, "acceptance": doc.name, "service_order": doc.service_order, "acceptance_type": doc.acceptance_type}
 
 
-def assert_completed_acceptance_evidence(service_order: str, acceptance_type: str) -> None:
+def assert_completed_acceptance_evidence(service_order: str, acceptance_type: str, *, required: bool = False) -> None:
 	"""Fail closed when a completed public acceptance lost its private evidence file."""
 	acceptance_name = frappe.db.get_value(
 		"OS Acceptance",
@@ -291,8 +291,12 @@ def assert_completed_acceptance_evidence(service_order: str, acceptance_type: st
 		order_by="used_on desc",
 	)
 	if not acceptance_name:
-		# Legacy in-person acceptances remain valid; only link-based acceptances have
-		# a private evidence pair to validate here.
+		if required:
+			frappe.throw(
+				_("O aceite por link de {0} precisa ser concluído antes de avançar a OS.").format(acceptance_type),
+				frappe.ValidationError,
+			)
+		# OS created before the link-acceptance rollout remain valid legacy records.
 		return
 
 	acceptance = frappe.get_doc("OS Acceptance", acceptance_name)

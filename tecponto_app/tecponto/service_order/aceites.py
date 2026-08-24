@@ -16,6 +16,17 @@ def validate_aceites(doc, method=None) -> None:
 	_validate_delivery_acceptance(doc)
 
 
+def require_link_acceptance_for_new_orders(doc, method=None) -> None:
+	"""Mark every newly created OS as link-acceptance based.
+
+	Existing rows remain explicitly legacy-compatible.  This is deliberately set in
+	the model hook, so a Desk-created OS has exactly the same legal acceptance
+	requirement as one created through the React check-in.
+	"""
+	if doc.is_new() and doc.meta.has_field("link_acceptance_required"):
+		doc.link_acceptance_required = 1
+
+
 def _validate_entry_acceptance(doc) -> None:
 	if not doc.get("workflow_state") or doc.get("workflow_state") == STATE_ENTRADA_CRIADA:
 		return
@@ -34,7 +45,11 @@ def _validate_entry_acceptance(doc) -> None:
 		requires_inoperative_device_term,
 	)
 
-	assert_completed_acceptance_evidence(doc.name, "Entrada")
+	assert_completed_acceptance_evidence(
+		doc.name,
+		"Entrada",
+		required=bool(doc.get("link_acceptance_required")),
+	)
 	if requires_inoperative_device_term(doc):
 		assert_completed_inoperative_device_term(doc.name)
 
@@ -70,7 +85,11 @@ def _validate_delivery_acceptance(doc) -> None:
 
 	from tecponto_app.tecponto.acceptance import assert_completed_acceptance_evidence
 
-	assert_completed_acceptance_evidence(doc.name, "Retirada")
+	assert_completed_acceptance_evidence(
+		doc.name,
+		"Retirada",
+		required=bool(doc.get("link_acceptance_required")),
+	)
 
 	if doc.meta.has_field("warranty_expiry") and not doc.get("warranty_expiry"):
 		doc.warranty_expiry = add_days(nowdate(), 90)

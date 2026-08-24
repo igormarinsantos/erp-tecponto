@@ -1346,6 +1346,7 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.entry_date = now_datetime()
 	order.attendant = frappe.session.user
 	order.workflow_state = "Entrada criada"
+	order.link_acceptance_required = 1
 	order.priority = "Normal"
 	order.reported_defect = data["service_order"]["reported_defect"].strip()
 	order.physical_state = data["service_order"]["physical_state"].strip()

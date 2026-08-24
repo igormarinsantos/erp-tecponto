@@ -258,6 +258,7 @@ def run_foundation_checks() -> dict:
 		stage_clock_checks = run_stage_clock_checks()
 		public_acceptance_checks = run_public_acceptance_checks()
 		workflow_metadata_gate_checks = run_workflow_metadata_gate_checks()
+		link_acceptance_gate_checks = run_link_acceptance_gate_checks()
 		inoperative_entry_term_checks = run_inoperative_entry_term_checks()
 		tracking_checks = run_public_tracking_checks()
 		tracking_budget_checks = run_public_tracking_budget_checks()
@@ -309,6 +310,7 @@ def run_foundation_checks() -> dict:
 			"stage_clock_checks": stage_clock_checks,
 			"public_acceptance_checks": public_acceptance_checks,
 			"workflow_metadata_gate_checks": workflow_metadata_gate_checks,
+			"link_acceptance_gate_checks": link_acceptance_gate_checks,
 			"tracking_checks": tracking_checks,
 			"tracking_budget_checks": tracking_budget_checks,
 			"tracking_lifecycle_checks": tracking_lifecycle_checks,
@@ -2123,6 +2125,93 @@ def run_workflow_metadata_gate_checks() -> dict:
 		frappe.set_user(previous_user)
 
 
+def run_link_acceptance_gate_checks() -> dict:
+	"""New OS cannot use legacy Desk fields to bypass link acceptance evidence."""
+	from frappe.model.workflow import apply_workflow
+
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		customer = _get_or_create_demo_customer()
+		device = _get_or_create_demo_device(customer)
+		service_order = _upsert_demo_service_order(
+			demo={
+				"slug": f"link-required-{frappe.generate_hash(length=8)}",
+				"state": "Entrada criada",
+				"approval_status": "Pendente",
+				"reported_defect": "OS criada para validar aceite obrigatório por link.",
+				"problem_found": None,
+			},
+			customer=customer,
+			device=device,
+			service_item=_get_demo_item(is_stock_item=0),
+			part_item=_get_demo_item(is_stock_item=1),
+			warehouse=_get_demo_warehouse(),
+			attendant=attendant,
+			legacy_fixture=False,
+		)
+		if not frappe.db.get_value("Service Order", service_order, "link_acceptance_required"):
+			raise AssertionError("OS nova não foi marcada para exigir aceite por link no motor.")
+		frappe.db.set_value("Service Order", service_order, "technician", technician, update_modified=False)
+
+		frappe.set_user(technician)
+		desk_bypass_blocked = False
+		try:
+			apply_workflow(
+				frappe.as_json({"doctype": "Service Order", "name": service_order}),
+				"Em diagnóstico",
+			)
+		except frappe.ValidationError:
+			desk_bypass_blocked = True
+		if not desk_bypass_blocked:
+			raise AssertionError("Desk avançou uma OS nova sem aceite por link concluído.")
+
+		frappe.set_user(attendant)
+		issued = issue_os_acceptance(service_order, "Entrada")
+		raw_token = issued["link"].rstrip("/").rsplit("/", 1)[-1]
+		camera = BytesIO()
+		Image.new("RGB", (24, 24), color=(24, 40, 60)).save(camera, format="JPEG")
+		selfie = "data:image/jpeg;base64," + b64encode(camera.getvalue()).decode()
+		signature = BytesIO()
+		signature_canvas = Image.new("RGB", (180, 70), color=(250, 250, 250))
+		ImageDraw.Draw(signature_canvas).line([(16, 52), (56, 18), (94, 50), (150, 20)], fill=(32, 36, 40), width=4)
+		signature_canvas.save(signature, format="PNG")
+		signature_data = "data:image/png;base64," + b64encode(signature.getvalue()).decode()
+		frappe.set_user("Guest")
+		save_public_acceptance_selfie(raw_token, selfie)
+		complete_public_acceptance(raw_token, signature_data, 1)
+
+		frappe.set_user(technician)
+		apply_workflow(
+			frappe.as_json({"doctype": "Service Order", "name": service_order}),
+			"Em diagnóstico",
+		)
+		if frappe.db.get_value("Service Order", service_order, "workflow_state") != "Em diagnóstico":
+			raise AssertionError("OS não avançou após o aceite por link íntegro.")
+
+		legacy_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", legacy_order, "technician", technician, update_modified=False)
+		frappe.set_user(technician)
+		apply_workflow(
+			frappe.as_json({"doctype": "Service Order", "name": legacy_order}),
+			"Em diagnóstico",
+		)
+		if frappe.db.get_value("Service Order", legacy_order, "workflow_state") != "Em diagnóstico":
+			raise AssertionError("OS histórica perdeu a compatibilidade do aceite presencial legado.")
+
+		return {
+			"status": "ok",
+			"new_orders_require_link_acceptance": True,
+			"desk_bypass_blocked": desk_bypass_blocked,
+			"legacy_orders_compatible": True,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
 def run_public_acceptance_checks() -> dict:
 	"""Public acceptance is read-only, guest-safe and token-limited."""
 	previous_user = frappe.session.user
@@ -3318,6 +3407,7 @@ def _upsert_demo_service_order(
 	part_item: str,
 	warehouse: str | None,
 	attendant: str,
+	legacy_fixture: bool = True,
 ) -> str:
 	marker = f"{DETAIL_DEMO_MARKER}: {demo['slug']}"
 	existing = frappe.db.get_value("Service Order", {"internal_notes": marker}, "name")
@@ -3374,6 +3464,10 @@ def _upsert_demo_service_order(
 		},
 	)
 	doc.save(ignore_permissions=True)
+	if legacy_fixture:
+		# Demo records represent OS issued before the public-link rollout. They keep
+		# exercising old workflow paths without weakening the rule for new OS.
+		frappe.db.set_value("Service Order", doc.name, "link_acceptance_required", 0, update_modified=False)
 
 	values = {
 		"workflow_state": demo["state"],
