@@ -5,6 +5,8 @@ from frappe.utils import flt, getdate, nowdate
 
 
 STATE_CANCELADO = "Cancelado"
+STATE_EM_DIAGNOSTICO = "Em diagnóstico"
+STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
 MANAGER_ROLES = {"Tecponto Gestor", "System Manager"}
 
 
@@ -12,6 +14,36 @@ def validate_repare_rules(doc, method=None) -> None:
 	_validate_warranty(doc)
 	_validate_sinal(doc)
 	_validate_billed_cancellation(doc)
+	_validate_budget_submission(doc)
+
+
+def _validate_budget_submission(doc) -> None:
+	"""Keep an empty diagnosis or quote from entering the customer approval stage.
+
+	The rule lives on the document because the same workflow transition is exposed
+	by both the Tecponto frontend and Frappe Desk. Zero-priced lines remain valid
+	for warranty work; the requirement is a real, identified quote line.
+	"""
+	if doc.get("workflow_state") != STATE_AGUARDANDO_APROVACAO:
+		return
+
+	previous = doc.get_doc_before_save() if not doc.is_new() else None
+	if previous and previous.get("workflow_state") == STATE_AGUARDANDO_APROVACAO:
+		return
+	if previous and previous.get("workflow_state") != STATE_EM_DIAGNOSTICO:
+		return
+
+	if not (doc.get("problem_found") or "").strip() or not doc.get("diagnosis_date"):
+		frappe.throw("Registre o diagnóstico e a data antes de enviar o orçamento para aprovação.")
+
+	if not _has_identified_budget_line(doc):
+		frappe.throw("Inclua ao menos um serviço ou peça identificada no orçamento antes de solicitar aprovação.")
+
+
+def _has_identified_budget_line(doc) -> bool:
+	return any((row.get("item_code") or "").strip() for row in (doc.get("services") or [])) or any(
+		(row.get("item_code") or "").strip() for row in (doc.get("parts") or [])
+	)
 
 
 def _validate_warranty(doc) -> None:

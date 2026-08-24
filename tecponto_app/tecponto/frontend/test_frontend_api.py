@@ -2162,6 +2162,69 @@ def run_workflow_metadata_gate_checks() -> dict:
 			raise AssertionError("Desk aprovou orçamento expirado apesar do deadline.")
 		results["expired"] = {"internal_blocked": internal_expiration_blocked, "desk_blocked": native_expiration_blocked}
 
+		# The native workflow must not turn a blank technical assessment into a
+		# customer approval request. Exercise both missing prerequisites directly
+		# through Desk's workflow path.
+		manager = _find_or_create_user("Tecponto Gestor")
+		submission_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			submission_order,
+			{"workflow_state": "Em diagnóstico", "problem_found": None, "diagnosis_date": None},
+			update_modified=False,
+		)
+		frappe.set_user(manager)
+		missing_diagnosis_blocked = False
+		try:
+			apply_workflow(
+				frappe.as_json({"doctype": "Service Order", "name": submission_order}),
+				"Aguardando aprovação",
+			)
+		except frappe.ValidationError:
+			missing_diagnosis_blocked = True
+		if not missing_diagnosis_blocked:
+			raise AssertionError("Desk enviou OS sem diagnóstico para aprovação.")
+
+		submission_doc = frappe.get_doc("Service Order", submission_order)
+		submission_doc.problem_found = "Diagnóstico preenchido para a trava de orçamento."
+		submission_doc.diagnosis_date = now_datetime().date()
+		submission_doc.set("services", [])
+		submission_doc.set("parts", [])
+		submission_doc.save(ignore_permissions=True)
+		missing_budget_blocked = False
+		try:
+			apply_workflow(
+				frappe.as_json({"doctype": "Service Order", "name": submission_order}),
+				"Aguardando aprovação",
+			)
+		except frappe.ValidationError:
+			missing_budget_blocked = True
+		if not missing_budget_blocked:
+			raise AssertionError("Desk enviou OS sem linhas de orçamento para aprovação.")
+
+		submission_doc = frappe.get_doc("Service Order", submission_order)
+		submission_doc.append(
+			"services",
+			{
+				"item_code": _get_demo_item(is_stock_item=0),
+				"description": "Serviço de garantia sem cobrança",
+				"qty": 1,
+				"rate": 0,
+			},
+		)
+		submission_doc.save(ignore_permissions=True)
+		apply_workflow(
+			frappe.as_json({"doctype": "Service Order", "name": submission_order}),
+			"Aguardando aprovação",
+		)
+		if frappe.db.get_value("Service Order", submission_order, "workflow_state") != "Aguardando aprovação":
+			raise AssertionError("OS válida não entrou em Aguardando aprovação.")
+		results["submission"] = {
+			"missing_diagnosis_blocked": missing_diagnosis_blocked,
+			"missing_budget_blocked": missing_budget_blocked,
+			"zero_price_warranty_line_allowed": True,
+		}
+
 		return {"status": "ok", "native_workflow": results}
 	finally:
 		frappe.set_user(previous_user)
