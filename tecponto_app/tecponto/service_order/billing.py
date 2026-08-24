@@ -26,6 +26,8 @@ INVOICE_STATES = {STATE_PRONTO_RETIRADA} | SIGNAL_RETENTION_STATES
 def gerar_nota(doc, method=None):
 	if doc.sales_invoice:
 		return doc.sales_invoice
+	if doc.get("pickup_without_repair"):
+		return None
 
 	if doc.get("is_warranty"):
 		return None

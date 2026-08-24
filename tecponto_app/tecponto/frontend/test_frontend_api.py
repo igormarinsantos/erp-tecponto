@@ -259,6 +259,7 @@ def run_foundation_checks() -> dict:
 		public_acceptance_checks = run_public_acceptance_checks()
 		workflow_metadata_gate_checks = run_workflow_metadata_gate_checks()
 		link_acceptance_gate_checks = run_link_acceptance_gate_checks()
+		no_repair_pickup_checks = run_no_repair_pickup_checks()
 		inoperative_entry_term_checks = run_inoperative_entry_term_checks()
 		tracking_checks = run_public_tracking_checks()
 		tracking_budget_checks = run_public_tracking_budget_checks()
@@ -311,6 +312,7 @@ def run_foundation_checks() -> dict:
 			"public_acceptance_checks": public_acceptance_checks,
 			"workflow_metadata_gate_checks": workflow_metadata_gate_checks,
 			"link_acceptance_gate_checks": link_acceptance_gate_checks,
+			"no_repair_pickup_checks": no_repair_pickup_checks,
 			"tracking_checks": tracking_checks,
 			"tracking_budget_checks": tracking_budget_checks,
 			"tracking_lifecycle_checks": tracking_lifecycle_checks,
@@ -2208,6 +2210,56 @@ def run_link_acceptance_gate_checks() -> dict:
 			"desk_bypass_blocked": desk_bypass_blocked,
 			"legacy_orders_compatible": True,
 		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_no_repair_pickup_checks() -> dict:
+	"""Terminal no-repair outcomes retain an auditable, deliverable pickup route."""
+	from frappe.model.workflow import apply_workflow
+
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		results = {}
+		for source_state in ("Reprovado", "Orçamento expirado", "Sem conserto"):
+			service_order = _create_action_request_service_order(attendant)
+			frappe.db.set_value(
+				"Service Order",
+				service_order,
+				{
+					"workflow_state": source_state,
+					"approval_status": "Reprovado" if source_state == "Reprovado" else "Pendente",
+					"approval_channel": "Presencial" if source_state == "Reprovado" else None,
+					"approved_by_attendant": attendant if source_state == "Reprovado" else None,
+					"approval_date": now_datetime() if source_state == "Reprovado" else None,
+					"approval_notes": "Cliente recusou o orçamento." if source_state == "Reprovado" else None,
+					"pickup_without_repair": 0,
+					"sales_invoice": None,
+					"customer_signature": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAghX7JQAAAABJRU5ErkJggg==",
+				},
+				update_modified=False,
+			)
+			frappe.set_user(manager)
+			apply_workflow(
+				frappe.as_json({"doctype": "Service Order", "name": service_order}),
+				"Liberar para retirada",
+			)
+			ready = frappe.get_doc("Service Order", service_order)
+			if ready.workflow_state != "Pronto para retirada" or not ready.pickup_without_repair or ready.sales_invoice:
+				raise AssertionError(f"{source_state} não foi liberada para retirada sem reparo corretamente.")
+			apply_workflow(
+				frappe.as_json({"doctype": "Service Order", "name": service_order}),
+				"Entregue",
+			)
+			completed = frappe.get_doc("Service Order", service_order)
+			if completed.workflow_state != "Entregue" or not completed.pickup_without_repair:
+				raise AssertionError(f"{source_state} não concluiu a retirada sem reparo.")
+			results[source_state] = {"released": True, "delivered": True}
+		return {"status": "ok", "states": results, "no_unearned_invoice": True}
 	finally:
 		frappe.set_user(previous_user)
 

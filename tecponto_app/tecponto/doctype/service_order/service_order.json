@@ -74,6 +74,7 @@
   "sales_invoice",
   "pickup_section",
   "pickup_date",
+  "pickup_without_repair",
   "picked_up_by",
   "picked_up_doc",
   "picked_up_by_third_party",
@@ -474,6 +475,13 @@
    "fieldname": "pickup_date",
    "fieldtype": "Datetime",
    "label": "Data de retirada"
+  },
+  {
+   "default": "0",
+   "fieldname": "pickup_without_repair",
+   "fieldtype": "Check",
+   "label": "Retirada sem reparo",
+   "read_only": 1
   },
   {
    "fieldname": "picked_up_by",

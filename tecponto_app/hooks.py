@@ -276,6 +276,7 @@ doc_events = {
 		"before_validate": [
 			"tecponto_app.tecponto.stock.apply_service_order_stock_defaults",
 			"tecponto_app.tecponto.service_order.aceites.require_link_acceptance_for_new_orders",
+			"tecponto_app.tecponto.service_order.aceites.mark_pickup_without_repair",
 		],
 		"validate": [
 			"tecponto_app.tecponto.service_order.stage_clock.set_stage_entered_at",

@@ -8,6 +8,8 @@ STATE_APROVADO = "Aprovado"
 STATE_REPROVADO = "Reprovado"
 APPROVAL_STATUS_APROVADO = "Aprovado"
 APPROVAL_STATUS_REPROVADO = "Reprovado"
+STATE_PRONTO_RETIRADA = "Pronto para retirada"
+NO_REPAIR_PICKUP_STATES = {"Reprovado", "Orçamento expirado", "Sem conserto"}
 
 
 def validate_aceites(doc, method=None) -> None:
@@ -25,6 +27,15 @@ def require_link_acceptance_for_new_orders(doc, method=None) -> None:
 	"""
 	if doc.is_new() and doc.meta.has_field("link_acceptance_required"):
 		doc.link_acceptance_required = 1
+
+
+def mark_pickup_without_repair(doc, method=None) -> None:
+	"""Preserve the no-repair route after the workflow reaches Entregue."""
+	if doc.get("workflow_state") != STATE_PRONTO_RETIRADA:
+		return
+	previous = doc.get_doc_before_save() if not doc.is_new() else None
+	if previous and previous.get("workflow_state") in NO_REPAIR_PICKUP_STATES:
+		doc.pickup_without_repair = 1
 
 
 def _validate_entry_acceptance(doc) -> None:
@@ -77,7 +88,7 @@ def _validate_delivery_acceptance(doc) -> None:
 	if doc.get("workflow_state") != STATE_ENTREGUE:
 		return
 
-	if not doc.get("is_warranty"):
+	if not doc.get("is_warranty") and (doc.get("sales_invoice") or not doc.get("pickup_without_repair")):
 		_exigir_nota_paga(doc)
 
 	if not doc.get("customer_signature"):

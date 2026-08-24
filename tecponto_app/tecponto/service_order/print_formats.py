@@ -131,7 +131,7 @@ def get_service_order_print_context(doc) -> dict:
 		"warranty_expiry": _date(doc.get("warranty_expiry")),
 		"os_url": os_url,
 		"qr_code": qr_code_data_uri(os_url),
-		"is_without_repair": doc.get("workflow_state")
+		"is_without_repair": bool(doc.get("pickup_without_repair")) or doc.get("workflow_state")
 		in {"Reprovado", "Orçamento expirado", "Sem conserto", "Cancelado"},
 		"picked_up_by": doc.get("picked_up_by") or customer.get("name") or doc.get("customer"),
 		"picked_up_doc": doc.get("picked_up_doc"),
