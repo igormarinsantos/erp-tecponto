@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 
-{% block title %}Rastreio Tecponto{% endblock %}
+{% block title %}Rastreio | {{ identity.display_name }}{% endblock %}
 {% block header %}{% endblock %}
 {% block style %}
 <style>
@@ -11,8 +11,8 @@ html, body { background: #15181b; color: #f5f6f7; }
 {% endblock %}
 {% block page_content %}
 <main class="tp-tracking" data-token="{{ token | e }}">
-	<header class="tp-public-header" aria-label="Tecponto">
-		<img alt="Tecponto" class="tp-public-logo" src="/assets/tecponto_app/frontend/assets/tecponto-logo-dark.png">
+	<header class="tp-public-header" aria-label="{{ identity.display_name }}">
+		{% if identity.logo_url %}<img alt="{{ identity.display_name }}" class="tp-public-logo" src="{{ identity.logo_url }}">{% else %}<strong class="tp-public-wordmark">{{ identity.display_name }}</strong>{% endif %}
 		<span>Acompanhe seu reparo</span>
 	</header>
   <section class="tp-tracking-card" aria-live="polite">

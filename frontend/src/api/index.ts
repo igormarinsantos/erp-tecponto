@@ -2,7 +2,7 @@ export { balcao } from "./balcao";
 export { earnings } from "./earnings";
 export { partRequests } from "./partRequests";
 export { checkin } from "./checkin";
-export { getBoot, getLoggedUser, logout } from "./auth";
+export { getBoot, getLoggedUser, getPublicCompanyIdentity, logout } from "./auth";
 export { pos } from "./pos";
 export { approvalRequests } from "./requests";
 export { notifications } from "./notifications";
@@ -92,7 +92,8 @@ export type {
   ProductVariantCreatePayload,
   ProductVariantSummary,
   ProductVariantTemplate,
-	CommercialCatalogItem,
+  CommercialCatalogItem,
+	CompanyIdentity,
 	OwnEarningItem,
 	OwnEarningsResponse,
 	TechnicalPartRequest,

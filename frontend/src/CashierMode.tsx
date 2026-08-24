@@ -7,11 +7,12 @@ import { Button } from "./ui";
 import type { PosToast } from "./pos/types";
 
 interface CashierModeProps {
+	brandName: string;
   onExit: () => void;
   onToast: PosToast;
 }
 
-export function CashierMode({ onExit, onToast }: CashierModeProps) {
+export function CashierMode({ brandName, onExit, onToast }: CashierModeProps) {
   const badgeInputRef = useRef<HTMLInputElement>(null);
   const [badgeCode, setBadgeCode] = useState("");
   const [pin, setPin] = useState("");
@@ -57,7 +58,7 @@ export function CashierMode({ onExit, onToast }: CashierModeProps) {
           <div className="flex min-w-0 items-center gap-3">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-card bg-tec-orange/15 text-tec-orange"><ScanBarcode size={24} /></span>
             <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-tec-orange">Tecponto</p>
+			  <p className="text-xs font-bold uppercase tracking-wide text-tec-orange">{brandName}</p>
               <h1 className="text-2xl font-bold text-white">Modo Caixa</h1>
             </div>
           </div>

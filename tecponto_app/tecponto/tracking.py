@@ -18,7 +18,7 @@ ACTIVE_STATUS = "Ativo"
 TRACKING_RETENTION_DAYS = 90
 TRACKING_OPERATOR_ROLES = {"Tecponto Atendente", "Tecponto Gestor", "System Manager"}
 TRACKING_MANAGER_ROLES = {"Tecponto Gestor", "System Manager"}
-INVALID_LINK_MESSAGE = "Este link de rastreio não está disponível. Peça um novo link à Tecponto."
+INVALID_LINK_MESSAGE = "Este link de rastreio não está disponível. Peça um novo link à empresa responsável."
 TRACKING_STAGES = (
 	"Entrada criada",
 	"Em diagnóstico",
@@ -122,6 +122,7 @@ def get_public_tracking(token: str) -> dict[str, Any]:
 		return {"valid": False, "message": INVALID_LINK_MESSAGE}
 
 	order = frappe.get_doc("Service Order", doc.service_order)
+	from tecponto_app.tecponto.company_identity import get_company_identity
 	device = _get_device(order.customer_device)
 	awaiting_approval = order.get("workflow_state") == "Aguardando aprovação"
 	return {
@@ -129,6 +130,7 @@ def get_public_tracking(token: str) -> dict[str, Any]:
 		"tracking": {
 			"expires_on": str(doc.expires_on),
 		},
+		"identity": get_company_identity(),
 		"service_order": {
 			"number": order.name,
 			"workflow_state": order.get("workflow_state") or "Entrada criada",
@@ -213,7 +215,7 @@ def _execute_tracking_budget_decision(tracking, decision: str, notes: str) -> No
 	actor = tracking.issued_by
 	allowed_roles = {"System Manager", "Tecponto Atendente", "Tecponto Gestor"}
 	if not actor or not set(frappe.get_roles(actor)).intersection(allowed_roles):
-		frappe.throw(_("Este link não pode mais registrar uma decisão. Peça um novo link à Tecponto."), frappe.PermissionError)
+		frappe.throw(_("Este link não pode mais registrar uma decisão. Peça um novo link à empresa responsável."), frappe.PermissionError)
 
 	# The public token/acceptance authorizes the customer decision; the existing
 	# workflow still executes under the accountable Tecponto operator.

@@ -30,6 +30,8 @@ services:
       SITE_NAME: 'erp.tecponto.sbs'
       ADMIN_PASSWORD: '${SERVICE_PASSWORD_ADMIN}'
       DB_ROOT_PASSWORD: '${SERVICE_PASSWORD_DB}'
+      COMPANY_NAME: '${COMPANY_NAME}'
+      COMPANY_ABBR: '${COMPANY_ABBR}'
     entrypoint:
       - bash
       - '-c'
@@ -65,9 +67,14 @@ services:
         frappe.init(site=sys.argv[1], sites_path=sites_path)
         frappe.connect()
         frappe.set_user("Administrator")
-        if not frappe.db.exists("Company", "Tecponto"):
+        company_name = os.environ.get("COMPANY_NAME", "").strip()
+        company_abbr = os.environ.get("COMPANY_ABBR", "").strip()
+        if not company_name or not company_abbr:
+            frappe.throw("Defina COMPANY_NAME e COMPANY_ABBR no Coolify antes de criar o site.")
+        if not frappe.db.exists("Company", company_name):
             from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
-            setup_complete('{"country":"Brazil","company_name":"Tecponto","company_abbr":"TEC","currency":"BRL","timezone":"America/Sao_Paulo","fy_start_date":"2026-01-01","fy_end_date":"2026-12-31","chart_of_accounts":"Standard"}')
+            import json
+            setup_complete(json.dumps({"country":"Brazil","company_name":company_name,"company_abbr":company_abbr,"currency":"BRL","timezone":"America/Sao_Paulo","fy_start_date":"2026-01-01","fy_end_date":"2026-12-31","chart_of_accounts":"Standard"}))
         from tecponto_app.install import bootstrap_erpnext_foundation
         bootstrap_erpnext_foundation()
         frappe.db.commit()

@@ -125,9 +125,11 @@ def get_public_acceptance(token: str) -> dict:
 	"""Return the small read-only public projection for a valid acceptance link."""
 	doc = _get_valid_acceptance(token)
 	if not doc:
-		return {"valid": False, "message": "Este link de aceite não está disponível. Peça um novo link à Tecponto."}
+		return {"valid": False, "message": "Este link de aceite não está disponível. Peça um novo link à empresa responsável."}
 
 	order = frappe.get_doc("Service Order", doc.service_order)
+	from tecponto_app.tecponto.company_identity import get_company_identity
+
 	return {
 		"valid": True,
 		"acceptance": {
@@ -138,6 +140,7 @@ def get_public_acceptance(token: str) -> dict:
 			"selfie_exception": bool(doc.selfie_exception),
 		},
 		"service_order": _public_order_summary(order, doc.acceptance_type),
+		"identity": get_company_identity(),
 		"lgpd_notice": {
 			"version": LGPD_CONSENT_VERSION,
 			"text": "[MINUTA — revisar com advogado] Autorizo a coleta de selfie e assinatura para comprovar este aceite, prevenir fraudes e resguardar o atendimento. Os registros serão mantidos pelo prazo aplicável ao atendimento, obrigações legais e defesa de direitos.",
@@ -150,7 +153,7 @@ def save_public_acceptance_selfie(token: str, image_data: str) -> dict:
 	"""Persist one camera-captured selfie as a private attachment on the Service Order."""
 	doc = _get_valid_acceptance(token)
 	if not doc:
-		frappe.throw(_("Este link de aceite não está disponível. Peça um novo link à Tecponto."), frappe.PermissionError)
+		frappe.throw(_("Este link de aceite não está disponível. Peça um novo link à empresa responsável."), frappe.PermissionError)
 	if doc.selfie_file:
 		frappe.throw(_("A selfie deste aceite já foi registrada."), frappe.ValidationError)
 
@@ -181,7 +184,7 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 	"""Complete one acceptance after the live selfie, signature, and explicit consent."""
 	doc = _get_valid_acceptance(token)
 	if not doc:
-		frappe.throw(_("Este link de aceite não está disponível. Peça um novo link à Tecponto."), frappe.PermissionError)
+		frappe.throw(_("Este link de aceite não está disponível. Peça um novo link à empresa responsável."), frappe.PermissionError)
 	if not doc.selfie_file and not doc.selfie_exception:
 		frappe.throw(_("Capture a selfie antes de concluir o aceite."), frappe.ValidationError)
 	if not doc.selfie_exception:

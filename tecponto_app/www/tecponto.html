@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 
-{% block title %}Tecponto{% endblock %}
+{% block title %}{{ identity.display_name }}{% endblock %}
 
 {% block header %}{% endblock %}
 
@@ -40,6 +40,7 @@
 <div id="tecponto-root"></div>
 <script>
 	window.tecpontoBoot = {
+		identity: {{ identity | tojson }},
 		csrfToken: "{{ frappe.session.csrf_token }}",
 		site: "{{ frappe.local.site }}",
 	};

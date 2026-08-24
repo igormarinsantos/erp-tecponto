@@ -1,6 +1,6 @@
 {
-  "name": "Tecponto",
-  "short_name": "Tecponto",
+  "name": "Central de Operação",
+  "short_name": "Operação",
   "start_url": "/tecponto",
   "display": "standalone",
   "background_color": "#15181B",

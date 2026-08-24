@@ -205,14 +205,14 @@ SENSITIVE_FIELD_NAMES = {
 
 def _require_login() -> None:
 	if frappe.session.user == "Guest":
-		frappe.throw(_("Faça login para acessar o front da Tecponto."), frappe.PermissionError)
+		frappe.throw(_("Faça login para acessar o sistema."), frappe.PermissionError)
 
 
 def _require_frontend_role() -> None:
 	_require_login()
 	if set(frappe.get_roles(frappe.session.user)).intersection(FRONTEND_ALLOWED_ROLES):
 		return
-	frappe.throw(_("Usuário sem papel operacional Tecponto."), frappe.PermissionError)
+	frappe.throw(_("Usuário sem papel operacional."), frappe.PermissionError)
 
 
 def _require_checkin_role() -> None:
@@ -320,7 +320,7 @@ def resolve_panel(roles: list[str] | tuple[str, ...] | None = None) -> dict[str,
 	return {
 		"role": "Guest",
 		"panel": "sem_papel",
-		"label": "Sem papel Tecponto",
+		"label": "Sem papel operacional",
 		"subtitle": "Solicite acesso ao gestor",
 	}
 
@@ -347,13 +347,17 @@ def get_logged_user() -> dict[str, Any]:
 
 @frappe.whitelist(allow_guest=True)
 def get_boot() -> dict[str, Any]:
+	from tecponto_app.tecponto.company_identity import get_company_identity
+
+	identity = get_company_identity()
 	return {
 		"user": get_logged_user(),
 		"app": {
-			"name": "Tecponto",
+			"name": identity["display_name"],
 			"route": "/tecponto",
 			"version": "3.0",
 		},
+		"identity": identity,
 		"panels": [
 			{
 				"panel": entry["panel"],

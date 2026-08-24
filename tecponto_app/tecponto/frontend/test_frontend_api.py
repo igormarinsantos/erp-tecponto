@@ -17,6 +17,14 @@ from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry impor
 )
 
 from tecponto_app.tecponto.customer import CUSTOMER_NO_CPF_FIELD
+from tecponto_app.tecponto.company_identity import (
+	get_company_identity,
+	get_public_company_identity,
+	get_pwa_manifest,
+)
+from tecponto_app.www import aceite as acceptance_page
+from tecponto_app.www import rastreio as tracking_page
+from tecponto_app.www import tecponto as frontend_page
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
 	get_dashboard_metrics,
@@ -140,6 +148,8 @@ from tecponto_app.tecponto.used_device_warranty import consultar_garantia_usado
 from tecponto_app.tecponto.service_order.stage_clock import get_stage_clock
 from tecponto_app.tecponto.service_order.stage_sla import add_commercial_business_hours, get_stage_slas
 from tecponto_app.tecponto.service_order.parts import processar_pecas
+from tecponto_app.tecponto.service_order.print_formats import _os_orcamento_html, _termo_entrada_html, _termo_retirada_html
+from tecponto_app.tecponto.pos import _receipt_html
 
 
 TEST_USERS = {
@@ -168,6 +178,7 @@ def run_foundation_checks() -> dict:
 		frappe.flags.in_test = True
 		ensure_frontend_foundation()
 		users = {role: _find_or_create_user(role) for role in FRONTEND_ROLES}
+		company_identity_check = _check_company_identity(users["Tecponto Atendente"])
 		panel_checks = _check_role_panels(users)
 		orders_check = _check_service_order_api(users["Tecponto Gestor"])
 		detail_check = _check_service_order_detail_api(users["Tecponto Atendente"])
@@ -241,6 +252,7 @@ def run_foundation_checks() -> dict:
 		return {
 			"status": "ok",
 			"panel_checks": panel_checks,
+			"company_identity": company_identity_check,
 			"service_order_api": orders_check,
 			"service_order_detail_api": detail_check,
 			"navigation_apis": navigation_check,
@@ -288,6 +300,62 @@ def run_foundation_checks() -> dict:
 	finally:
 		frappe.flags.in_test = previous_in_test
 		frappe.set_user(previous_user)
+
+
+def _check_company_identity(user: str) -> dict:
+	"""Company + Settings must drive every customer-facing commercial label."""
+	settings = frappe.get_single("Tecponto Settings")
+	company = frappe.defaults.get_global_default("company") or frappe.db.get_value("Company", {}, "name")
+	if not company:
+		raise AssertionError("Nenhuma Company nativa está disponível para a identidade comercial.")
+	original = {field: settings.get(field) for field in ("identity_company", "trade_name", "public_phone", "public_email", "public_address", "public_logo")}
+	brand_name = f"Oficina Identidade {frappe.generate_hash(length=6)}"
+	try:
+		settings.update(
+			{
+				"identity_company": company,
+				"trade_name": brand_name,
+				"public_phone": "(11) 99999-0000",
+				"public_email": "contato@identidade.test",
+				"public_address": "Rua de Teste, 100 - Centro",
+			}
+		)
+		settings.save(ignore_permissions=True)
+		identity = get_company_identity()
+		public_identity = get_public_company_identity()
+		previous_response = frappe._dict(frappe.local.response)
+		try:
+			get_pwa_manifest()
+			manifest = json.loads(frappe.local.response.filecontent)
+			if (
+				manifest["name"] != brand_name
+				or manifest["start_url"] != "/tecponto"
+				or frappe.local.response.content_type != "application/manifest+json"
+			):
+				raise AssertionError("O manifesto PWA não usou a identidade comercial configurada.")
+		finally:
+			frappe.local.response.clear()
+			frappe.local.response.update(previous_response)
+		frappe.set_user(user)
+		boot = get_boot()
+		if identity != public_identity or boot["identity"] != identity:
+			raise AssertionError("Login, páginas públicas e bootstrap não compartilharam a mesma identidade comercial.")
+		if identity["display_name"] != brand_name or identity["company"] != company:
+			raise AssertionError("Tecponto Settings não prevaleceu sobre o nome técnico do aplicativo.")
+		if {"valuation_rate", "cost", "margin", "commission", "profit"} & set(identity):
+			raise AssertionError("A projeção pública de identidade contém dado financeiro proibido.")
+		for page in (acceptance_page, tracking_page, frontend_page):
+			context = frappe._dict()
+			page.get_context(context)
+			if context.identity["display_name"] != brand_name:
+				raise AssertionError("Uma página pública não recebeu a identidade comercial configurada.")
+		for template in (_termo_entrada_html(), _termo_retirada_html(), _os_orcamento_html(), _receipt_html()):
+			if not any(reference in template for reference in ("company.display_name", "company.legal_name", "tp_company.display_name", "tp_company.legal_name")):
+				raise AssertionError("Um documento comercial não resolve a marca pela camada única de identidade.")
+		return {"company": identity["company"], "display_name": identity["display_name"], "public_fields": sorted(identity)}
+	finally:
+		settings.update(original)
+		settings.save(ignore_permissions=True)
 
 
 def run_public_tracking_checks() -> dict:

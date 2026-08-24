@@ -5,6 +5,13 @@
   const token = root.dataset.token || window.location.pathname.split("/").pop();
   const card = root.querySelector(".tp-tracking-card");
   const escape = (value) => String(value || "").replace(/[&<>\"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character]);
+  let companyName = "Empresa responsável";
+  const applyIdentity = (identity) => {
+    companyName = identity?.display_name || companyName;
+    const header = root.querySelector(".tp-public-header");
+    if (header) header.innerHTML = `${identity?.logo_url ? `<img alt="${escape(companyName)}" class="tp-public-logo" src="${escape(identity.logo_url)}">` : `<strong class="tp-public-wordmark">${escape(companyName)}</strong>`}<span>Acompanhe seu reparo</span>`;
+    document.title = `Rastreio | ${companyName}`;
+  };
   const formatDate = (value, withTime = true) => value ? new Intl.DateTimeFormat("pt-BR", withTime ? { dateStyle: "medium", timeStyle: "short" } : { dateStyle: "medium" }).format(new Date(value)) : "Não definida";
   const money = (value) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
   const statusMeta = (status) => ({
@@ -13,12 +20,12 @@
     "Aguardando aprovação": { label: "Aguardando aprovação", next: "Confira o orçamento e decida quando estiver pronto." },
     "Aprovado": { label: "Orçamento aprovado", next: "Seu aparelho seguirá para a etapa de reparo." },
     "Reprovado": { label: "Orçamento recusado", next: "Aguarde as instruções para retirada do aparelho." },
-    "Orçamento expirado": { label: "Orçamento expirado", next: "Fale com a Tecponto para conhecer as próximas opções." },
+    "Orçamento expirado": { label: "Orçamento expirado", next: `Fale com ${companyName} para conhecer as próximas opções.` },
     "Aguardando peça": { label: "Aguardando peça", next: "Estamos aguardando a peça necessária para continuar." },
     "Em reparo": { label: "Em reparo", next: "O reparo está sendo executado pela equipe técnica." },
     "Teste final": { label: "Em teste final", next: "Estamos validando o reparo antes da liberação." },
     "Pronto para retirada": { label: "Pronto para retirada", next: "Seu aparelho está pronto. Combine a retirada com a loja." },
-    "Entregue": { label: "Atendimento concluído", next: "Obrigado por confiar na Tecponto." },
+    "Entregue": { label: "Atendimento concluído", next: `Obrigado por confiar na ${companyName}.` },
   }[status] || { label: status, next: "Acompanhe as próximas atualizações por aqui." });
 
   const budgetLines = (items) => items.length
@@ -63,6 +70,7 @@
   };
 
   const renderTracking = (data) => {
+    applyIdentity(data.identity);
     const order = data.service_order;
     const meta = statusMeta(order.workflow_state);
     const statusTone = order.workflow_state === "Entregue" || String(data.approval?.status || "").startsWith("Aprov") ? "success" : String(order.workflow_state).startsWith("Reprov") || String(data.approval?.status || "").startsWith("Reprov") ? "danger" : String(order.workflow_state).startsWith("Aguardando") ? "warning" : "info";
@@ -96,7 +104,7 @@
         <section class="tp-tracking-timeline"><div class="tp-section-heading"><div><p class="tp-section-kicker">ACOMPANHAMENTO</p><h2>Andamento do reparo</h2></div></div><ol>${timeline}</ol></section>
         <aside class="tp-tracking-aside">
           <section class="tp-aside-card"><p class="tp-section-kicker">RESUMO DO ATENDIMENTO</p><h2>Resumo do atendimento</h2><dl><div><dt>Status atual</dt><dd>${escape(order.workflow_state)}</dd></div><div><dt>Número da OS</dt><dd>${escape(order.number)}</dd></div><div><dt>Data de entrada</dt><dd>${escape(formatDate(order.entry_date))}</dd></div><div><dt>Última atualização</dt><dd>${escape(formatDate(order.last_updated))}</dd></div>${order.warranty_expiry ? `<div><dt>Garantia até</dt><dd>${escape(formatDate(order.warranty_expiry, false))}</dd></div>` : ""}</dl></section>
-          <section class="tp-aside-card tp-help-card"><p class="tp-section-kicker">PRECISA DE AJUDA?</p><h2>Fale com a Tecponto</h2><p>Nossa equipe está pronta para ajudar você pelo WhatsApp.</p><a class="tp-tracking-whatsapp" href="${escape(data.whatsapp_url)}" target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a></section>
+          <section class="tp-aside-card tp-help-card"><p class="tp-section-kicker">PRECISA DE AJUDA?</p><h2>Fale com ${escape(companyName)}</h2><p>Nossa equipe está pronta para ajudar você pelo WhatsApp.</p><a class="tp-tracking-whatsapp" href="${escape(data.whatsapp_url)}" target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a></section>
           <section class="tp-aside-card"><p class="tp-section-kicker">OBSERVAÇÕES</p><p>As atualizações aparecem automaticamente conforme o andamento do serviço. Continue acompanhando por aqui.</p></section>
         </aside>
       </div>

@@ -177,7 +177,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
         picked_up_doc: pickedUpDoc.trim(),
         pickup_notes: notes.trim(),
         third_party: thirdParty,
-        third_party_auth: thirdParty && thirdPartyAuthorized ? "Autorização de retirada por terceiro confirmada no balcão Tecponto." : "",
+		third_party_auth: thirdParty && thirdPartyAuthorized ? "Autorização de retirada por terceiro confirmada no balcão." : "",
       });
       const issued = await balcao.issueAcceptance(detail.name, "Retirada", thirdParty ? "Terceiro" : "Dono");
       setAcceptance(issued);
@@ -206,7 +206,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
       picked_up_doc: pickedUpDoc.trim(),
       pickup_notes: notes.trim(),
       third_party: thirdParty,
-      third_party_auth: thirdParty && thirdPartyAuthorized ? "Autorização de retirada por terceiro confirmada no balcão Tecponto." : "",
+		third_party_auth: thirdParty && thirdPartyAuthorized ? "Autorização de retirada por terceiro confirmada no balcão." : "",
     };
 
     setSubmitting(true);

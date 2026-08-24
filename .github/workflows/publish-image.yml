@@ -174,7 +174,7 @@ jobs:
           frappe.connect()
           frappe.set_user("Administrator")
           from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
-          setup_complete('{"country":"Brazil","company_name":"Tecponto","company_abbr":"TEC","currency":"BRL","timezone":"America/Sao_Paulo","fy_start_date":"2026-01-01","fy_end_date":"2026-12-31","chart_of_accounts":"Standard"}')
+          setup_complete('{"country":"Brazil","company_name":"CI Repair","company_abbr":"CIR","currency":"BRL","timezone":"America/Sao_Paulo","fy_start_date":"2026-01-01","fy_end_date":"2026-12-31","chart_of_accounts":"Standard"}')
           from tecponto_app.install import bootstrap_erpnext_foundation
           bootstrap_erpnext_foundation()
           frappe.db.commit()

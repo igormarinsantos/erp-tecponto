@@ -1,7 +1,7 @@
-import { FormEvent, type ReactNode, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useState } from "react";
 import { AlertCircle, ArrowRight, KeyRound, Loader2, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
 
-import tecpontoLogoDark from "./assets/tecponto-logo-dark.png";
+import { getPublicCompanyIdentity, type CompanyIdentity } from "./api";
 import { Button } from "./ui";
 
 export type LoginReason = "guest" | "expired";
@@ -18,6 +18,17 @@ export function LoginScreen({ message, onLogin, reason }: LoginScreenProps) {
   const [status, setStatus] = useState<"idle" | "submitting">("idle");
   const [error, setError] = useState<string | null>(null);
   const isExpired = reason === "expired";
+	const [identity, setIdentity] = useState<CompanyIdentity | null>(() => window.tecpontoBoot?.identity ?? null);
+
+	useEffect(() => {
+		if (identity) return;
+		void getPublicCompanyIdentity().then(setIdentity).catch(() => undefined);
+	}, [identity]);
+	const brandName = identity?.display_name || "Empresa";
+
+	useEffect(() => {
+		document.title = brandName;
+	}, [brandName]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -42,12 +53,12 @@ export function LoginScreen({ message, onLogin, reason }: LoginScreenProps) {
       <div className="relative grid min-h-screen gap-6 p-4 md:grid-cols-[minmax(300px,0.85fr)_minmax(360px,1fr)] lg:p-6">
         <section className="flex min-h-[260px] flex-col justify-between rounded-[26px] border border-tec-border/20 bg-tec-sidebar p-6 shadow-panel lg:p-8">
           <div>
-            <img alt="Tecponto" className="tp-logo-image tp-logo-on-dark h-auto w-full max-w-[280px]" src={tecpontoLogoDark} />
+			{identity?.logo_url ? <img alt={brandName} className="tp-logo-image h-auto w-full max-w-[280px]" src={identity.logo_url} /> : <strong className="block text-3xl font-bold text-white">{brandName}</strong>}
             <p className="mt-2 text-xs font-bold uppercase tracking-wide text-tec-muted">Central de operação</p>
           </div>
 
           <div className="max-w-xl">
-            <p className="text-xs font-bold uppercase tracking-wide text-tec-orange">ERP Tecponto</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-tec-orange">ERP {brandName}</p>
             <h1 className="mt-3 text-4xl font-bold leading-tight text-white lg:text-5xl">Acesso seguro para o balcão.</h1>
             <p className="mt-4 max-w-lg text-base leading-7 text-tec-subtle">
               Entre com seu usuário do Frappe. A tela muda conforme seu papel operacional e todas as regras continuam no motor do ERPNext.
@@ -57,7 +68,7 @@ export function LoginScreen({ message, onLogin, reason }: LoginScreenProps) {
           <div className="grid gap-3 text-sm text-tec-subtle sm:grid-cols-3 md:grid-cols-1 xl:grid-cols-3">
             <LoginProof icon={<ShieldCheck size={18} />} label="Sessão Frappe" />
             <LoginProof icon={<LockKeyhole size={18} />} label="Sem auth paralelo" />
-            <LoginProof icon={<UserRound size={18} />} label="Papel Tecponto" />
+            <LoginProof icon={<UserRound size={18} />} label="Papel operacional" />
           </div>
         </section>
 
@@ -67,7 +78,7 @@ export function LoginScreen({ message, onLogin, reason }: LoginScreenProps) {
               <span className="grid h-14 w-14 place-items-center rounded-[18px] bg-tec-orange text-tec-ink shadow-glow">
                 <KeyRound size={24} />
               </span>
-              <h2 className="mt-5 text-3xl font-bold text-white">Entrar na Tecponto</h2>
+              <h2 className="mt-5 text-3xl font-bold text-white">Entrar em {brandName}</h2>
               <p className="mt-2 text-sm leading-6 text-tec-subtle">
                 {isExpired ? "Confirme suas credenciais para retomar a operação com segurança." : "Use o mesmo login do ERPNext/Frappe."}
               </p>
@@ -94,7 +105,7 @@ export function LoginScreen({ message, onLogin, reason }: LoginScreenProps) {
                   autoComplete="username"
                   className="h-12 w-full rounded-control border border-tec-border/25 bg-tec-field px-4 text-base font-semibold text-tec-text outline-none transition placeholder:text-tec-muted focus:border-tec-orange/70 focus:ring-2 focus:ring-tec-orange/15"
                   onChange={(event) => setUser(event.target.value)}
-                  placeholder="usuario@tecponto.local"
+                  placeholder="seu.usuario@empresa.com"
                   value={user}
                 />
               </label>
@@ -116,7 +127,7 @@ export function LoginScreen({ message, onLogin, reason }: LoginScreenProps) {
             </Button>
 
             <p className="mt-5 text-center text-xs font-medium text-tec-muted">
-              Se o acesso não abrir, peça ao gestor para vincular um papel Tecponto ao seu usuário.
+              Se o acesso não abrir, peça ao gestor para vincular um papel operacional ao seu usuário.
             </p>
           </form>
         </section>

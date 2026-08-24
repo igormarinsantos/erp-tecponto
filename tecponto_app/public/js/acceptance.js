@@ -7,6 +7,13 @@
 	let signatureData = null;
 	let drawing = false;
 	const escape = (value) => String(value || "").replace(/[&<>\"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character]);
+	const applyIdentity = (identity) => {
+		const name = identity?.display_name || "Empresa responsável";
+		const header = root.querySelector(".tp-public-header");
+		if (header) header.innerHTML = `${identity?.logo_url ? `<img alt="${escape(name)}" class="tp-public-logo" src="${escape(identity.logo_url)}">` : `<strong class="tp-public-wordmark">${escape(name)}</strong>`}<span>Atendimento seguro</span>`;
+		document.title = `Aceite | ${name}`;
+		return name;
+	};
 	const stopCamera = () => {
 		stream?.getTracks().forEach((track) => track.stop());
 		stream = null;
@@ -20,6 +27,7 @@
 		const payload = await response.json();
 		const data = payload.message;
 		if (!data || !data.valid) throw new Error(data?.message || "Este link não está disponível.");
+		const companyName = applyIdentity(data.identity);
 		const order = data.service_order;
 		card.innerHTML = `
 			<p class="tp-acceptance-brand">${data.acceptance.type === "Orçamento" ? "APROVAÇÃO DE ORÇAMENTO" : "ACEITE DIGITAL"}</p>
@@ -196,7 +204,7 @@
 				stopCamera();
 				const completionTitle = data.acceptance.type === "Orçamento" ? "Orçamento aprovado" : "Aceite concluído";
 				const completionCopy = data.acceptance.type === "Orçamento"
-					? "Sua aprovação foi registrada com selfie, assinatura e consentimento. A Tecponto seguirá com o reparo."
+					? `Sua aprovação foi registrada com selfie, assinatura e consentimento. ${companyName} seguirá com o reparo.`
 					: "Sua confirmação foi registrada com sucesso. Você pode devolver este aparelho ao atendente.";
 				card.innerHTML = `<p class="tp-acceptance-brand">${data.acceptance.type === "Orçamento" ? "APROVAÇÃO DE ORÇAMENTO" : "ACEITE DIGITAL"}</p><h1>${completionTitle}</h1><p>${completionCopy}</p><div class="tp-acceptance-notice"><b>Registro concluído</b><br>Selfie, assinatura e consentimento foram vinculados a este atendimento.</div>`;
 			} catch (error) {

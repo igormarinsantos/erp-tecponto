@@ -8,6 +8,13 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "identity_section",
+  "identity_company",
+  "trade_name",
+  "public_phone",
+  "public_email",
+  "public_address",
+  "public_logo",
   "fiscal_section",
   "regime_tributario",
   "fiscal_provider",
@@ -40,6 +47,42 @@
  ],
  "fields": [
   {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identidade comercial"
+  },
+  {
+   "fieldname": "identity_company",
+   "fieldtype": "Link",
+   "label": "Empresa",
+   "options": "Company"
+  },
+  {
+   "fieldname": "trade_name",
+   "fieldtype": "Data",
+   "label": "Nome fantasia exibido"
+  },
+  {
+   "fieldname": "public_phone",
+   "fieldtype": "Data",
+   "label": "Telefone exibido"
+  },
+  {
+   "fieldname": "public_email",
+   "fieldtype": "Data",
+   "label": "E-mail exibido"
+  },
+  {
+   "fieldname": "public_address",
+   "fieldtype": "Small Text",
+   "label": "Endereço exibido"
+  },
+  {
+   "fieldname": "public_logo",
+   "fieldtype": "Attach Image",
+   "label": "Logo exibida"
+  },
+  {
    "fieldname": "fiscal_section",
    "fieldtype": "Section Break",
    "label": "Fiscal"
@@ -67,21 +110,18 @@
    "label": "Opera\u00e7\u00e3o"
   },
   {
-   "default": "Pe\u00e7as - TEC",
    "fieldname": "repair_warehouse",
    "fieldtype": "Link",
    "label": "Dep\u00f3sito de reparo",
    "options": "Warehouse"
   },
   {
-   "default": "Acess\u00f3rios - TEC",
    "fieldname": "commercial_warehouse",
    "fieldtype": "Link",
    "label": "Dep\u00f3sito comercial",
    "options": "Warehouse"
   },
   {
-   "default": "Aparelhos Usados - TEC",
    "fieldname": "used_devices_warehouse",
    "fieldtype": "Link",
    "label": "Dep\u00f3sito de usados",

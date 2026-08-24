@@ -13,14 +13,14 @@ interface FrappeRpcResponse<T> {
 }
 
 export class AuthRequiredError extends Error {
-  constructor(message = "Faça login para acessar a Tecponto.") {
+  constructor(message = "Faça login para acessar o sistema.") {
     super(message);
     this.name = "AuthRequiredError";
   }
 }
 
 export class NoOperationalRoleError extends Error {
-  constructor(message = "Usuário sem papel operacional Tecponto.") {
+  constructor(message = "Usuário sem papel operacional.") {
     super(message);
     this.name = "NoOperationalRoleError";
   }

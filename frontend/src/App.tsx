@@ -178,6 +178,10 @@ interface TecpontoContextMenuState {
 type QueueFilter = "all" | "Aguardando aprovação" | "Entrada criada" | "Em diagnóstico" | "Aguardando peça" | "Em reparo" | "Teste final" | "Pronto para retirada" | "Entregue" | "Reprovado";
 type DashboardPeriodMode = "7d" | "14d" | "custom";
 
+function commercialName() {
+  return window.tecpontoBoot?.identity?.display_name || "Empresa";
+}
+
 interface DashboardPeriodFilter {
   mode: DashboardPeriodMode;
   fromDate: string;
@@ -288,7 +292,7 @@ function contextMenuTitle(target: TecpontoContextTarget) {
   if (target.kind === "product") {
     return target.label ?? target.name ?? "Produto";
   }
-  return "Atalhos Tecponto";
+  return "Atalhos";
 }
 
 function contextMenuSubtitle(target: TecpontoContextTarget) {
@@ -456,6 +460,12 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.tecpontoDensity = density;
   }, [density]);
+
+  useEffect(() => {
+    if (state.status === "ready" || state.status === "no_role") {
+      document.title = state.boot.identity.display_name;
+    }
+  }, [state]);
 
   useEffect(() => {
     const onSessionExpired = () => {
@@ -984,7 +994,7 @@ export function App() {
     return (
       <main className="grid min-h-screen place-items-center p-6">
         <Card className="max-w-md p-6 text-center">
-          <h1 className="text-xl font-bold text-white">Tecponto</h1>
+          <h1 className="text-xl font-bold text-white">{commercialName()}</h1>
           <p className="mt-3 text-sm text-tec-subtle">{state.message}</p>
           <Button className="mt-5" onClick={() => void load()} variant="primary">
             Tentar novamente
@@ -1004,7 +1014,8 @@ export function App() {
       subtitle: "Visao unificada",
     }
     : state.boot.user;
-  const panel = getUnifiedPanelDefinition(rolePanels, state.boot.user.full_name);
+  const brandName = state.boot.identity.display_name;
+  const panel = getUnifiedPanelDefinition(rolePanels, state.boot.user.full_name, brandName);
   const currentView = activeView === "overview"
     ? null
     : activeView === "service-order-detail" && !state.metrics.sales_visible
@@ -1014,7 +1025,7 @@ export function App() {
   if (cashierMode) {
     return (
       <>
-        <CashierMode onExit={() => window.location.assign("/tecponto")} onToast={showToast} />
+        <CashierMode brandName={brandName} onExit={() => window.location.assign("/tecponto")} onToast={showToast} />
         {toast ? <Toast message={toast.message} tone={toast.tone} /> : null}
       </>
     );
@@ -1025,6 +1036,7 @@ export function App() {
       <Sidebar
         activeItemId={activeView === "service-order-detail" ? "service-orders" : activeView}
         canOpenSystemSettings={state.boot.user.roles.includes("System Manager")}
+		identity={state.boot.identity}
         onOpenAccount={() => setAccountOpen(true)}
         onLogout={logout}
         onOpenHelp={() => setHelpOpen(true)}
@@ -1093,6 +1105,7 @@ export function App() {
 
           {checkinPage ? (
             <CheckinWizard
+			  brandName={brandName}
               onClose={closeCheckinPage}
               onCreated={handleCheckinCreated}
 				onDirtyChange={setCheckinDirty}
@@ -2966,7 +2979,7 @@ function ServiceOrderDetail({
     "Aparelho não vinculado";
   const whatsappUrl = buildWhatsAppUrl(
     detail.customer?.custom_whatsapp || detail.customer?.mobile_no,
-    `Olá, ${customerLabel}. Aqui é da Tecponto. Sobre a OS ${detail.name} (${deviceLabel}), podemos falar por aqui?`,
+    `Olá, ${customerLabel}. Aqui é da ${commercialName()}. Sobre a OS ${detail.name} (${deviceLabel}), podemos falar por aqui?`,
   );
 
   async function handleSimpleWorkflowMove(nextState: string) {
@@ -5654,7 +5667,7 @@ function DeviceLookup({ onToast }: { onToast: (message: string, tone?: ToastStat
 function CustomerDetailModal({ customer, onClose }: { customer: CustomerSummary | null; onClose: () => void }) {
   const label = customer?.customer_name ?? customer?.name ?? "Cliente";
   const whatsappUrl = customer
-    ? buildWhatsAppUrl(customer.custom_whatsapp || customer.mobile_no, `Olá, ${label}. Aqui é da Tecponto. Podemos falar por aqui?`)
+    ? buildWhatsAppUrl(customer.custom_whatsapp || customer.mobile_no, `Olá, ${label}. Aqui é da ${commercialName()}. Podemos falar por aqui?`)
     : null;
 
   return (
@@ -6510,7 +6523,7 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
           <SalesRouteCard
             detail="Nova venda com estoque Comercial"
             icon={<CreditCard size={22} />}
-            label="PDV Tecponto"
+			label={`PDV ${commercialName()}`}
             onClick={() => onNavigate("pos")}
           />
           <SalesRouteCard
@@ -7413,7 +7426,7 @@ function LoadingShell() {
     <main className="grid min-h-screen place-items-center p-6">
       <Card className="w-full max-w-md p-6 text-center">
         <div className="mx-auto h-12 w-12 animate-spin rounded-full border-2 border-tec-orange border-t-transparent" />
-        <p className="mt-4 text-sm font-semibold text-tec-subtle">Carregando Tecponto</p>
+		<p className="mt-4 text-sm font-semibold text-tec-subtle">Carregando sistema</p>
       </Card>
     </main>
   );
@@ -7427,14 +7440,14 @@ function NoRoleScreen({ boot, onLogout, onRetry }: { boot: BootResponse; onLogou
         <span className="mx-auto grid h-16 w-16 place-items-center rounded-[20px] bg-tec-amber/15 text-tec-amber">
           <ShieldAlert size={28} />
         </span>
-        <p className="mt-6 text-xs font-bold uppercase tracking-wide text-tec-orange">Acesso Tecponto</p>
+		<p className="mt-6 text-xs font-bold uppercase tracking-wide text-tec-orange">Acesso operacional</p>
         <h1 className="mt-2 text-3xl font-bold text-white">Usuário sem papel operacional</h1>
         <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-tec-subtle">
-          O login de {boot.user.full_name || boot.user.name} está ativo no Frappe, mas ainda não possui Tecponto Atendente, Técnico, Gestor ou Diretor. Nenhum dado de operação foi carregado.
+		  O login de {boot.user.full_name || boot.user.name} está ativo no Frappe, mas ainda não possui um papel operacional. Nenhum dado de operação foi carregado.
         </p>
         <div className="mt-6 rounded-card border border-tec-border/15 bg-tec-field p-4 text-left text-sm text-tec-subtle">
           <p className="font-bold text-white">Próximo passo</p>
-          <p className="mt-1">Peça ao gestor para vincular um papel operacional Tecponto ao usuário {boot.user.name}.</p>
+		  <p className="mt-1">Peça ao gestor para vincular um papel operacional ao usuário {boot.user.name}.</p>
         </div>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
           <Button onClick={onRetry} variant="primary">

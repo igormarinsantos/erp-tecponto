@@ -238,6 +238,7 @@ const accessoryOptions = [
 const damageMarkers = ["trincada", "arranh", "amassado", "oxidação", "molhado", "dano", "lacre", "quebrada"];
 
 interface CheckinWizardProps {
+	brandName: string;
   onClose: () => void;
   onCreated: (response: CheckinResponse) => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -245,7 +246,7 @@ interface CheckinWizardProps {
   presentation?: "page";
 }
 
-export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, presentation }: CheckinWizardProps) {
+export function CheckinWizard({ brandName, onClose, onCreated, onDirtyChange, onOpenOrder, presentation }: CheckinWizardProps) {
   const [step, setStep] = useState(0);
   const [created, setCreated] = useState<CheckinResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -508,7 +509,7 @@ export function CheckinWizard({ onClose, onCreated, onDirtyChange, onOpenOrder, 
       ) : null}
       <div>
         {created ? (
-          <CheckinSuccess created={created} onClose={requestClose} onOpenOrder={onOpenOrder} />
+		  <CheckinSuccess brandName={brandName} created={created} onClose={requestClose} onOpenOrder={onOpenOrder} />
         ) : (
           <div className="overflow-hidden rounded-[18px] border border-tec-border/15 bg-tec-panel">
             <div className="border-b border-tec-border/15 px-5 py-5 sm:px-7">
@@ -1891,10 +1892,12 @@ function SignatureStep({
 }
 
 function CheckinSuccess({
+	brandName,
   created,
   onClose,
   onOpenOrder,
 }: {
+	brandName: string;
   created: CheckinResponse;
   onClose: () => void;
   onOpenOrder: (response: CheckinResponse) => void;
@@ -1937,7 +1940,7 @@ function CheckinSuccess({
   };
 
   const sendTrackingWhatsApp = () => {
-    const text = `Olá! Acompanhe o status do seu reparo Tecponto por este link seguro: ${created.tracking.link}`;
+	const text = `Olá! Acompanhe o status do seu reparo ${brandName} por este link seguro: ${created.tracking.link}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
   };
 
@@ -2508,7 +2511,7 @@ function makeLocalTestPhoto() {
     context.fillRect(0, 0, canvas.width, 76);
     context.fillStyle = "#202428";
     context.font = "bold 34px Space Grotesk, sans-serif";
-    context.fillText("TECPONTO - FOTO DE ENTRADA", 32, 50);
+	context.fillText("FOTO DE ENTRADA", 32, 50);
     context.fillStyle = "#F5F6F7";
     context.font = "24px Space Grotesk, sans-serif";
     context.fillText(new Date().toLocaleString("pt-BR"), 32, 140);

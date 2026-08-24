@@ -429,21 +429,40 @@ function uniqueByLabel<T extends { label: string }>(items: T[]): T[] {
 }
 
 /** Display-only union: authorization remains entirely server-side. */
-export function getUnifiedPanelDefinition(panels: RolePanel[], fullName: string): PanelDefinition {
-  const resolvedPanels = panelOrder.filter((panel) => panels.includes(panel));
-  if (resolvedPanels.length === 1) return { ...panelDefinitions[resolvedPanels[0]], nav: withSubmenus(panelDefinitions[resolvedPanels[0]].nav) };
-  if (!resolvedPanels.length) return panelDefinitions.sem_papel;
+export function getUnifiedPanelDefinition(panels: RolePanel[], fullName: string, brandName = "Empresa"): PanelDefinition {
+	const resolvedPanels = panelOrder.filter((panel) => panels.includes(panel));
+	if (resolvedPanels.length === 1) return withCommercialIdentity({ ...panelDefinitions[resolvedPanels[0]], nav: withSubmenus(panelDefinitions[resolvedPanels[0]].nav) }, brandName);
+	if (!resolvedPanels.length) return withCommercialIdentity(panelDefinitions.sem_papel, brandName);
 
   const definitions = resolvedPanels.map((panel) => panelDefinitions[panel]);
   const labels = resolvedPanels.map((panel) => panelLabels[panel]);
-  const firstName = fullName.trim().split(/\s+/)[0] || "Tecponto";
+	const firstName = fullName.trim().split(/\s+/)[0] || brandName;
 
-  return {
+  return withCommercialIdentity({
     title: `Ola, ${firstName}!`,
     subtitle: `Visao unificada: ${labels.join(" + ")}.`,
     tableTitle: "Operacao unificada",
     nav: withSubmenus(unifiedNavigation(resolvedPanels)),
     metrics: uniqueByLabel(definitions.flatMap((definition) => definition.metrics)),
     actions: uniqueByLabel(definitions.flatMap((definition) => definition.actions)),
-  };
+	}, brandName);
+}
+
+function withCommercialIdentity(definition: PanelDefinition, brandName: string): PanelDefinition {
+	const replace = (value: string) => value.replace(/Tecponto/g, brandName);
+	const mapItem = (item: NavItem): NavItem => ({
+		...item,
+		label: replace(item.label),
+		subtitle: replace(item.subtitle),
+		children: item.children?.map(mapItem),
+	});
+	return {
+		...definition,
+		title: replace(definition.title),
+		subtitle: replace(definition.subtitle),
+		tableTitle: replace(definition.tableTitle),
+		nav: definition.nav.map((section) => ({ ...section, label: replace(section.label), items: section.items.map(mapItem) })),
+		metrics: definition.metrics.map((metric) => ({ ...metric, label: replace(metric.label), detail: replace(metric.detail) })),
+		actions: definition.actions.map((action) => ({ ...action, label: replace(action.label), detail: replace(action.detail) })),
+	};
 }

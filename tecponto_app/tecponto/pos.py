@@ -305,9 +305,11 @@ def _barcode_label_css() -> str:
 
 def _receipt_html() -> str:
 	return """
+{% set tp_company = frappe.get_attr('tecponto_app.tecponto.company_identity.get_company_identity')(doc.company) %}
 <div class="tp-receipt">
   <header>
-    <h1>TECPONTO</h1>
+	<h1>{{ tp_company.display_name }}</h1>
+	{% if tp_company.cnpj %}<p>CNPJ {{ tp_company.cnpj }}</p>{% endif %}
     <p>Cupom de venda {{ doc.name }}</p>
   </header>
   <div class="tp-meta">
@@ -370,7 +372,7 @@ def validate_pos_warehouse(doc, method=None) -> None:
 		return
 
 	if doc.get("set_warehouse") and doc.get("set_warehouse") != commercial_warehouse:
-		frappe.throw("POS Tecponto Balcao deve baixar apenas do estoque Comercial.")
+		frappe.throw("O PDV deve baixar apenas do estoque Comercial.")
 
 	for item in doc.get("items") or []:
 		if not item.get("item_code"):
@@ -378,7 +380,7 @@ def validate_pos_warehouse(doc, method=None) -> None:
 		if not frappe.get_cached_value("Item", item.item_code, "is_stock_item"):
 			continue
 		if item.get("warehouse") and item.get("warehouse") != commercial_warehouse:
-			frappe.throw("POS Tecponto Balcao deve baixar apenas do estoque Comercial.")
+			frappe.throw("O PDV deve baixar apenas do estoque Comercial.")
 
 
 def _ensure_pos_payment_modes(company: str) -> None:

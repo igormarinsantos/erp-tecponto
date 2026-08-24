@@ -14,6 +14,7 @@ PF_TERMO_ENTRADA = "Tecponto Termo de Entrada"
 PF_TERMO_RETIRADA = "Tecponto Termo de Retirada"
 PF_OS_ORCAMENTO = "Tecponto OS Orcamento"
 PF_ETIQUETA_QR = "Tecponto Etiqueta QR"
+PF_CUPOM_PDV = "Tecponto Cupom PDV"
 
 PRINT_FORMAT_NAMES = (
 	PF_TERMO_ENTRADA,
@@ -58,10 +59,32 @@ def ensure_service_order_print_formats() -> list[str]:
 			print_format.save(ignore_permissions=True)
 			created_or_updated.append(name)
 
+	if _ensure_pos_receipt_branding():
+		created_or_updated.append(PF_CUPOM_PDV)
 	return created_or_updated
 
 
+def _ensure_pos_receipt_branding() -> bool:
+	"""Keep the native Sales Invoice receipt commercial-brand aware.
+
+	The print format itself remains a Tecponto technical record, while the
+	receipt heading is resolved from the invoice company at render time.
+	"""
+	if not frappe.db.exists("Print Format", PF_CUPOM_PDV):
+		return False
+	print_format = frappe.get_doc("Print Format", PF_CUPOM_PDV)
+	old_heading = "<h1>TECPONTO</h1>"
+	if old_heading not in (print_format.html or ""):
+		return False
+	context = "{% set tp_company = frappe.get_attr('tecponto_app.tecponto.company_identity.get_company_identity')(doc.company) %}"
+	print_format.html = (print_format.html or "").replace(old_heading, f"{context}\\n    <h1>{{{{ tp_company.display_name }}}}</h1>")
+	print_format.save(ignore_permissions=True)
+	return True
+
+
 def get_service_order_print_context(doc) -> dict:
+	from tecponto_app.tecponto.company_identity import get_company_identity
+
 	customer = _customer(doc.get("customer"))
 	device = _device(doc.get("customer_device"))
 	services = [_service_row(row) for row in doc.get("services") or []]
@@ -78,6 +101,7 @@ def get_service_order_print_context(doc) -> dict:
 	os_url = get_url_to_form(DOCTYPE_SERVICE_ORDER, doc.name)
 
 	return {
+		"company": get_company_identity(),
 		"customer": customer,
 		"device": device,
 		"device_label": _device_label(device),
@@ -243,6 +267,7 @@ def _termo_entrada_html() -> str:
     <div>
       <h1>Termo de Entrada</h1>
       <p>Ordem de Serviço {{ doc.name }}</p>
+	  <p>{{ tp.company.legal_name }}{% if tp.company.cnpj %} · CNPJ {{ tp.company.cnpj }}{% endif %}</p>
     </div>
     <div class="tp-muted">Entrada: {{ tp.entry_date }}</div>
   </header>
@@ -273,7 +298,7 @@ def _termo_entrada_html() -> str:
   <section class="tp-notice">
     <h2>Avisos ao cliente</h2>
     <p><strong>Senha do aparelho.</strong> Quando a senha, padrão ou código de desbloqueio for necessário para diagnóstico, será tratado apenas para execução do serviço e não será impresso neste termo.</p>
-    <p><strong>LGPD.</strong> A Tecponto usará os dados pessoais e do aparelho somente para atendimento, orçamento, execução do reparo, emissão de documentos, cobrança e contatos relacionados à OS.</p>
+    <p><strong>LGPD.</strong> {{ tp.company.display_name }} usará os dados pessoais e do aparelho somente para atendimento, orçamento, execução do reparo, emissão de documentos, cobrança e contatos relacionados à OS.</p>
     <p><strong>Não retirada e estadia.</strong> Após a conclusão, recusa, expiração do orçamento ou aviso de retirada, a loja poderá registrar tentativas de contato. Se a cobrança de estadia estiver habilitada e comunicada ao cliente, a diária poderá ser aplicada após a carência informada, respeitando os limites configurados na OS.</p>
   </section>
 
@@ -297,6 +322,7 @@ def _termo_retirada_html() -> str:
     <div>
       <h1>Termo de Retirada</h1>
       <p>Ordem de Serviço {{ doc.name }}</p>
+	  <p>{{ tp.company.legal_name }}{% if tp.company.cnpj %} · CNPJ {{ tp.company.cnpj }}{% endif %}</p>
     </div>
     <div class="tp-muted">Retirada: {{ tp.pickup_date }}</div>
   </header>
@@ -371,7 +397,7 @@ def _termo_retirada_html() -> str:
   {% endif %}
   <div class="tp-signatures">
     <div><span></span><p>Assinatura de retirada</p></div>
-    <div><span></span><p>Responsável Tecponto</p></div>
+    <div><span></span><p>Responsável {{ tp.company.display_name }}</p></div>
   </div>
 
   <footer>[MINUTA — revisar com advogado] Texto informativo de retirada, garantia e retirada por terceiro sujeito à revisão jurídica.</footer>
@@ -386,6 +412,7 @@ def _os_orcamento_html() -> str:
     <div>
       <h1>OS / Orçamento</h1>
       <p>Ordem de Serviço {{ doc.name }}</p>
+	  <p>{{ tp.company.legal_name }}{% if tp.company.cnpj %} · CNPJ {{ tp.company.cnpj }}{% endif %}</p>
     </div>
     <div class="tp-deadline">Validade: {{ tp.approval_deadline }}</div>
   </header>

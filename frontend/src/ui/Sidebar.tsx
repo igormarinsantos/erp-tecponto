@@ -2,8 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import { ChevronDown, ChevronUp, HelpCircle, LogOut, Settings, SlidersHorizontal, UserCog } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import tecpontoLogoDark from "../assets/tecponto-logo-dark.png";
-import type { LoggedUser, NavigationTarget } from "../api";
+import type { CompanyIdentity, LoggedUser, NavigationTarget } from "../api";
 import { cx } from "./utils";
 
 export interface NavItem {
@@ -22,6 +21,7 @@ export interface NavSection {
 interface SidebarProps {
   activeItemId: NavigationTarget;
   canOpenSystemSettings: boolean;
+	identity: CompanyIdentity;
   onOpenAccount: () => void;
   onOpenHelp: () => void;
   onLogout: () => void;
@@ -35,6 +35,7 @@ interface SidebarProps {
 export function Sidebar({
   activeItemId,
   canOpenSystemSettings,
+	identity,
   onLogout,
   onOpenAccount,
   onOpenHelp,
@@ -69,7 +70,7 @@ export function Sidebar({
   return (
     <aside className="tp-sidebar-desktop fixed inset-y-0 left-0 z-30 flex w-[var(--tp-sidebar-width)] flex-col border-r border-tec-border/20 bg-tec-sidebar p-4">
       <div className="shrink-0 px-2 py-2">
-        <img alt="Tecponto" className="tp-logo-image tp-logo-on-dark h-auto w-full max-w-[184px]" src={tecpontoLogoDark} />
+		{identity.logo_url ? <img alt={identity.display_name} className="tp-logo-image h-auto w-full max-w-[184px]" src={identity.logo_url} /> : <strong className="block text-2xl font-bold text-white">{identity.display_name}</strong>}
       </div>
 
       <nav className="tp-sidebar-nav-scroll mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2 pb-3">

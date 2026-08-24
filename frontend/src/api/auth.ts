@@ -1,5 +1,5 @@
 import { extractFrappeErrorMessage, rpc } from "./client";
-import type { BootResponse, LoggedUser } from "./types";
+import type { BootResponse, CompanyIdentity, LoggedUser } from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
 
@@ -12,6 +12,10 @@ interface FrappeLoginPayload {
 
 export function getBoot() {
   return rpc<BootResponse>(`${API}.get_boot`);
+}
+
+export function getPublicCompanyIdentity() {
+  return rpc<CompanyIdentity>("tecponto_app.tecponto.company_identity.get_public_company_identity");
 }
 
 export function getLoggedUser() {

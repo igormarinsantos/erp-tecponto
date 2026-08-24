@@ -217,6 +217,7 @@ export interface LoggedUser {
 
 export interface BootResponse {
   user: LoggedUser;
+  identity: CompanyIdentity;
   app: {
     name: string;
     route: string;
@@ -228,6 +229,17 @@ export interface BootResponse {
     label: string;
     subtitle: string;
   }>;
+}
+
+export interface CompanyIdentity {
+  company: string;
+  legal_name: string;
+  display_name: string;
+  cnpj: string;
+  address: string;
+  phone: string;
+  email: string;
+  logo_url: string;
 }
 
 export interface TecpontoNotification {
