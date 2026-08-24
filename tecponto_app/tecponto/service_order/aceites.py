@@ -83,6 +83,11 @@ def _validate_approval_acceptance(doc) -> None:
 	if workflow_state == STATE_REPROVADO and not (doc.get("approval_notes") or "").strip():
 		frappe.throw("Registre o motivo da reprovação do orçamento.")
 
+	if workflow_state == STATE_APROVADO:
+		from tecponto_app.tecponto.service_order.deadline import assert_budget_approval_within_deadline
+
+		assert_budget_approval_within_deadline(doc)
+
 
 def _validate_delivery_acceptance(doc) -> None:
 	if doc.get("workflow_state") != STATE_ENTREGUE:

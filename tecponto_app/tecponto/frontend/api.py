@@ -1454,6 +1454,10 @@ def decide_service_order_budget(name: str, payload: str | dict[str, Any] | None 
 	doc = frappe.get_doc("Service Order", name)
 	if doc.get("workflow_state") != STATE_AGUARDANDO_APROVACAO:
 		frappe.throw(_("A OS precisa estar em Aguardando aprovação."), frappe.ValidationError)
+	if decision == "approve":
+		from tecponto_app.tecponto.service_order.deadline import assert_budget_approval_within_deadline
+
+		assert_budget_approval_within_deadline(doc)
 
 	if decision == "approve":
 		approval_status = APPROVAL_STATUS_APROVADO

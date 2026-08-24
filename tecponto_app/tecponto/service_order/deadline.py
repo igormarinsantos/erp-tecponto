@@ -89,6 +89,13 @@ def set_approval_deadline(doc, method=None) -> None:
 	doc.approval_deadline = add_business_hours(now_datetime(), APPROVAL_BUSINESS_HOURS)
 
 
+def assert_budget_approval_within_deadline(doc) -> None:
+	"""Reject approvals after the promised quote window in every interface."""
+	deadline = doc.get("approval_deadline")
+	if deadline and get_datetime(deadline) <= now_datetime():
+		frappe.throw("O prazo de aprovação do orçamento expirou. Emita uma nova versão antes de aprovar.")
+
+
 def expirar_orcamentos() -> None:
 	from tecponto_app.tecponto.service_order.billing import gerar_nota
 

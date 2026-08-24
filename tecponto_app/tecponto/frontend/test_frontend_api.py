@@ -2122,6 +2122,46 @@ def run_workflow_metadata_gate_checks() -> dict:
 				raise AssertionError(f"Fluxo rastreável de orçamento não persistiu os metadados: {decision}.")
 			results[decision] = {"desk_bypass_blocked": True, "recorded_by_flow": True}
 
+		# The expiration check lives in both the internal flow and document validator.
+		expired_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			expired_order,
+			{"workflow_state": "Aguardando aprovação", "approval_deadline": add_to_date(now_datetime(), hours=-1)},
+			update_modified=False,
+		)
+		frappe.set_user(attendant)
+		internal_expiration_blocked = False
+		try:
+			decide_service_order_budget(expired_order, {"decision": "approve", "channel": "Presencial", "notes": ""})
+		except frappe.ValidationError:
+			internal_expiration_blocked = True
+		if not internal_expiration_blocked or frappe.db.get_value("Service Order", expired_order, "approval_status") != "Pendente":
+			raise AssertionError("Fluxo interno aprovou orçamento expirado ou gravou decisão parcial.")
+
+		frappe.db.set_value(
+			"Service Order",
+			expired_order,
+			{
+				"approval_status": "Aprovado",
+				"approval_channel": "Presencial",
+				"approved_by_attendant": attendant,
+				"approval_date": now_datetime(),
+			},
+			update_modified=False,
+		)
+		native_expiration_blocked = False
+		try:
+			apply_workflow(
+				frappe.as_json({"doctype": "Service Order", "name": expired_order}),
+				"Aprovado",
+			)
+		except frappe.ValidationError:
+			native_expiration_blocked = True
+		if not native_expiration_blocked:
+			raise AssertionError("Desk aprovou orçamento expirado apesar do deadline.")
+		results["expired"] = {"internal_blocked": internal_expiration_blocked, "desk_blocked": native_expiration_blocked}
+
 		return {"status": "ok", "native_workflow": results}
 	finally:
 		frappe.set_user(previous_user)
