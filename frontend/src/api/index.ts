@@ -53,6 +53,8 @@ export type {
   ListStatBarResponse,
 	SaleListResponse,
 	SaleSummary,
+	SalePostSaleDetail,
+	SalesReturnResponse,
   NavigationTarget,
   NotificationHistoryFilters,
   NotificationHistoryResponse,

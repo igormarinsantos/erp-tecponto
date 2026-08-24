@@ -6430,6 +6430,7 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.sales.presentation"));
   const [advancedFilter, setAdvancedFilter] = useState("all");
+  const [postSaleInvoice, setPostSaleInvoice] = useState<string | null>(null);
   useEffect(() => {
     void balcao.getListStatBar("sales").then((result) => setStatItems(result.items)).catch(() => setStatItems([]));
   }, []);
@@ -6473,6 +6474,7 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
         emptyLabel={status === "error" ? "Falha ao consultar vendas." : "Nenhuma venda neste recorte."}
         headerAction={<Button onClick={() => onNavigate("pos")} variant="primary">Abrir PDV</Button>}
         onPresentationChange={setPresentation}
+		onRowClick={(row) => setPostSaleInvoice(row.name)}
         onSecondaryFilterChange={(nextPeriod) => { setPeriod(nextPeriod); void load(query, nextPeriod); }}
         onSearch={(event) => { event.preventDefault(); void load(); }}
         placeholder="Buscar número da venda ou cliente"
@@ -6485,6 +6487,7 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
         status={status}
         title="Histórico de vendas"
       />
+		<SalesReturnModal invoiceName={postSaleInvoice} onClose={() => setPostSaleInvoice(null)} />
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.5fr)]">
       <Card className="overflow-hidden p-0">
         <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-start sm:justify-between">
@@ -6542,6 +6545,58 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
       </Card>
     </div></div>
   );
+}
+
+function SalesReturnModal({ invoiceName, onClose }: { invoiceName: string | null; onClose: () => void }) {
+	const [detail, setDetail] = useState<import("./api").SalePostSaleDetail | null>(null);
+	const [quantities, setQuantities] = useState<Record<string, number>>({});
+	const [state, setState] = useState<"loading" | "ready" | "saving" | "done" | "error">("loading");
+	const [message, setMessage] = useState("");
+	const [exchange, setExchange] = useState(false);
+	const [replacement, setReplacement] = useState<{ item_code: string; item_name: string | null; standard_rate: number } | null>(null);
+	const [replacementQuery, setReplacementQuery] = useState("");
+	const [replacementResults, setReplacementResults] = useState<Array<{ item_code: string; item_name: string | null; standard_rate: number }>>([]);
+	const [paymentMode, setPaymentMode] = useState("Pix");
+	useEffect(() => {
+		if (!invoiceName) return;
+		setState("loading"); setDetail(null); setQuantities({}); setMessage("");
+		void balcao.getSalePostSaleDetail(invoiceName).then((result) => {
+			setDetail(result);
+			setQuantities(Object.fromEntries(result.items.filter((item) => item.available_qty > 0).map((item) => [item.item_code, 0])));
+			setState("ready");
+		}).catch((error) => { setState("error"); setMessage(error instanceof Error ? error.message : "Não foi possível carregar a venda."); });
+	}, [invoiceName]);
+	useEffect(() => {
+		if (!exchange || replacement) return;
+		const timer = window.setTimeout(() => { void pos.searchItems({ query: replacementQuery, limit: 8 }).then((response) => setReplacementResults(response.items)).catch(() => setReplacementResults([])); }, 220);
+		return () => window.clearTimeout(timer);
+	}, [exchange, replacement, replacementQuery]);
+	const submit = async () => {
+		if (!detail) return;
+		const items = detail.items.filter((item) => (quantities[item.item_code] || 0) > 0).map((item) => ({ item_code: item.item_code, qty: quantities[item.item_code] }));
+		if (!items.length) { setMessage("Selecione ao menos um item para devolver."); return; }
+		setState("saving");
+		try {
+			if (exchange) {
+				if (!replacement) { setMessage("Selecione o produto que o cliente está levando."); setState("ready"); return; }
+				const result = await balcao.exchangeSalesProduct({ invoice: detail.name, items, new_sale: { customer: detail.customer || "CONSUMIDOR FINAL", items: [{ item_code: replacement.item_code, qty: 1 }], discount_amount: 0, payments: [{ mode_of_payment: paymentMode, amount: replacement.standard_rate, installments: 1 }], idempotency_key: `tp-exchange-${detail.name}-${Date.now()}` } });
+				setMessage(`Troca registrada: devolução ${result.return_invoice} e nova venda concluída.`);
+			} else {
+				const result = await balcao.createSalesReturn({ invoice: detail.name, items });
+				setMessage(`Devolução ${result.return_invoice} registrada. O ERPNext ajustou estoque e recebíveis pela forma original.`);
+			}
+			setState("done");
+		} catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "Não foi possível registrar a devolução."); }
+	};
+	return <Modal className="max-w-3xl" onClose={onClose} open={Boolean(invoiceName)} title="Devolução de venda">
+		{state === "loading" ? <p className="p-4 text-sm text-tec-muted">Carregando itens da venda...</p> : null}
+		{detail ? <div className="space-y-4"><div className="rounded-card border border-tec-border/20 bg-tec-field/45 p-4"><p className="font-bold text-white">{detail.name} · {detail.customer || "Consumidor final"}</p><p className="mt-1 text-sm text-tec-muted">Pagamento original: {detail.payments.map((payment) => payment.mode_of_payment).join(", ") || "A definir"}. O estorno segue o fluxo nativo da nota de retorno.</p></div>
+			<div className="space-y-2">{detail.items.map((item) => <div className="flex flex-wrap items-center justify-between gap-3 rounded-control border border-tec-border/20 bg-tec-panel px-3 py-3" key={item.item_code}><div><p className="text-sm font-bold text-white">{item.item_name}</p><p className="text-xs text-tec-muted">Disponível para devolver: {item.available_qty} · {formatCurrency(item.unit_price)}</p></div><input className="tp-input w-24" disabled={state === "saving" || state === "done" || item.available_qty <= 0} inputMode="decimal" max={item.available_qty} min={0} onChange={(event) => setQuantities((current) => ({ ...current, [item.item_code]: Math.max(0, Math.min(item.available_qty, Number(event.target.value) || 0)) }))} type="number" value={quantities[item.item_code] || 0} /></div>)}</div>
+			<label className="flex items-center gap-2 text-sm font-semibold text-white"><input checked={exchange} onChange={(event) => setExchange(event.target.checked)} type="checkbox" /> Trocar por outro produto</label>
+			{exchange ? <div className="rounded-card border border-tec-border/20 bg-tec-field/35 p-3"><label className="text-sm font-bold text-white">Produto substituto<input className="tp-input mt-2 w-full" onChange={(event) => { setReplacementQuery(event.target.value); setReplacement(null); }} placeholder="Buscar item comercial" value={replacementQuery} /></label>{replacementResults.map((item) => <button className="mt-2 block w-full rounded-control border border-tec-border/20 px-3 py-2 text-left hover:border-tec-orange" key={item.item_code} onClick={() => { setReplacement(item); setReplacementResults([]); setReplacementQuery(item.item_name || item.item_code); }} type="button">{item.item_name} · {formatCurrency(item.standard_rate)}</button>)}{replacement ? <label className="mt-3 block text-sm font-bold text-white">Pagamento da nova venda<select className="tp-input mt-2 w-full" onChange={(event) => setPaymentMode(event.target.value)} value={paymentMode}><option>Pix</option><option>Débito</option><option>Crédito à vista</option><option>Dinheiro</option></select></label> : null}</div> : null}
+			{message ? <p className={cx("rounded-control px-3 py-2 text-sm", state === "done" ? "bg-tec-success/10 text-tec-success" : "bg-tec-danger/10 text-tec-danger")}>{message}</p> : null}
+			<div className="flex justify-end gap-2"><Button onClick={onClose} variant="ghost">Fechar</Button><Button disabled={state === "saving" || state === "done"} onClick={() => void submit()} variant="primary">{state === "saving" ? "Registrando..." : "Confirmar devolução"}</Button></div></div> : null}
+	</Modal>;
 }
 
 function SalesRouteCard({

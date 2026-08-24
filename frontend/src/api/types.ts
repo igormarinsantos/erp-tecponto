@@ -789,6 +789,30 @@ export interface SaleSummary {
   modified: string;
 }
 
+export interface SaleReturnLine {
+	item_code: string;
+	item_name: string;
+	qty: number;
+	returned_qty: number;
+	available_qty: number;
+	unit_price: number;
+}
+
+export interface SalePostSaleDetail {
+	name: string;
+	customer: string | null;
+	posting_date: string;
+	grand_total: number;
+	payments: Array<{ mode_of_payment: string; amount: number }>;
+	items: SaleReturnLine[];
+}
+
+export interface SalesReturnResponse {
+	return_invoice: string;
+	return_against: string;
+	grand_total: number;
+}
+
 export interface SaleListResponse {
   items: SaleSummary[];
   count: number;

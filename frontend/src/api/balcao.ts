@@ -14,6 +14,8 @@ import type {
   ListStatBarResponse,
 	TechnicianWorkloadResponse,
 	SaleListResponse,
+	SalePostSaleDetail,
+	SalesReturnResponse,
   StockItemListResponse,
 	StockTransferResponse,
 	TradeEvaluationListResponse,
@@ -33,6 +35,15 @@ export const balcao = {
   },
 	listSales(query = "", limit = 50, period = "today") {
 		return rpc<SaleListResponse>(`${API}.list_sales`, { query: { query, limit, period } });
+	},
+	getSalePostSaleDetail(name: string) {
+		return rpc<SalePostSaleDetail>(`${API}.get_sale_post_sale_detail`, { query: { name } });
+	},
+	createSalesReturn(payload: { invoice: string; items: Array<{ item_code: string; qty: number }> }) {
+		return rpc<SalesReturnResponse>(`${API}.create_sales_return`, { body: { payload } });
+	},
+	exchangeSalesProduct(payload: { invoice: string; items: Array<{ item_code: string; qty: number }>; new_sale: unknown }) {
+		return rpc<{ return_invoice: string; new_sale: unknown }>(`${API}.exchange_sales_product`, { body: { payload } });
 	},
   getDashboardMetrics() {
     return rpc<DashboardMetrics>(`${API}.get_dashboard_metrics`);

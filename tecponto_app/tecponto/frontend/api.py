@@ -82,6 +82,7 @@ CHECKIN_ALLOWED_ROLES = {
 }
 ATTENDANT_FLOW_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POS_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
+POST_SALE_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 TRADEIN_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES | {"Tecponto Diretor"}
 SERVICE_CATALOG_EDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 STORE_OPERATION_MANAGER_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
@@ -233,6 +234,13 @@ def _require_pos_role() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(POS_ALLOWED_ROLES):
 		return
 	frappe.throw(_("Usuário sem permissão para operar o PDV do balcão."), frappe.PermissionError)
+
+
+def _require_post_sale_role() -> None:
+	_require_login()
+	if set(frappe.get_roles(frappe.session.user)).intersection(POST_SALE_ALLOWED_ROLES):
+		return
+	frappe.throw(_("Usuário sem permissão para registrar devoluções."), frappe.PermissionError)
 
 
 def _require_tradein_role() -> None:
@@ -497,6 +505,79 @@ def list_sales(query: str = "", limit: int = 50, period: str = "today") -> dict[
 		limit_page_length=limit,
 	)
 	return {"items": items, "count": len(items), "fields": list(SAFE_SALES_INVOICE_FIELDS)}
+
+
+@frappe.whitelist()
+def get_sale_post_sale_detail(name: str) -> dict[str, Any]:
+	"""Safe sales projection used to decide a native invoice return."""
+	_require_post_sale_role()
+	invoice = frappe.get_doc("Sales Invoice", (name or "").strip())
+	if invoice.docstatus != 1 or invoice.is_return:
+		frappe.throw(_("Selecione uma venda concluída para o pós-venda."), frappe.ValidationError)
+	returned = frappe.db.sql(
+		"""
+		select item_code, abs(sum(qty)) as qty
+		from `tabSales Invoice Item`
+		where parenttype = 'Sales Invoice' and docstatus = 1
+		and parent in (select name from `tabSales Invoice` where return_against = %(invoice)s and is_return = 1)
+		group by item_code
+		""",
+		{"invoice": invoice.name},
+		as_dict=True,
+	)
+	returned_by_item = {row.item_code: flt(row.qty) for row in returned}
+	return {
+		"name": invoice.name,
+		"customer": invoice.customer,
+		"posting_date": str(invoice.posting_date),
+		"grand_total": flt(invoice.grand_total),
+		"payments": [{"mode_of_payment": row.mode_of_payment, "amount": flt(row.amount)} for row in invoice.payments],
+		"items": [
+			{
+				"item_code": row.item_code,
+				"item_name": row.item_name,
+				"qty": flt(row.qty),
+				"returned_qty": returned_by_item.get(row.item_code, 0),
+				"available_qty": max(flt(row.qty) - returned_by_item.get(row.item_code, 0), 0),
+				"unit_price": flt(row.rate),
+			}
+			for row in invoice.items
+		],
+	}
+
+
+@frappe.whitelist()
+def create_sales_return(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Submit ERPNext's native Sales Invoice Return for selected, still-returnable lines."""
+	_require_post_sale_role()
+	data = _parse_payload(payload)
+	with _run_post_sale_mutation():
+		return_doc = _build_sales_return(data)
+		return_doc.insert(ignore_permissions=True)
+		return_doc.submit()
+	return {"return_invoice": return_doc.name, "return_against": return_doc.return_against, "grand_total": flt(return_doc.grand_total)}
+
+
+@frappe.whitelist()
+def exchange_sales_product(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Atomically compose a native return and the existing server-owned POS sale."""
+	_require_post_sale_role()
+	data = _parse_payload(payload)
+	from tecponto_app.tecponto.frontend.pos import pos_create_sale
+
+	frappe.db.savepoint("frontend_product_exchange")
+	try:
+		with _run_post_sale_mutation():
+			return_doc = _build_sales_return(data)
+			return_doc.insert(ignore_permissions=True)
+			return_doc.submit()
+		new_sale = pos_create_sale(data.get("new_sale"))
+		return_doc.db_set("remarks", f"Troca Tecponto: venda nova {new_sale['sale']}", update_modified=False)
+		frappe.db.set_value("Sales Invoice", new_sale["sale"], "remarks", f"Troca Tecponto: devolucao {return_doc.name}", update_modified=False)
+	except Exception:
+		frappe.db.rollback(save_point="frontend_product_exchange")
+		raise
+	return {"return_invoice": return_doc.name, "new_sale": new_sale}
 
 
 @frappe.whitelist()
@@ -2551,6 +2632,71 @@ def _serialize_tradein_operation(doc: Any) -> dict[str, Any]:
 		"used_device_fiscal_ref": doc.get("used_device_fiscal_ref") or None,
 		"sale_fiscal_ref": doc.get("sale_fiscal_ref") or None,
 	}
+
+
+@contextmanager
+def _run_post_sale_mutation():
+	"""Scoped elevation for ERPNext's own stock and payment-ledger return posting."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		yield
+	finally:
+		if previous_user:
+			frappe.set_user(previous_user)
+
+
+def _build_sales_return(data: dict[str, Any]):
+	from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+	invoice_name = (data.get("invoice") or "").strip()
+	if not invoice_name:
+		frappe.throw(_("Selecione a venda original."), frappe.ValidationError)
+	original = frappe.get_doc("Sales Invoice", invoice_name)
+	if original.docstatus != 1 or original.is_return:
+		frappe.throw(_("A venda original não está disponível para devolução."), frappe.ValidationError)
+	requested = {str(row.get("item_code")): flt(row.get("qty")) for row in (data.get("items") or []) if row.get("item_code")}
+	if not requested or any(qty <= 0 for qty in requested.values()):
+		frappe.throw(_("Selecione ao menos um item e quantidade válida para devolver."), frappe.ValidationError)
+	returned_rows = frappe.db.sql(
+		"""select item_code, abs(sum(qty)) as qty from `tabSales Invoice Item`
+		where parent in (select name from `tabSales Invoice` where return_against = %(invoice)s and is_return = 1)
+		and docstatus = 1 group by item_code""",
+		{"invoice": original.name}, as_dict=True,
+	)
+	previously_returned = {row.item_code: flt(row.qty) for row in returned_rows}
+	original_by_item = {row.item_code: row for row in original.items}
+	for item_code, qty in requested.items():
+		row = original_by_item.get(item_code)
+		if not row or qty > flt(row.qty) - previously_returned.get(item_code, 0):
+			frappe.throw(_("Quantidade de devolução maior que a vendida."), frappe.ValidationError)
+	return_doc = make_return_doc("Sales Invoice", original.name)
+	return_doc.items = [row for row in return_doc.items if row.item_code in requested]
+	for row in return_doc.items:
+		row.qty = -abs(requested[row.item_code])
+		row.stock_qty = -abs(requested[row.item_code] * flt(row.conversion_factor or 1))
+	return_doc.set_missing_values()
+	return_doc.calculate_taxes_and_totals()
+	# ERPNext intentionally omits POS payments from make_return_doc. Rebuild the
+	# original split with negative values so its native payment ledger reverses
+	# each payment method instead of creating an unrelated customer credit.
+	if cint(original.is_pos):
+		payments = [row for row in original.payments if flt(row.amount)]
+		total_paid = sum(flt(row.amount) for row in payments)
+		if payments and total_paid:
+			return_doc.set("payments", [])
+			remaining = abs(flt(return_doc.grand_total))
+			for index, payment in enumerate(payments):
+				amount = remaining if index == len(payments) - 1 else flt(
+					abs(flt(return_doc.grand_total)) * flt(payment.amount) / total_paid,
+					2,
+				)
+				remaining = flt(remaining - amount, 2)
+				return_doc.append(
+					"payments",
+					{"mode_of_payment": payment.mode_of_payment, "account": payment.account, "amount": -abs(amount)},
+				)
+	return return_doc
 
 
 def _serialize_stock_item(item: dict[str, Any]) -> dict[str, Any]:

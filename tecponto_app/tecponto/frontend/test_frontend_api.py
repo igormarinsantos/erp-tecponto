@@ -77,6 +77,9 @@ from tecponto_app.tecponto.frontend.api import (
 	mark_part_request_ordered,
 	mark_part_request_received,
 	search_repair_part_options,
+	get_sale_post_sale_detail,
+	create_sales_return,
+	exchange_sales_product,
 )
 from tecponto_app.tecponto.acceptance import (
 	audit_completed_acceptance_evidence,
@@ -204,6 +207,7 @@ def run_foundation_checks() -> dict:
 			users["Tecponto Diretor"],
 		)
 		tradein_frontend_check = run_tradein_frontend_checks()
+		post_sale_checks = run_post_sale_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
@@ -257,6 +261,7 @@ def run_foundation_checks() -> dict:
 			"part_receipt_reservation": part_receipt_check,
 			"management_stock_scope_routing": management_stock_scope_routing,
 			"tradein_frontend": tradein_frontend_check,
+			"post_sale": post_sale_checks,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
@@ -3590,6 +3595,57 @@ def run_tradein_frontend_checks() -> dict:
 			"technician_blocked": blocked,
 			"leaked_fields": leaks,
 		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_post_sale_checks() -> dict:
+	"""Prove native returns preserve stock, payment mode and independent exchange documents."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(attendant)
+		demo = _ensure_pos_demo_records()
+		warehouse = demo["commercial_warehouse"]
+		item = POS_BARCODE_ITEM
+		before = _bin_qty(item, warehouse)
+		sale = pos_create_sale({"idempotency_key": f"tp-return-pix-{frappe.generate_hash(length=16)}", "items": [{"item_code": item, "qty": 3}], "payments": [{"mode_of_payment": "Pix", "amount": 239.70, "installments": 1}]})
+		after_sale = _bin_qty(item, warehouse)
+		detail = get_sale_post_sale_detail(sale["sale"])
+		returned = create_sales_return({"invoice": sale["sale"], "items": [{"item_code": item, "qty": 1}]})
+		after_return = _bin_qty(item, warehouse)
+		return_doc = frappe.get_doc("Sales Invoice", returned["return_invoice"])
+		if after_sale != before - 3 or after_return != after_sale + 1:
+			raise AssertionError("Devolução parcial não restaurou somente a quantidade devolvida no Comercial.")
+		if return_doc.return_against != sale["sale"] or not return_doc.is_return:
+			raise AssertionError("Nota de retorno não ficou vinculada à venda original.")
+		if not any(row.mode_of_payment == "Pix" for row in return_doc.payments):
+			raise AssertionError("Estorno de Pix não preservou a forma de pagamento original.")
+		if detail["items"][0]["available_qty"] != 3:
+			raise AssertionError("Detalhe de pós-venda não expôs a quantidade ainda devolvível.")
+		card_sale = pos_create_sale({"idempotency_key": f"tp-return-card-{frappe.generate_hash(length=16)}", "items": [{"item_code": POS_NAME_ITEM, "qty": 1}], "payments": [{"mode_of_payment": "Crédito à vista", "amount": 35.50, "installments": 1}]})
+		card_return = create_sales_return({"invoice": card_sale["sale"], "items": [{"item_code": POS_NAME_ITEM, "qty": 1}]})
+		card_sale_doc = frappe.get_doc("Sales Invoice", card_sale["sale"])
+		card_return_doc = frappe.get_doc("Sales Invoice", card_return["return_invoice"])
+		original_card = next((row for row in card_sale_doc.payments if row.mode_of_payment != "Pix"), None)
+		returned_card = next((row for row in card_return_doc.payments if original_card and row.mode_of_payment == original_card.mode_of_payment), None)
+		cash_account = frappe.db.get_value("Mode of Payment Account", {"parent": "Dinheiro", "company": card_sale_doc.company}, "default_account")
+		if not returned_card or not original_card or returned_card.account != original_card.account or returned_card.account == cash_account:
+			raise AssertionError("Estorno de cartao nao preservou a conta de recebiveis do cartao.")
+		exchange_sale = pos_create_sale({"idempotency_key": f"tp-exchange-source-{frappe.generate_hash(length=16)}", "items": [{"item_code": item, "qty": 1}], "payments": [{"mode_of_payment": "Pix", "amount": 79.90, "installments": 1}]})
+		exchange = exchange_sales_product({"invoice": exchange_sale["sale"], "items": [{"item_code": item, "qty": 1}], "new_sale": {"customer": "CONSUMIDOR FINAL", "items": [{"item_code": POS_NAME_ITEM, "qty": 1}], "discount_amount": 0, "payments": [{"mode_of_payment": "Pix", "amount": 35.50, "installments": 1}], "idempotency_key": f"tp-exchange-target-{frappe.generate_hash(length=16)}"}})
+		new_sale_name = exchange["new_sale"]["sale"]
+		exchange_return = frappe.get_doc("Sales Invoice", exchange["return_invoice"])
+		new_sale_doc = frappe.get_doc("Sales Invoice", new_sale_name)
+		if exchange_return.return_against != exchange_sale["sale"] or exchange_return.name == new_sale_name:
+			raise AssertionError("Troca nao gerou retorno e nova venda independentes.")
+		if new_sale_name not in (exchange_return.remarks or "") or exchange_return.name not in (new_sale_doc.remarks or ""):
+			raise AssertionError("Troca nao preservou o vinculo rastreavel entre devolucao e nova venda.")
+		leaks = contains_sensitive_field({"detail": detail, "return": returned, "card_return": card_return, "exchange": exchange})
+		if leaks:
+			raise AssertionError(f"Pós-venda vazou custo: {', '.join(leaks)}")
+		return {"sale": sale["sale"], "return": return_doc.name, "partial_stock": [before, after_sale, after_return], "payment_mode": "Pix", "card_payment_mode": "Crédito à vista", "exchange": {"return": exchange_return.name, "new_sale": new_sale_name}, "leaked_fields": leaks}
 	finally:
 		frappe.set_user(previous_user)
 
