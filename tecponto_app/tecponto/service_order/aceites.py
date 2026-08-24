@@ -10,6 +10,7 @@ APPROVAL_STATUS_APROVADO = "Aprovado"
 APPROVAL_STATUS_REPROVADO = "Reprovado"
 STATE_PRONTO_RETIRADA = "Pronto para retirada"
 NO_REPAIR_PICKUP_STATES = {"Reprovado", "Orçamento expirado", "Sem conserto"}
+REMOTE_APPROVAL_CHANNELS = {"WhatsApp", "Telefone"}
 
 
 def validate_aceites(doc, method=None) -> None:
@@ -83,10 +84,34 @@ def _validate_approval_acceptance(doc) -> None:
 	if workflow_state == STATE_REPROVADO and not (doc.get("approval_notes") or "").strip():
 		frappe.throw("Registre o motivo da reprovação do orçamento.")
 
+	approval_channel = doc.get("approval_channel")
+	if approval_channel in REMOTE_APPROVAL_CHANNELS and not _has_quote_dispatch_evidence(doc):
+		frappe.throw("Registre o envio do orçamento antes de confirmar uma decisão remota.")
+	# The public rejection flow records a mandatory reason but intentionally does
+	# not collect selfie/signature. Those evidences are required only when the
+	# customer authorizes the financially relevant repair.
+	if approval_channel == "Link" and workflow_state == STATE_APROVADO:
+		from tecponto_app.tecponto.acceptance import assert_completed_acceptance_evidence
+
+		assert_completed_acceptance_evidence(doc.name, "Orçamento", required=True)
+
 	if workflow_state == STATE_APROVADO:
 		from tecponto_app.tecponto.service_order.deadline import assert_budget_approval_within_deadline
 
 		assert_budget_approval_within_deadline(doc)
+
+
+def _has_quote_dispatch_evidence(doc) -> bool:
+	return bool(
+		frappe.db.exists(
+			"Communication",
+			{
+				"reference_doctype": doc.doctype,
+				"reference_name": doc.name,
+				"subject": ["like", "Orçamento enviado%"],
+			},
+		)
+	)
 
 
 def _validate_delivery_acceptance(doc) -> None:

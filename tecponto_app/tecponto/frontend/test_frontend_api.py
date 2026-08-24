@@ -2225,6 +2225,56 @@ def run_workflow_metadata_gate_checks() -> dict:
 			"zero_price_warranty_line_allowed": True,
 		}
 
+		# Remote channels need an auditable dispatch record; a Desk user cannot
+		# merely type WhatsApp or Link into metadata to emulate customer evidence.
+		remote_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			remote_order,
+			{
+				"workflow_state": "Aguardando aprovação",
+				"approval_status": "Aprovado",
+				"approval_channel": "WhatsApp",
+				"approved_by_attendant": attendant,
+				"approval_date": now_datetime(),
+			},
+			update_modified=False,
+		)
+		remote_dispatch_blocked = False
+		try:
+			apply_workflow(
+				frappe.as_json({"doctype": "Service Order", "name": remote_order}),
+				"Aprovado",
+			)
+		except frappe.ValidationError:
+			remote_dispatch_blocked = True
+		if not remote_dispatch_blocked:
+			raise AssertionError("Desk aprovou decisão por WhatsApp sem comprovante de envio.")
+		frappe.get_doc(
+			{
+				"doctype": "Communication",
+				"subject": f"Orçamento enviado - {remote_order}",
+				"communication_medium": "Chat",
+				"communication_type": "Communication",
+				"sent_or_received": "Sent",
+				"status": "Linked",
+				"sender": attendant,
+				"content": "Orçamento enviado para validação de fluxo.",
+				"reference_doctype": "Service Order",
+				"reference_name": remote_order,
+			}
+		).insert(ignore_permissions=True)
+		apply_workflow(
+			frappe.as_json({"doctype": "Service Order", "name": remote_order}),
+			"Aprovado",
+		)
+		if frappe.db.get_value("Service Order", remote_order, "workflow_state") != "Aprovado":
+			raise AssertionError("Decisão remota com comprovante de envio não avançou a OS.")
+		results["remote_dispatch"] = {
+			"missing_dispatch_blocked": remote_dispatch_blocked,
+			"documented_dispatch_allowed": True,
+		}
+
 		return {"status": "ok", "native_workflow": results}
 	finally:
 		frappe.set_user(previous_user)
