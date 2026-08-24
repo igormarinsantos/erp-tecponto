@@ -73,6 +73,86 @@ def gerar_nota(doc, method=None):
 	return si.name
 
 
+def reverse_billed_service_order_invoice(service_order: str) -> dict:
+	"""Create the remaining native invoice return before cancelling a billed OS.
+
+	A Service Order is never allowed to become ``Cancelado`` while its submitted
+	Sales Invoice remains financially effective.  Existing partial returns are
+	respected: only the outstanding quantities are returned, then the workflow
+	transition may proceed.  The caller is the approval engine under a Gestor's
+	real session; no requester permission is impersonated here.
+	"""
+	order = frappe.get_doc("Service Order", service_order)
+	from tecponto_app.tecponto.service_order.policies import _user_is_manager
+
+	if not _user_is_manager():
+		frappe.throw("Somente Gestor pode estornar a nota de uma OS faturada.")
+	if not order.get("sales_invoice"):
+		frappe.throw("A OS não está faturada.")
+
+	invoice = frappe.get_doc(DOCTYPE_SALES_INVOICE, order.sales_invoice)
+	if invoice.docstatus != 1 or invoice.is_return:
+		frappe.throw("A nota vinculada não está disponível para estorno.")
+
+	remaining = _remaining_invoice_return_lines(invoice)
+	if not remaining:
+		return {"sales_invoice": invoice.name, "return_invoice": None, "already_reversed": True}
+
+	# Reuse the post-sale builder so POS payments retain their original payment
+	# split and regular invoices remain ERPNext-native returns.
+	from tecponto_app.tecponto.frontend.api import _build_sales_return, _run_post_sale_mutation
+
+	# A Gestor has already passed the cancellation gate above. ERPNext's mapper
+	# additionally demands Sales Invoice create permission, which this operational
+	# role intentionally does not hold. Elevate only the native return posting
+	# scope; the user session is restored by _run_post_sale_mutation immediately.
+	with _run_post_sale_mutation():
+		return_doc = _build_sales_return({"invoice": invoice.name, "items": remaining})
+		return_doc.remarks = f"Estorno integral para cancelamento da OS {order.name}."
+		return_doc.insert(ignore_permissions=True)
+		return_doc.submit()
+	return {
+		"sales_invoice": invoice.name,
+		"return_invoice": return_doc.name,
+		"already_reversed": False,
+	}
+
+
+def has_full_billed_service_order_reversal(service_order: str) -> bool:
+	"""Whether every invoice line tied to a billed OS has a submitted return."""
+	invoice_name = frappe.db.get_value("Service Order", service_order, "sales_invoice")
+	if not invoice_name:
+		return True
+	invoice = frappe.get_doc(DOCTYPE_SALES_INVOICE, invoice_name)
+	if invoice.docstatus != 1 or invoice.is_return:
+		return False
+	return not _remaining_invoice_return_lines(invoice)
+
+
+def _remaining_invoice_return_lines(invoice) -> list[dict]:
+	returned_rows = frappe.db.sql(
+		"""
+		select item_code, abs(sum(qty)) as qty
+		from `tabSales Invoice Item`
+		where docstatus = 1 and parenttype = 'Sales Invoice'
+		and parent in (
+			select name from `tabSales Invoice`
+			where return_against = %(invoice)s and is_return = 1 and docstatus = 1
+		)
+		group by item_code
+		""",
+		{"invoice": invoice.name},
+		as_dict=True,
+	)
+	returned_by_item = {row.item_code: flt(row.qty) for row in returned_rows}
+	remaining = []
+	for row in invoice.items:
+		available = flt(row.qty) - returned_by_item.get(row.item_code, 0)
+		if available > 0:
+			remaining.append({"item_code": row.item_code, "qty": available})
+	return remaining
+
+
 def _append_repair_items(doc, si, company: str) -> None:
 	for service_row in doc.get("services") or []:
 		_append_invoice_item(

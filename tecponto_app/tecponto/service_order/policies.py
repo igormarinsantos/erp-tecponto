@@ -67,6 +67,11 @@ def _validate_billed_cancellation(doc) -> None:
 	if not _user_is_manager():
 		frappe.throw("OS faturada so pode ser cancelada pelo Gestor.")
 
+	from tecponto_app.tecponto.service_order.billing import has_full_billed_service_order_reversal
+
+	if not has_full_billed_service_order_reversal(doc.name):
+		frappe.throw("Estorne integralmente a nota vinculada antes de cancelar a OS faturada.")
+
 
 def _field_became_true(doc, fieldname: str) -> bool:
 	if not doc.get(fieldname):

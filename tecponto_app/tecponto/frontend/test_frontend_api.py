@@ -2683,7 +2683,22 @@ def run_action_request_checks() -> dict:
 			"Cliente desistiu após o faturamento; solicitar cancelamento registrado.",
 		)
 		frappe.set_user(manager)
+		desk_cancel_blocked_without_return = False
+		try:
+			move_service_order(billed_order, "Cancelado")
+		except frappe.ValidationError:
+			desk_cancel_blocked_without_return = True
+		if not desk_cancel_blocked_without_return:
+			raise AssertionError("Gestor cancelou OS faturada sem estornar a Sales Invoice.")
 		approve_request(billed_cancel_request["name"])
+		cancellation_request = frappe.get_doc("Tecponto Request", billed_cancel_request["name"])
+		cancellation_result = frappe.parse_json(cancellation_request.execution_result or "{}")
+		return_invoice = cancellation_result.get("return_invoice")
+		if not return_invoice:
+			raise AssertionError("Cancelamento faturado não criou a Sales Invoice Return obrigatória.")
+		return_doc = frappe.get_doc("Sales Invoice", return_invoice)
+		if return_doc.docstatus != 1 or not return_doc.is_return or return_doc.return_against != pos_result["sale"]:
+			raise AssertionError("Estorno da OS faturada não ficou vinculado à nota original.")
 
 		# Garantia-cortesia: a OS nasce normal; somente a decisao individual do Gestor
 		# a converte em retrabalho gratuito, com a OS original revalidada pelo motor.
@@ -2724,7 +2739,13 @@ def run_action_request_checks() -> dict:
 			"tradein_over_max": {"request": trade_request["name"], "evaluation": trade.name, "executed": True},
 			"service_order_move": {"request": move_request["name"], "state": "Em diagnóstico", "executed": True},
 			"stock_transfer": {"request": transfer_request["name"], "stock_entry": transfer["item"]["name"], "executed": True},
-			"billed_service_order_cancel": {"request": billed_cancel_request["name"], "service_order": billed_order, "executed": True},
+			"billed_service_order_cancel": {
+				"request": billed_cancel_request["name"],
+				"service_order": billed_order,
+				"return_invoice": return_invoice,
+				"desk_blocked_without_return": desk_cancel_blocked_without_return,
+				"executed": True,
+			},
 			"courtesy_warranty": {"request": courtesy_request["name"], "service_order": courtesy_target, "executed": True},
 		}
 	finally:

@@ -160,8 +160,16 @@ def _execute_as_approver(
 			result = submit_approved_stock_transfer(reference_name)
 			return {"stock_entry": result["item"]["name"], "docstatus": result["item"]["docstatus"]}
 		if request_type == "billed_service_order_cancel":
+			from tecponto_app.tecponto.service_order.billing import reverse_billed_service_order_invoice
 			from tecponto_app.tecponto.frontend.api import move_service_order
-			return move_service_order(reference_name, "Cancelado")
+			frappe.db.savepoint("billed_service_order_cancel")
+			try:
+				reversal = reverse_billed_service_order_invoice(reference_name)
+				cancellation = move_service_order(reference_name, "Cancelado")
+			except Exception:
+				frappe.db.rollback(save_point="billed_service_order_cancel")
+				raise
+			return {**cancellation, **reversal}
 		if request_type == "courtesy_warranty":
 			doc = frappe.get_doc("Service Order", reference_name)
 			doc.is_warranty = 1
