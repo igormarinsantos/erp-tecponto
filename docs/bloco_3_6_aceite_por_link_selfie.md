@@ -58,3 +58,6 @@
 - **Revisão jurídica OBRIGATÓRIA do termo** (selfie = dado biométrico sensível; peso LGPD maior).
 - **Dispositivo da loja** (tablet/celular) dedicado ao aceite do cliente sem aparelho próprio.
 - **Política de retenção** da imagem (por quanto tempo guardar a selfie) definida com o advogado.
+
+## Pendência visual registrada
+- O Termo de Ciência — Aparelho Recebido Sem Funcionamento (`APARELHO-SEM-FUNCIONAMENTO-1.0`) foi validado por suíte automatizada e pela renderização do template. A geração visual do PDF no ambiente real de impressão do Frappe permanece pendente de conferência manual no deploy antes do uso com clientes.
