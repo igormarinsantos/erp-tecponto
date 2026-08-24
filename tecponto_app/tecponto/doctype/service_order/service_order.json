@@ -22,6 +22,7 @@
   "reported_defect",
   "attendance_notes",
   "physical_state",
+  "entry_operating_condition",
   "accessories_received",
   "entry_photos",
   "entry_signature",
@@ -185,6 +186,14 @@
    "fieldname": "physical_state",
    "fieldtype": "Small Text",
    "label": "Estado físico de entrada"
+  },
+  {
+   "default": "Liga e permite teste",
+   "fieldname": "entry_operating_condition",
+   "fieldtype": "Select",
+   "label": "Condição de funcionamento na entrada",
+   "options": "Liga e permite teste\nLiga parcialmente\nNão liga / sem condições de teste",
+   "reqd": 1
   },
   {
    "fieldname": "accessories_received",

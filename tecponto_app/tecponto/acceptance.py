@@ -10,6 +10,11 @@ from frappe import _
 from frappe.twofactor import get_qr_svg_code
 from frappe.utils.file_manager import save_file
 from frappe.utils import add_to_date, get_url, now_datetime
+from tecponto_app.tecponto.service_order.inoperative_device import (
+	build_inoperative_device_term,
+	public_inoperative_device_term,
+	requires_inoperative_device_term,
+)
 
 
 ACCEPTANCE_TYPES = {"Entrada", "Retirada", "Orçamento"}
@@ -43,6 +48,7 @@ def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str 
 	)
 
 	token = secrets.token_urlsafe(32)
+	term = build_inoperative_device_term(order) if acceptance_type == "Entrada" and requires_inoperative_device_term(order) else None
 	doc = frappe.get_doc(
 		{
 			"doctype": "OS Acceptance",
@@ -56,6 +62,8 @@ def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str 
 			"signer_name": order.get("picked_up_by") if signer_role == "Terceiro" else "",
 			"signer_document": order.get("picked_up_doc") if signer_role == "Terceiro" else "",
 			"signer_authorization": order.get("third_party_auth") if signer_role == "Terceiro" else "",
+			"inoperative_device_term_version": term["version"] if term else "",
+			"inoperative_device_term_text": term["text"] if term else "",
 		}
 	)
 	doc.insert(ignore_permissions=True)
@@ -138,6 +146,14 @@ def get_public_acceptance(token: str) -> dict:
 			"expires_on": str(doc.expires_on),
 			"selfie_captured": bool(doc.selfie_file),
 			"selfie_exception": bool(doc.selfie_exception),
+			"inoperative_device_term": (
+				{
+					"version": doc.inoperative_device_term_version,
+					"text": public_inoperative_device_term(doc.inoperative_device_term_text, order),
+				}
+				if doc.inoperative_device_term_version
+				else None
+			),
 		},
 		"service_order": _public_order_summary(order, doc.acceptance_type),
 		"identity": get_company_identity(),
@@ -180,7 +196,12 @@ def save_public_acceptance_selfie(token: str, image_data: str) -> dict:
 
 
 @frappe.whitelist(allow_guest=True)
-def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: int | bool = False) -> dict:
+def complete_public_acceptance(
+	token: str,
+	signature_data: str,
+	lgpd_consent: int | bool = False,
+	inoperative_term_consent: int | bool = False,
+) -> dict:
 	"""Complete one acceptance after the live selfie, signature, and explicit consent."""
 	doc = _get_valid_acceptance(token)
 	if not doc:
@@ -191,6 +212,8 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 		_assert_private_evidence_file(doc.selfie_file, doc.service_order, "selfie")
 	if not frappe.utils.cint(lgpd_consent):
 		frappe.throw(_("Confirme o consentimento LGPD para concluir o aceite."), frappe.ValidationError)
+	if doc.inoperative_device_term_version and not frappe.utils.cint(inoperative_term_consent):
+		frappe.throw(_("Confirme o termo adicional sobre o aparelho sem funcionamento para concluir o aceite."), frappe.ValidationError)
 
 	# Lock the pending row so a duplicated final click cannot consume the same token twice.
 	frappe.db.sql("select name from `tabOS Acceptance` where name=%s for update", doc.name)
@@ -242,6 +265,7 @@ def complete_public_acceptance(token: str, signature_data: str, lgpd_consent: in
 			"signature_file": signature_file.name,
 			"consent_version": LGPD_CONSENT_VERSION,
 			"consented_on": accepted_on,
+			"inoperative_device_term_accepted_on": accepted_on if doc.inoperative_device_term_version else None,
 			"accepted_ip": client_ip,
 			"accepted_user_agent": user_agent[:500],
 			"used_on": accepted_on,
@@ -273,6 +297,25 @@ def assert_completed_acceptance_evidence(service_order: str, acceptance_type: st
 
 	acceptance = frappe.get_doc("OS Acceptance", acceptance_name)
 	_assert_acceptance_evidence(acceptance)
+
+
+def assert_completed_inoperative_device_term(service_order: str) -> None:
+	"""Require the extra legal acknowledgement when the entry condition demands it."""
+	acceptance_name = frappe.db.get_value(
+		"OS Acceptance",
+		{"service_order": service_order, "acceptance_type": "Entrada", "status": "Concluído"},
+		"name",
+		order_by="used_on desc",
+	)
+	if not acceptance_name:
+		frappe.throw(_("O aceite adicional de aparelho sem funcionamento é obrigatório antes de avançar a OS."), frappe.ValidationError)
+	acceptance = frappe.get_doc("OS Acceptance", acceptance_name)
+	if not (
+		acceptance.inoperative_device_term_version
+		and acceptance.inoperative_device_term_text
+		and acceptance.inoperative_device_term_accepted_on
+	):
+		frappe.throw(_("O termo adicional de aparelho sem funcionamento ainda não foi aceito."), frappe.ValidationError)
 
 
 @frappe.whitelist()
@@ -373,6 +416,7 @@ def _public_order_summary(order, acceptance_type: str) -> dict:
 		"imei_suffix": _imei_suffix(device.get("imei_serial")),
 		"reported_defect": order.get("reported_defect") or "Não informado",
 		"physical_state": order.get("physical_state") or "Não informado",
+		"entry_operating_condition": order.get("entry_operating_condition") or "Liga e permite teste",
 		"accessories_received": order.get("accessories_received") or "Nenhum acessório informado",
 	}
 

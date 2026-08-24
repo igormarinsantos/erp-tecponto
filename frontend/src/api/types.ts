@@ -419,6 +419,7 @@ export interface ServiceOrderDetailResponse {
   device: ServiceOrderDeviceDetail | null;
   reported_defect: string | null;
   physical_state: string | null;
+  entry_operating_condition: string | null;
   accessories_received: string | null;
   diagnosis: {
     problem_found: string | null;
@@ -657,6 +658,7 @@ export interface CheckinPayload {
     reported_defect: string;
     defects?: string[];
     physical_state: string;
+    entry_operating_condition?: "Liga e permite teste" | "Liga parcialmente" | "Não liga / sem condições de teste";
     accessories_received?: string;
     is_warranty?: boolean;
     original_service_order?: string;

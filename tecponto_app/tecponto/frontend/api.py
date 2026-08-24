@@ -40,6 +40,10 @@ from tecponto_app.tecponto.service_order.parts import (
 	OUTCOME_PERDIDA,
 	OUTCOME_USADA,
 )
+from tecponto_app.tecponto.service_order.inoperative_device import (
+	ENTRY_OPERATING_CONDITION_OK,
+	ENTRY_OPERATING_CONDITIONS,
+)
 
 
 ROLE_PANELS = (
@@ -865,6 +869,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"device": _get_device_detail(doc.get("customer_device")),
 		"reported_defect": doc.get("reported_defect"),
 		"physical_state": doc.get("physical_state"),
+		"entry_operating_condition": doc.get("entry_operating_condition"),
 		"accessories_received": doc.get("accessories_received"),
 		"diagnosis": {
 			"problem_found": doc.get("problem_found"),
@@ -1344,6 +1349,7 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.priority = "Normal"
 	order.reported_defect = data["service_order"]["reported_defect"].strip()
 	order.physical_state = data["service_order"]["physical_state"].strip()
+	order.entry_operating_condition = (data["service_order"].get("entry_operating_condition") or ENTRY_OPERATING_CONDITION_OK).strip()
 	order.accessories_received = (data["service_order"].get("accessories_received") or "").strip()
 	order.is_warranty = cint(data["service_order"].get("is_warranty"))
 	order.original_service_order = (data["service_order"].get("original_service_order") or "").strip() or None
@@ -2827,6 +2833,9 @@ def _validate_checkin_payload(data: dict[str, Any]) -> None:
 
 	if not (service_order.get("physical_state") or "").strip():
 		frappe.throw(_("Informe o estado físico declarado."), frappe.ValidationError)
+	entry_operating_condition = (service_order.get("entry_operating_condition") or ENTRY_OPERATING_CONDITION_OK).strip()
+	if entry_operating_condition not in ENTRY_OPERATING_CONDITIONS:
+		frappe.throw(_("Informe uma condição de funcionamento válida na entrada."), frappe.ValidationError)
 	if not _is_image_data_url(entry_photo.get("data_url")):
 		frappe.throw(_("Anexe ao menos uma foto de entrada."), frappe.ValidationError)
 

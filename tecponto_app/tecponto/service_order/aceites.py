@@ -23,9 +23,17 @@ def _validate_entry_acceptance(doc) -> None:
 	if doc.meta.has_field("entry_signature") and not doc.get("entry_signature"):
 		frappe.throw("Assinatura de entrada e obrigatoria antes de iniciar o atendimento.")
 
-	from tecponto_app.tecponto.acceptance import assert_completed_acceptance_evidence
+	from tecponto_app.tecponto.acceptance import (
+		assert_completed_acceptance_evidence,
+		assert_completed_inoperative_device_term,
+	)
+	from tecponto_app.tecponto.service_order.inoperative_device import (
+		requires_inoperative_device_term,
+	)
 
 	assert_completed_acceptance_evidence(doc.name, "Entrada")
+	if requires_inoperative_device_term(doc):
+		assert_completed_inoperative_device_term(doc.name)
 
 
 def _validate_approval_acceptance(doc) -> None:

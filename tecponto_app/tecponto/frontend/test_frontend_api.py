@@ -92,6 +92,7 @@ from tecponto_app.tecponto.frontend.api import (
 from tecponto_app.tecponto.acceptance import (
 	audit_completed_acceptance_evidence,
 	assert_completed_acceptance_evidence,
+	assert_completed_inoperative_device_term,
 	complete_public_acceptance,
 	get_public_acceptance,
 	save_public_acceptance_selfie,
@@ -148,7 +149,17 @@ from tecponto_app.tecponto.used_device_warranty import consultar_garantia_usado
 from tecponto_app.tecponto.service_order.stage_clock import get_stage_clock
 from tecponto_app.tecponto.service_order.stage_sla import add_commercial_business_hours, get_stage_slas
 from tecponto_app.tecponto.service_order.parts import processar_pecas
-from tecponto_app.tecponto.service_order.print_formats import _os_orcamento_html, _termo_entrada_html, _termo_retirada_html
+from tecponto_app.tecponto.service_order.aceites import validate_aceites
+from tecponto_app.tecponto.service_order.inoperative_device import (
+	INOPERATIVE_DEVICE_TERM_VERSION,
+	ENTRY_OPERATING_CONDITION_INOPERATIVE,
+)
+from tecponto_app.tecponto.service_order.print_formats import (
+	_os_orcamento_html,
+	_termo_entrada_html,
+	_termo_retirada_html,
+	get_service_order_print_context,
+)
 from tecponto_app.tecponto.pos import _receipt_html
 
 
@@ -245,6 +256,7 @@ def run_foundation_checks() -> dict:
 		stage_sla_checks = run_stage_sla_checks()
 		stage_clock_checks = run_stage_clock_checks()
 		public_acceptance_checks = run_public_acceptance_checks()
+		inoperative_entry_term_checks = run_inoperative_entry_term_checks()
 		tracking_checks = run_public_tracking_checks()
 		tracking_budget_checks = run_public_tracking_budget_checks()
 		tracking_lifecycle_checks = run_tracking_lifecycle_checks()
@@ -283,6 +295,7 @@ def run_foundation_checks() -> dict:
 			"notification_checks": notification_checks,
 			"daily_action_checks": daily_action_checks,
 			"quick_stage_checks": quick_stage_checks,
+			"inoperative_entry_term": inoperative_entry_term_checks,
 			"customer_registration_checks": customer_registration_checks,
 			"service_catalog_checks": service_catalog_checks,
 			"product_category_checks": product_category_checks,
@@ -1927,6 +1940,119 @@ def run_notification_checks() -> dict:
 	finally:
 		frappe.enqueue = original_enqueue
 		frappe.flags.in_test = previous_in_test
+		frappe.set_user(previous_user)
+
+
+def run_inoperative_entry_term_checks() -> dict:
+	"""The extra entry term is required only after an inoperant-device check-in advances."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		service_order = _create_action_request_service_order(attendant)
+		order = frappe.get_doc("Service Order", service_order)
+		order.entry_operating_condition = ENTRY_OPERATING_CONDITION_INOPERATIVE
+		order.entry_photos = "/private/files/inoperative-entry-photo-test.jpg"
+		order.save(ignore_permissions=True)
+
+		# Opening the OS is never prevented. Only a subsequent technical transition needs
+		# an evidenced additional acknowledgement.
+		term_required_before_acceptance = False
+		try:
+			assert_completed_inoperative_device_term(service_order)
+		except frappe.ValidationError:
+			term_required_before_acceptance = True
+		if not term_required_before_acceptance:
+			raise AssertionError("OS inoperante avançou sem o termo adicional concluído.")
+
+		frappe.set_user(attendant)
+		issued = issue_os_acceptance(service_order, "Entrada")
+		raw_token = issued["link"].rstrip("/").rsplit("/", 1)[-1]
+		acceptance = frappe.get_doc("OS Acceptance", issued["acceptance"])
+		if (
+			acceptance.inoperative_device_term_version != INOPERATIVE_DEVICE_TERM_VERSION
+			or "[PENDENTE REVISÃO JURÍDICA]" not in acceptance.inoperative_device_term_text
+		):
+			raise AssertionError("Termo adicional não foi versionado e registrado no aceite de entrada.")
+
+		frappe.set_user("Guest")
+		public = get_public_acceptance(raw_token)
+		public_term = public.get("acceptance", {}).get("inoperative_device_term") or {}
+		full_imei = frappe.db.get_value(
+			"Customer Device", order.customer_device, "imei_serial"
+		) or ""
+		customer_facts = frappe.db.get_value(
+			"Customer",
+			order.customer,
+			["customer_name", "custom_cpf", "custom_rg", "mobile_no", "custom_whatsapp"],
+			as_dict=True,
+		) or {}
+		full_document = customer_facts.get("custom_cpf") or customer_facts.get("custom_rg") or ""
+		full_phone = customer_facts.get("custom_whatsapp") or customer_facts.get("mobile_no") or ""
+		full_name = customer_facts.get("customer_name") or ""
+		if not public_term or public_term.get("version") != INOPERATIVE_DEVICE_TERM_VERSION:
+			raise AssertionError("Página pública não exibiu o termo adicional aplicável.")
+		if full_imei and full_imei in public_term.get("text", ""):
+			raise AssertionError("Termo público expôs IMEI completo em vez da versão mascarada.")
+		if any(value and value in public_term.get("text", "") for value in (full_document, full_phone, full_name)):
+			raise AssertionError("Termo público expôs dado pessoal completo do cliente.")
+
+		camera_image = BytesIO()
+		Image.new("RGB", (24, 24), color=(32, 80, 120)).save(camera_image, format="JPEG")
+		camera_selfie = "data:image/jpeg;base64," + b64encode(camera_image.getvalue()).decode()
+		save_public_acceptance_selfie(raw_token, camera_selfie)
+
+		signature_image = BytesIO()
+		signature_canvas = Image.new("RGB", (640, 180), color=(250, 250, 250))
+		signature_draw = ImageDraw.Draw(signature_canvas)
+		signature_draw.line([(40, 120), (180, 50), (300, 135), (430, 45), (580, 110)], fill=(32, 36, 40), width=5)
+		signature_canvas.save(signature_image, format="PNG")
+		signature_data = "data:image/png;base64," + b64encode(signature_image.getvalue()).decode()
+		missing_term_consent_blocked = False
+		try:
+			complete_public_acceptance(raw_token, signature_data, 1, 0)
+		except frappe.ValidationError:
+			missing_term_consent_blocked = True
+		if not missing_term_consent_blocked:
+			raise AssertionError("Aceite inoperante concluiu sem consentimento do termo adicional.")
+
+		complete_public_acceptance(raw_token, signature_data, 1, 1)
+		acceptance.reload()
+		if (
+			acceptance.status != "Concluído"
+			or not acceptance.inoperative_device_term_accepted_on
+			or acceptance.inoperative_device_term_version != INOPERATIVE_DEVICE_TERM_VERSION
+		):
+			raise AssertionError("Aceite não gravou o timestamp e a versão do termo adicional.")
+
+		frappe.set_user("Administrator")
+		order.reload()
+		order.workflow_state = "Em diagnóstico"
+		validate_aceites(order)
+		entry_print_html = frappe.render_template(
+			_termo_entrada_html(),
+			{"doc": order, "tp": get_service_order_print_context(order)},
+		)
+		if (
+			"APARELHO RECEBIDO SEM FUNCIONAMENTO" not in entry_print_html
+			or ENTRY_OPERATING_CONDITION_INOPERATIVE not in entry_print_html
+		):
+			raise AssertionError("Termo de Entrada não imprimiu a condição e a cláusula adicional aceita.")
+
+		return {
+			"status": "ok",
+			"service_order": service_order,
+			"opens_without_block": True,
+			"term_required_before_advance": term_required_before_acceptance,
+			"term_version": acceptance.inoperative_device_term_version,
+			"public_imei_masked": bool(full_imei),
+			"public_customer_facts_masked": True,
+			"term_consent_required": missing_term_consent_blocked,
+			"accepted_on": str(acceptance.inoperative_device_term_accepted_on),
+			"entry_print_rendered": True,
+		}
+	finally:
 		frappe.set_user(previous_user)
 
 

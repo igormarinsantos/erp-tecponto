@@ -84,6 +84,7 @@ def _ensure_pos_receipt_branding() -> bool:
 
 def get_service_order_print_context(doc) -> dict:
 	from tecponto_app.tecponto.company_identity import get_company_identity
+	from tecponto_app.tecponto.service_order.inoperative_device import requires_inoperative_device_term
 
 	customer = _customer(doc.get("customer"))
 	device = _device(doc.get("customer_device"))
@@ -123,6 +124,8 @@ def get_service_order_print_context(doc) -> dict:
 		"approval_deadline": _datetime(doc.get("approval_deadline")),
 		"estimated_deadline": _date(doc.get("estimated_deadline")),
 		"entry_date": _datetime(doc.get("entry_date")),
+		"entry_operating_condition": doc.get("entry_operating_condition") or "Liga e permite teste",
+		"inoperative_device_term": _inoperative_term_context(doc) if requires_inoperative_device_term(doc) else None,
 		"diagnosis_date": _date(doc.get("diagnosis_date")),
 		"pickup_date": _datetime(doc.get("pickup_date")),
 		"warranty_expiry": _date(doc.get("warranty_expiry")),
@@ -133,6 +136,26 @@ def get_service_order_print_context(doc) -> dict:
 		"picked_up_by": doc.get("picked_up_by") or customer.get("name") or doc.get("customer"),
 		"picked_up_doc": doc.get("picked_up_doc"),
 		"third_party_name": doc.get("third_party_doc") if doc.get("picked_up_by_third_party") else None,
+	}
+
+
+def _inoperative_term_context(doc) -> dict | None:
+	acceptance = frappe.db.get_value(
+		"OS Acceptance",
+		{"service_order": doc.name, "acceptance_type": "Entrada", "status": "Concluído"},
+		["inoperative_device_term_version", "inoperative_device_term_text", "inoperative_device_term_accepted_on"],
+		as_dict=True,
+	) or {}
+	if not (
+		acceptance.get("inoperative_device_term_version")
+		and acceptance.get("inoperative_device_term_text")
+		and acceptance.get("inoperative_device_term_accepted_on")
+	):
+		return None
+	return {
+		"version": acceptance["inoperative_device_term_version"],
+		"text": acceptance["inoperative_device_term_text"],
+		"accepted_on": _datetime(acceptance["inoperative_device_term_accepted_on"]),
 	}
 
 
@@ -291,9 +314,18 @@ def _termo_entrada_html() -> str:
     <h2>Condição informada na entrada</h2>
     <p><strong>Defeito relatado:</strong> {{ doc.reported_defect or "-" }}</p>
     <p><strong>Estado físico declarado:</strong> {{ doc.physical_state or tp.device.general_state or "-" }}</p>
+	<p><strong>Condição de funcionamento:</strong> {{ tp.entry_operating_condition }}</p>
     <p><strong>Riscos, trincos e observações:</strong> {{ doc.attendance_notes or tp.device.notes or "-" }}</p>
     <p><strong>Acessórios recebidos:</strong> {{ doc.accessories_received or "-" }}</p>
   </section>
+
+  {% if tp.inoperative_device_term %}
+  <section class="tp-notice">
+    <h2>Termo de ciência — aparelho recebido sem funcionamento</h2>
+    <p><strong>[PENDENTE REVISÃO JURÍDICA]</strong> Versão {{ tp.inoperative_device_term.version }} · Aceite digital: {{ tp.inoperative_device_term.accepted_on }}</p>
+    <p class="tp-preline">{{ tp.inoperative_device_term.text }}</p>
+  </section>
+  {% endif %}
 
   <section class="tp-notice">
     <h2>Avisos ao cliente</h2>
@@ -545,6 +577,10 @@ def _common_css() -> str:
 .tp-alert {
   background: #fff7ed;
   border-color: #fed7aa;
+}
+.tp-preline {
+  line-height: 1.45;
+  white-space: pre-line;
 }
 .tp-deadline {
   background: #fff7ed;
