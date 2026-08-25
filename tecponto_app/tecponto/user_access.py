@@ -89,7 +89,7 @@ def get_account_level(user: str) -> str:
 
 def validate_user_access(doc, method=None) -> None:
 	"""Validate every native User write before Frappe persists it."""
-	if _is_bootstrap_context():
+	if _is_bootstrap_context() or _is_employee_user_sync(doc.name):
 		return
 
 	actor = frappe.session.user
@@ -273,3 +273,23 @@ def _bootstrap_context():
 
 def _is_bootstrap_context() -> bool:
 	return bool(frappe.flags.get("tecponto_access_control_bootstrap"))
+
+
+@contextmanager
+def employee_user_sync_context(user: str):
+	"""Allow ERPNext's Employee hook to update only its linked User.
+
+	ERPNext persists a User while creating an Employee. This is not an account
+	administration action and must not make bootstrap or HR provisioning fail,
+	but it must also never become a broad bypass for native User edits.
+	"""
+	previous = frappe.flags.get("tecponto_employee_user_sync")
+	frappe.flags.tecponto_employee_user_sync = user
+	try:
+		yield
+	finally:
+		frappe.flags.tecponto_employee_user_sync = previous
+
+
+def _is_employee_user_sync(user: str) -> bool:
+	return bool(user and frappe.flags.get("tecponto_employee_user_sync") == user)

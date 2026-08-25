@@ -73,7 +73,12 @@ def _ensure_employee_for_user(user: str, company: str, gender: str) -> str:
 			"create_user_permission": 0,
 		}
 	)
-	employee_doc.insert(ignore_permissions=True)
+	# ERPNext's Employee.on_update synchronizes the linked User. Scope the
+	# Tecponto access exception to that exact internal synchronization only.
+	from tecponto_app.tecponto.user_access import employee_user_sync_context
+
+	with employee_user_sync_context(user):
+		employee_doc.insert(ignore_permissions=True)
 	return employee_doc.name
 
 

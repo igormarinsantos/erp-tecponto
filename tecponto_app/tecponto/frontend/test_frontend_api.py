@@ -2081,6 +2081,7 @@ def run_user_access_control_checks() -> dict:
 	administrator_role_parents: list[str] = []
 	owner = ""
 	owner_setting_before_delete_test = ""
+	owner_setting_before_employee_sync_test = ""
 	try:
 		frappe.set_user("Administrator")
 		owner = user_access.ensure_access_control()
@@ -2129,6 +2130,41 @@ def run_user_access_control_checks() -> dict:
 			owner_edit_blocked = True
 		if not owner_edit_blocked:
 			raise AssertionError("Administrador editou a conta Proprietário.")
+
+		# ERPNext updates the linked User while inserting an Employee. That
+		# internal synchronization must not weaken the native owner guard.
+		frappe.set_user(owner)
+		owner_employee_sync_target = create_user("owner-employee-sync", ["Tecponto Tecnico"])
+		owner_setting_before_employee_sync_test = owner
+		frappe.db.set_single_value(
+			"Tecponto Settings",
+			user_access.OWNER_FIELD,
+			owner_employee_sync_target,
+			update_modified=False,
+		)
+		frappe.clear_cache()
+		from tecponto_app.tecponto.hr import ensure_hr_foundation
+
+		ensure_hr_foundation()
+		if not frappe.db.exists("Employee", {"user_id": owner_employee_sync_target}):
+			raise AssertionError("Sincronização interna Employee → Proprietário foi bloqueada.")
+		direct_owner_edit_still_blocked = False
+		try:
+			sync_target_doc = frappe.get_doc("User", owner_employee_sync_target)
+			sync_target_doc.first_name = "Edição direta proibida"
+			sync_target_doc.save(ignore_permissions=True)
+		except frappe.PermissionError:
+			direct_owner_edit_still_blocked = True
+		finally:
+			frappe.db.set_single_value(
+				"Tecponto Settings",
+				user_access.OWNER_FIELD,
+				owner_setting_before_employee_sync_test,
+				update_modified=False,
+			)
+			frappe.clear_cache()
+		if not direct_owner_edit_still_blocked:
+			raise AssertionError("Sincronização de Employee abriu edição direta da conta Proprietário.")
 
 		# Administrator has native Frappe deletion restrictions of its own. Point the
 		# protected-owner setting at a disposable ordinary user and delete it through
@@ -2260,6 +2296,8 @@ def run_user_access_control_checks() -> dict:
 			"owner": owner,
 			"multi_role_user": operator,
 			"second_owner_blocked": second_owner_blocked,
+			"employee_owner_sync_allowed": True,
+			"employee_sync_does_not_bypass_owner_guard": direct_owner_edit_still_blocked,
 			"owner_edit_blocked": owner_edit_blocked,
 			"owner_delete_blocked": owner_delete_blocked,
 			"director_grant_blocked": director_grant_blocked,
