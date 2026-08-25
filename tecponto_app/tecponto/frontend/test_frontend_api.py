@@ -2628,6 +2628,9 @@ def run_no_repair_pickup_checks() -> dict:
 			ready = frappe.get_doc("Service Order", service_order)
 			if ready.workflow_state != "Pronto para retirada" or not ready.pickup_without_repair or ready.sales_invoice:
 				raise AssertionError(f"{source_state} não foi liberada para retirada sem reparo corretamente.")
+			frontend_ready = get_service_order_detail(service_order)
+			if not frontend_ready["pickup"]["without_repair"]:
+				raise AssertionError("A interface não recebeu o indicador de retirada sem reparo.")
 			apply_workflow(
 				frappe.as_json({"doctype": "Service Order", "name": service_order}),
 				"Entregue",

@@ -442,6 +442,7 @@ export interface ServiceOrderDetailResponse {
     warranty_expiry: string;
   };
   pickup: {
+		without_repair: boolean;
     pickup_by_third_party: boolean;
     pickup_person_name: string | null;
     pickup_person_document: string | null;

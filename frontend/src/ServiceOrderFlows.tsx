@@ -124,6 +124,7 @@ export function BudgetDecisionModal({ detail, mode, onClose, onUpdated, open }: 
 }
 
 export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
+	const withoutRepair = detail.pickup.without_repair;
   const [thirdParty, setThirdParty] = useState(false);
   const [pickedUpBy, setPickedUpBy] = useState("");
   const [pickedUpDoc, setPickedUpDoc] = useState("");
@@ -222,7 +223,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
   }
 
   return (
-    <Modal className="max-w-5xl" onClose={onClose} open={open} title={`Retirada ${detail.name}`}>
+		<Modal className="max-w-5xl" onClose={onClose} open={open} title={`${withoutRepair ? "Retirada sem reparo" : "Retirada"} ${detail.name}`}>
       <div className="grid max-h-[78vh] gap-4 overflow-y-auto pr-1 xl:grid-cols-[minmax(0,1fr)_340px]">
         <section className="space-y-4">
           <PickupReview detail={detail} />
@@ -264,12 +265,12 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
             />
           </div>
           <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
-            <div className="flex items-center gap-3"><QrCode className="text-tec-orange" size={20} /><div><h3 className="font-bold text-white">Aceite por link</h3><p className="text-sm text-tec-muted">O cliente confirma com selfie, assinatura e consentimento LGPD no próprio aparelho.</p></div></div>
+				<div className="flex items-center gap-3"><QrCode className="text-tec-orange" size={20} /><div><h3 className="font-bold text-white">Aceite por link</h3><p className="text-sm text-tec-muted">O cliente confirma com selfie, assinatura e consentimento LGPD no próprio aparelho.</p></div></div>
             {acceptance ? (
               <div className="mt-4 grid gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
                 <div className="w-fit rounded-card bg-white p-3"><img alt="QR Code do aceite de retirada" className="h-36 w-36" src={acceptance.qr_svg} /></div>
                 <div className="space-y-3">
-                  <p className="text-sm leading-6 text-tec-subtle">Link emitido. Após o cliente concluir, clique em Entregar. O motor continuará exigindo nota paga.</p>
+							<p className="text-sm leading-6 text-tec-subtle">Link emitido. Após o cliente concluir, clique em Entregar.{withoutRepair ? " Esta devolução não possui reparo nem cobrança pendente." : " O motor continuará exigindo nota paga."}</p>
                   <label className="block text-xs font-bold text-tec-text">Link seguro
                     <input className="tp-input mt-1 w-full" readOnly value={acceptance.link} />
                   </label>
@@ -286,15 +287,14 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
         </section>
         <aside className="space-y-4">
           <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
-            <h3 className="text-sm font-bold text-white">Financeiro</h3>
+							<h3 className="text-sm font-bold text-white">{withoutRepair ? "Devolução sem reparo" : "Financeiro"}</h3>
             <dl className="mt-4 space-y-3 text-sm">
-              <FlowLine label="Nota" value={detail.finance.sales_invoice ?? "Sem nota"} />
-              <FlowLine label="Status da nota" value={detail.finance.sales_invoice_status ?? "Não paga/ausente"} />
-              <FlowLine label="Total" value={formatCurrency(detail.totals.grand_total)} />
+								<FlowLine label="Nota" value={detail.finance.sales_invoice ?? "Sem nota"} />
+								{withoutRepair ? <FlowLine label="Cobrança de reparo" value="Não aplicável" /> : <><FlowLine label="Status da nota" value={detail.finance.sales_invoice_status ?? "Não paga/ausente"} /><FlowLine label="Total" value={formatCurrency(detail.totals.grand_total)} /></>}
             </dl>
-            <p className="mt-4 rounded-card border border-tec-amber/25 bg-tec-amber/10 p-3 text-xs text-tec-amber">
-              Se a nota não estiver paga, o motor bloqueia a entrega. Gere a nota e receba o pagamento primeiro.
-            </p>
+							<p className="mt-4 rounded-card border border-tec-amber/25 bg-tec-amber/10 p-3 text-xs text-tec-amber">
+								{withoutRepair ? "Registre o aceite de retirada para devolver o aparelho ao cliente sem executar reparo." : "Se a nota não estiver paga, o motor bloqueia a entrega. Gere a nota e receba o pagamento primeiro."}
+							</p>
           </div>
           <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
             <h3 className="text-sm font-bold text-white">Impressão</h3>

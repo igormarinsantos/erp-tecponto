@@ -892,6 +892,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"warranty_expiry": str(doc.get("warranty_expiry") or ""),
 		},
 		"pickup": {
+			"without_repair": bool(doc.get("pickup_without_repair")),
 			"pickup_by_third_party": bool(doc.get("picked_up_by_third_party")),
 			"pickup_person_name": doc.get("picked_up_by"),
 			"pickup_person_document": doc.get("picked_up_doc") or doc.get("third_party_doc"),

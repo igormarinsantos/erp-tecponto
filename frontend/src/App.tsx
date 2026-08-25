@@ -22,6 +22,7 @@ import {
   History,
   MoreHorizontal,
   Package,
+	PackageCheck,
 	PackagePlus,
   Plus,
   Printer,
@@ -3000,6 +3001,23 @@ function ServiceOrderDetail({
     }
   }
 
+  async function startNoRepairPickup() {
+    try {
+      const moveResult = await serviceOrders.move(detail.name, "Pronto para retirada");
+      const updated = await serviceOrders.detail(detail.name);
+      setState({ status: "ready", detail: updated });
+      setActiveFlow("pickup");
+      onToast(moveResult.changed ? "OS preparada para retirada sem reparo." : "A retirada sem reparo já está pronta para conferência.");
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Não foi possível preparar a retirada sem reparo.";
+      if (message.includes("Seu papel não permite mover")) {
+        setMoveApproval({ targetState: "Pronto para retirada", requestType: "service_order_move" });
+      } else {
+        onToast(message, "error");
+      }
+    }
+  }
+
   async function refreshServiceOrder(message = "Atendimento atualizado.") {
     try {
       const updated = await serviceOrders.detail(detail.name);
@@ -3118,6 +3136,7 @@ function ServiceOrderDetail({
             onOpenQuoteSend={() => setQuoteSendOpen(true)}
             onRefresh={() => void refreshServiceOrder()}
             onSimpleMove={handleSimpleWorkflowMove}
+			onStartNoRepairPickup={() => void startNoRepairPickup()}
           />
           <ServiceOrderAttendanceCard detail={detail} />
         </aside>
@@ -3865,6 +3884,7 @@ function NextActionCard({
   onOpenQuoteSend,
   onRefresh,
   onSimpleMove,
+	onStartNoRepairPickup,
 }: {
   actions: ServiceOrderWorkflowAction[];
   detail: ServiceOrderDetailResponse;
@@ -3873,10 +3893,12 @@ function NextActionCard({
   onOpenQuoteSend: () => void;
   onRefresh: () => void;
   onSimpleMove: (nextState: string) => Promise<void>;
+	onStartNoRepairPickup: () => void;
 }) {
   const action = nextRecommendedAction(detail.workflow_state);
   const isQuoteSendAction = action.kind === "quote-send";
-  const buttonIcon = action.flow ? <ArrowRight size={17} /> : isQuoteSendAction ? <Send size={17} /> : <RefreshCw size={17} />;
+  const isNoRepairPickupAction = action.kind === "no-repair-pickup";
+  const buttonIcon = action.flow ? <ArrowRight size={17} /> : isQuoteSendAction ? <Send size={17} /> : isNoRepairPickupAction ? <PackageCheck size={17} /> : <RefreshCw size={17} />;
   const [movingTo, setMovingTo] = useState<string | null>(null);
 
   async function handleWorkflowAction(workflowAction: ServiceOrderWorkflowAction) {
@@ -3921,6 +3943,8 @@ function NextActionCard({
             onOpenFlow(action.flow);
           } else if (isQuoteSendAction) {
             onOpenQuoteSend();
+			} else if (isNoRepairPickupAction) {
+				onStartNoRepairPickup();
           } else {
             onRefresh();
           }
@@ -3971,7 +3995,7 @@ function nextRecommendedAction(state: string | null): {
   description: string;
   flow: "approve" | "reject" | "pickup" | null;
   hint: string;
-  kind?: "quote-send";
+  kind?: "quote-send" | "no-repair-pickup";
   title: string;
 } {
   if (state === "Aguardando aprovação") {
@@ -3993,6 +4017,16 @@ function nextRecommendedAction(state: string | null): {
       title: "Coletar assinatura e entregar",
     };
   }
+	if (["Reprovado", "Orçamento expirado", "Sem conserto"].includes(state ?? "")) {
+		return {
+			button: "Preparar retirada sem reparo",
+			description: "O aparelho será devolvido sem execução de reparo. Gere o aceite de retirada e conclua a entrega.",
+			flow: null,
+			hint: "A OS será encaminhada para retirada; não é necessário criar nova OS.",
+			kind: "no-repair-pickup",
+			title: "Devolver aparelho sem reparo",
+		};
+	}
   return {
     button: "Atualizar atendimento",
     description: "Revise os dados da OS e avance pelo workflow quando a próxima etapa estiver pronta.",
