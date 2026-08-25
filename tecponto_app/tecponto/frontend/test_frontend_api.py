@@ -368,6 +368,11 @@ def _check_company_identity(user: str) -> dict:
 			raise AssertionError("Tecponto Settings não prevaleceu sobre o nome técnico do aplicativo.")
 		if {"valuation_rate", "cost", "margin", "commission", "profit"} & set(identity):
 			raise AssertionError("A projeção pública de identidade contém dado financeiro proibido.")
+		# The base template is rendered for /tecponto and public pages. Its identity
+		# helper must be registered in Frappe's supported Jinja hook surface.
+		identity_method = frappe.get_jenv().globals.get("get_company_identity")
+		if not identity_method or identity_method()["display_name"] != brand_name:
+			raise AssertionError("O template base não recebeu a identidade comercial pelo hook Jinja.")
 		for page in (acceptance_page, tracking_page, frontend_page):
 			context = frappe._dict()
 			page.get_context(context)

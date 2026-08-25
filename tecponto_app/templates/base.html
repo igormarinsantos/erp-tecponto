@@ -1,8 +1,8 @@
 {% extends "frappe/templates/base.html" %}
 
 {% block favicon %}
-{% set tp_identity = frappe.get_attr('tecponto_app.tecponto.company_identity.get_company_identity')() %}
-{% set tp_icon = tp_identity.logo_url or ('/assets/tecponto_app/branding/favicon-32x32.png' | abs_url) %}
+{% set tp_identity = get_company_identity() %}
+{% set tp_icon = tp_identity["logo_url"] or ('/assets/tecponto_app/branding/favicon-32x32.png' | abs_url) %}
 <link rel="icon" href="{{ tp_icon }}" type="image/png">
 <link rel="shortcut icon" href="{{ tp_icon }}" type="image/png">
 <link rel="apple-touch-icon" href="{{ tp_icon }}">
