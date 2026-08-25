@@ -43,6 +43,31 @@ def create_request(request_type: str, reference_name: str, reason: str, payload:
 	action_payload = _normalize_payload(payload)
 	_validate_payload(request_type, reference_name, action_payload)
 	approver_role = _approver_role(request_type, reference_name, action_payload)
+	# A person with accumulated roles exercises the authority they already hold.
+	# This does not turn into self-approval: no request exists to decide, and the
+	# action is still executed through the ordinary server-side business path.
+	if _has_approver_authority(approver_role):
+		result = _execute_as_approver(request_type, reference_name, action_payload, reason)
+		from tecponto_app.tecponto.user_access import audit_accumulated_role_action
+		audit_accumulated_role_action(
+			role=approver_role,
+			action_type=request_type,
+			reference_doctype=definition["doctype"],
+			reference_name=reference_name,
+			result=result,
+		)
+		return {
+			"name": "",
+			"status": "Executada",
+			"request_type": definition["label"],
+			"reason": reason,
+			"reference_name": reference_name,
+			"requested_by": frappe.session.user,
+			"approver_role": approver_role,
+			"expires_on": "",
+			"executed_directly": True,
+			"execution_result": result,
+		}
 	doc = frappe.get_doc({
 		"doctype": "Tecponto Request",
 		"request_type": definition["label"],
@@ -280,6 +305,11 @@ def _require_role(role: str) -> None:
 	roles = set(frappe.get_roles())
 	if frappe.session.user != "Administrator" and role not in roles and "System Manager" not in roles:
 		raise frappe.PermissionError(_("Seu papel não pode aprovar esta solicitação."))
+
+
+def _has_approver_authority(role: str) -> bool:
+	roles = set(frappe.get_roles())
+	return frappe.session.user == "Administrator" or role in roles or "System Manager" in roles
 
 
 @contextmanager

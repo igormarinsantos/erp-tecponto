@@ -246,6 +246,25 @@ def _write_audit(*, affected_user: str, change_type: str, before: dict, after: d
 	).insert(ignore_permissions=True)
 
 
+def audit_accumulated_role_action(*, role: str, action_type: str, reference_doctype: str, reference_name: str, result: dict) -> None:
+	"""Record a direct action executed under an authority the actor truly holds.
+
+	The audit does not grant access and is written only after the ordinary action
+	has revalidated every business rule under the real session user.
+	"""
+	_write_audit(
+		affected_user=frappe.session.user,
+		change_type="Ação sob papel acumulado",
+		before={
+			"action_type": action_type,
+			"authority_role": role,
+			"reference_doctype": reference_doctype,
+			"reference_name": reference_name,
+		},
+		after={"result": result},
+	)
+
+
 def _user_roles(user: str) -> set[str]:
 	"""Read persisted roles so access guards cannot lag behind a cache refresh."""
 	if not user:

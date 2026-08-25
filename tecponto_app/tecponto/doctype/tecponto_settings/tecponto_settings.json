@@ -34,6 +34,7 @@
   "discount_limit",
   "purchase_approval_threshold",
   "commission_section",
+  "use_technician_commission",
   "commission_pct",
   "commission_labor_only",
   "estadia_section",
@@ -194,6 +195,12 @@
    "fieldname": "commission_section",
    "fieldtype": "Section Break",
    "label": "Comiss\u00e3o"
+  },
+  {
+   "default": "0",
+   "fieldname": "use_technician_commission",
+   "fieldtype": "Check",
+   "label": "Usar comiss\u00e3o de t\u00e9cnico"
   },
   {
    "default": "20",

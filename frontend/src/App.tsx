@@ -1016,7 +1016,7 @@ export function App() {
     }
     : state.boot.user;
   const brandName = state.boot.identity.display_name;
-  const panel = getUnifiedPanelDefinition(rolePanels, state.boot.user.full_name, brandName);
+	const panel = getUnifiedPanelDefinition(rolePanels, state.boot.user.full_name, brandName, state.boot.features.technician_commissions_enabled);
   const currentView = activeView === "overview"
     ? null
     : activeView === "service-order-detail" && !state.metrics.sales_visible
@@ -1026,7 +1026,7 @@ export function App() {
   if (cashierMode) {
     return (
       <>
-        <CashierMode brandName={brandName} onExit={() => window.location.assign("/tecponto")} onToast={showToast} />
+        <CashierMode brandName={brandName} onExit={() => window.location.assign("/tecponto")} onToast={showToast} singleOperator={state.boot.features.single_operator} />
         {toast ? <Toast message={toast.message} tone={toast.tone} /> : null}
       </>
     );
@@ -1129,6 +1129,7 @@ export function App() {
               showSales={state.metrics.sales_visible}
               metrics={state.metrics}
               canViewDirectorFinancial={state.boot.user.roles.includes("Tecponto Diretor")}
+			  singleOperator={state.boot.features.single_operator}
             />
           ) : (
             <NavigationContent
@@ -1139,6 +1140,8 @@ export function App() {
               canEditServiceCatalog={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
               canEditProductCategories={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
               canViewStoreOperations={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
+			  singleTechnician={state.boot.features.single_technician}
+			  commissionsEnabled={state.boot.features.technician_commissions_enabled}
 			  isRestrictedTechnician={!state.metrics.sales_visible}
               onInitialPosBarcodeHandled={() => setPendingPosBarcode(null)}
               onInitialRetailBarcodeHandled={() => setPendingRetailBarcode(null)}
@@ -1717,6 +1720,7 @@ function OverviewContent({
   showSales,
   metrics,
   canViewDirectorFinancial,
+  singleOperator,
 }: {
   actions: ActionDefinition[];
   onNavigate: (target: NavigationTarget) => void;
@@ -1732,6 +1736,7 @@ function OverviewContent({
   showSales: boolean;
   metrics: DashboardMetrics;
   canViewDirectorFinancial: boolean;
+	 singleOperator: boolean;
 }) {
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
   const [salesStats, setSalesStats] = useState<Array<{ key: string; label: string; value: number; amount?: number }>>([]);
@@ -1868,10 +1873,10 @@ function OverviewContent({
           onSelect={(key) => onOpenServiceOrderList(QUEUE_FILTERS.some((filter) => filter.value === key) ? key as QueueFilter : "all")}
         />
       </section>
-      <div className="mt-4">
+      <div className={singleOperator ? "mt-4 max-w-5xl" : "mt-4"}>
         <DailyActionsPanel key={`${agendaStorageKey}:${agendaPreferenceVersion}`} onOpenOrder={onOpenServiceOrder} onToast={onToast} panel={agendaPanel} storageKey={agendaStorageKey} />
       </div>
-      {canApprove ? <div className="mt-4">
+      {canApprove && !singleOperator ? <div className="mt-4">
         <ApprovalRequestsPanel compact onOpenAll={() => onNavigate("approval-requests")} onToast={onToast} />
       </div> : null}
     </>
@@ -1884,7 +1889,7 @@ function DirectorFinancialPanel({ summary }: { summary: DirectorFinancialSummary
     { label: "Receita realizada", value: money(summary.revenue), detail: "Vendas faturadas hoje", icon: <CreditCard size={19} />, tone: "text-tec-green" },
     { label: "Custo operacional", value: money(summary.operational_cost), detail: "Mercadoria e pecas baixadas", icon: <Box size={19} />, tone: "text-tec-orange" },
     { label: "Lucro bruto operacional", value: money(summary.gross_operating_profit), detail: `Margem bruta: ${summary.gross_margin_pct.toFixed(1)}%`, icon: <CircleDollarSign size={19} />, tone: "text-tec-blue" },
-    { label: "Comissoes provisionadas", value: money(summary.team_earnings_accrued), detail: "Lancamentos de mao de obra", icon: <Target size={19} />, tone: "text-tec-purple" },
+    ...(summary.technician_commissions_enabled ? [{ label: "Comissoes provisionadas", value: money(summary.team_earnings_accrued), detail: "Lancamentos de mao de obra", icon: <Target size={19} />, tone: "text-tec-purple" }] : []),
   ];
 
   return (
@@ -1896,7 +1901,7 @@ function DirectorFinancialPanel({ summary }: { summary: DirectorFinancialSummary
         </div>
         <span className="rounded-full bg-tec-field px-3 py-1 text-xs font-bold text-tec-subtle">Resultado bruto, nao lucro liquido</span>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className={`grid gap-3 sm:grid-cols-2 ${summary.technician_commissions_enabled ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
         {cards.map((card) => (
           <Card className="border-tec-border/15 bg-tec-field/55 p-4" key={card.label}>
             <span className={`grid h-9 w-9 place-items-center rounded-control bg-tec-panel-strong ${card.tone}`}>{card.icon}</span>
@@ -2003,7 +2008,7 @@ function DirectorStrategicPanel({
         <div className="mb-4 flex items-center justify-between gap-2">
           <div>
             <h2 className="text-lg font-bold text-white">Desempenho tecnico</h2>
-            <p className="text-sm text-tec-muted">OS faturadas, mao de obra e comissoes provisionadas.</p>
+            <p className="text-sm text-tec-muted">{report.technician_commissions_enabled ? "OS faturadas, mao de obra e comissoes provisionadas." : "OS faturadas e mao de obra no periodo."}</p>
           </div>
           <UserRound className="text-tec-purple" size={18} />
         </div>
@@ -2014,7 +2019,7 @@ function DirectorStrategicPanel({
                 <p className="truncate text-sm font-semibold text-white">{item.technician}</p>
                 <p className="text-xs text-tec-muted">{item.service_orders} OS faturada(s) · MO {money(item.labor_revenue)}</p>
               </div>
-              <span className="shrink-0 text-sm font-bold text-tec-purple">{money(item.team_earnings)}</span>
+              {report.technician_commissions_enabled ? <span className="shrink-0 text-sm font-bold text-tec-purple">{money(item.team_earnings)}</span> : null}
             </div>
           ))}
         </div> : listEmpty}
@@ -2243,6 +2248,8 @@ function NavigationContent({
   canEditServiceCatalog,
   canEditProductCategories,
   canViewStoreOperations,
+	 singleTechnician,
+	 commissionsEnabled,
 	 isRestrictedTechnician,
   onInitialPosBarcodeHandled,
   onInitialRetailBarcodeHandled,
@@ -2266,6 +2273,8 @@ function NavigationContent({
   canEditServiceCatalog: boolean;
   canEditProductCategories: boolean;
   canViewStoreOperations: boolean;
+	 singleTechnician: boolean;
+	 commissionsEnabled: boolean;
 	 isRestrictedTechnician: boolean;
   initialPosBarcode: PendingPosBarcode | null;
   initialRetailBarcode: PendingRetailBarcode | null;
@@ -2372,7 +2381,7 @@ function NavigationContent({
             items={serviceOrderStats.map((item) => ({ ...item, ...getStatBarVisual("service_orders", item.key) }))}
             onSelect={(status) => setServiceOrderFilters((current) => ({ ...current, status: status === "total" ? "all" : status as QueueFilter }))}
           />
-          {canViewStoreOperations ? <TechnicianWorkloadPanel /> : null}
+          {canViewStoreOperations && !singleTechnician ? <TechnicianWorkloadPanel /> : null}
           {serviceOrderListState.status === "error" ? (
             <Card className="p-4 text-sm font-semibold text-tec-red">{serviceOrderListState.message}</Card>
           ) : null}
@@ -2390,6 +2399,7 @@ function NavigationContent({
             <OperationsTable
               filterBar={serviceOrderFilterBar}
               onOpenOrder={(name) => onOpenServiceOrder(name)}
+				onRefresh={onRefreshData}
               onToast={onToast}
               orders={serviceOrderScreenOrders}
               presentation={serviceOrdersView === "grid" ? "grid" : "list"}
@@ -2425,7 +2435,7 @@ function NavigationContent({
     return <NotificationHistoryScreen onNotificationsChanged={onNotificationsChanged} onOpenServiceOrder={onOpenServiceOrder} onToast={onToast} />;
   }
 
-  if (activeView === "my-earnings") {
+  if (activeView === "my-earnings" && commissionsEnabled) {
     return <MyEarningsScreen onOpenServiceOrder={onOpenServiceOrder} />;
   }
 
@@ -2560,6 +2570,7 @@ function ServiceOrderFilterBar({
 function OperationsTable({
   filterBar,
   onOpenOrder,
+	onRefresh,
   onToast,
   onShowAll,
   orders,
@@ -2569,6 +2580,7 @@ function OperationsTable({
 }: {
   filterBar?: ReactNode;
   onOpenOrder: (name: string) => void;
+	onRefresh?: () => void;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   onShowAll?: () => void;
   orders: ServiceOrderSummary[];
@@ -2804,7 +2816,10 @@ function OperationsTable({
       ) : null}
       <ApprovalRequestModal
         onClose={() => setMoveApproval(null)}
-        onCreated={() => setMoveApproval(null)}
+        onCreated={(request) => {
+          setMoveApproval(null);
+          if (request?.executed_directly) onRefresh?.();
+        }}
         onToast={onToast}
         open={Boolean(moveApproval)}
         payload={moveApproval?.requestType === "service_order_move" ? { target_state: moveApproval.targetState } : {}}
@@ -3217,7 +3232,10 @@ function ServiceOrderDetail({
       />
       <ApprovalRequestModal
         onClose={() => setMoveApproval(null)}
-        onCreated={() => setMoveApproval(null)}
+        onCreated={(request) => {
+          setMoveApproval(null);
+          if (request?.executed_directly) void refreshServiceOrder("OS atualizada.");
+        }}
         onToast={onToast}
         open={Boolean(moveApproval)}
         payload={moveApproval?.requestType === "service_order_move" ? { target_state: moveApproval.targetState } : {}}

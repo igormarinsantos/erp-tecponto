@@ -226,6 +226,7 @@ def run_foundation_checks() -> dict:
 		technician_scope_check = run_technician_scope_checks()
 		technician_part_execution_check = run_technician_part_execution_checks()
 		technician_commission_check = run_technician_commission_checks()
+		lean_operation_check = run_lean_operation_checks()
 		technician_part_request_check = run_technician_part_request_checks()
 		part_purchase_cycle_check = run_part_purchase_cycle_checks()
 		part_receipt_check = run_part_receipt_reservation_checks()
@@ -287,6 +288,7 @@ def run_foundation_checks() -> dict:
 			"technician_scope": technician_scope_check,
 			"technician_part_execution": technician_part_execution_check,
 			"technician_commissions": technician_commission_check,
+			"lean_operation": lean_operation_check,
 			"technician_part_requests": technician_part_request_check,
 			"part_purchase_cycle": part_purchase_cycle_check,
 			"part_receipt_reservation": part_receipt_check,
@@ -2082,6 +2084,7 @@ def run_user_access_control_checks() -> dict:
 	owner = ""
 	owner_setting_before_delete_test = ""
 	owner_setting_before_employee_sync_test = ""
+	commission_setting_before_employee_sync_test = None
 	try:
 		frappe.set_user("Administrator")
 		owner = user_access.ensure_access_control()
@@ -2136,6 +2139,9 @@ def run_user_access_control_checks() -> dict:
 		frappe.set_user(owner)
 		owner_employee_sync_target = create_user("owner-employee-sync", ["Tecponto Tecnico"])
 		owner_setting_before_employee_sync_test = owner
+		commission_setting_before_employee_sync_test = frappe.db.get_single_value(
+			"Tecponto Settings", "use_technician_commission"
+		)
 		frappe.db.set_single_value(
 			"Tecponto Settings",
 			user_access.OWNER_FIELD,
@@ -2145,6 +2151,9 @@ def run_user_access_control_checks() -> dict:
 		frappe.clear_cache()
 		from tecponto_app.tecponto.hr import ensure_hr_foundation
 
+		# Employee synchronization is a commission-mode concern. The production
+		# default remains lean/off; this fixture enables it only to prove the hook.
+		frappe.db.set_single_value("Tecponto Settings", "use_technician_commission", 1)
 		ensure_hr_foundation()
 		if not frappe.db.exists("Employee", {"user_id": owner_employee_sync_target}):
 			raise AssertionError("Sincronização interna Employee → Proprietário foi bloqueada.")
@@ -2156,6 +2165,12 @@ def run_user_access_control_checks() -> dict:
 		except frappe.PermissionError:
 			direct_owner_edit_still_blocked = True
 		finally:
+			frappe.db.set_single_value(
+				"Tecponto Settings",
+				"use_technician_commission",
+				commission_setting_before_employee_sync_test,
+				update_modified=False,
+			)
 			frappe.db.set_single_value(
 				"Tecponto Settings",
 				user_access.OWNER_FIELD,
@@ -4657,8 +4672,10 @@ def run_technician_part_execution_checks() -> dict:
 def run_technician_commission_checks() -> dict:
 	"""Prove the commission screen reads only the caller's existing earnings."""
 	previous_user = frappe.session.user
+	previous_enabled = frappe.db.get_single_value("Tecponto Settings", "use_technician_commission")
 	try:
 		ensure_frontend_foundation()
+		frappe.db.set_single_value("Tecponto Settings", "use_technician_commission", 1)
 		technician = _find_or_create_user("Tecponto Tecnico")
 		attendant = _find_or_create_user("Tecponto Atendente")
 		peer = _find_or_create_commission_peer()
@@ -4705,6 +4722,98 @@ def run_technician_commission_checks() -> dict:
 			"leaked_fields": leaks,
 		}
 	finally:
+		frappe.db.set_single_value("Tecponto Settings", "use_technician_commission", previous_enabled)
+		frappe.set_user(previous_user)
+
+
+def run_lean_operation_checks() -> dict:
+	"""Lean mode is opt-in for commissions and preserves real role authority."""
+	previous_user = frappe.session.user
+	previous_enabled = frappe.db.get_single_value("Tecponto Settings", "use_technician_commission")
+	try:
+		ensure_frontend_foundation()
+		technician = _find_or_create_user("Tecponto Tecnico")
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		frappe.db.set_single_value("Tecponto Settings", "use_technician_commission", 0)
+
+		frappe.set_user(technician)
+		commission_hidden = False
+		try:
+			list_my_commissions(period="all")
+		except frappe.PermissionError:
+			commission_hidden = True
+		if not commission_hidden:
+			raise AssertionError("Comissão desativada ainda expôs a tela para o técnico.")
+
+		frappe.set_user("Administrator")
+		ensure_hr_foundation()
+		if frappe.db.exists("Salary Component", "Comissão") and not previous_enabled:
+			# Existing installations are never destructively changed. The important
+			# assertion is that no new payroll document is generated while disabled.
+			pass
+
+		order_name = _create_action_request_service_order(attendant)
+		limit = flt(frappe.db.get_single_value("Tecponto Settings", "discount_limit") or 0)
+		multi_role_user = _find_or_create_multi_role_user()
+		frappe.set_user(multi_role_user)
+		direct = create_request(
+			"service_order_discount",
+			order_name,
+			"Exceção executada sob papel Gestor acumulado.",
+			{"discount": max(limit + 1, 1)},
+		)
+		if not direct.get("executed_directly") or direct.get("status") != "Executada":
+			raise AssertionError("Usuário com papel aprovador acumulado não executou a ação diretamente.")
+		if frappe.db.exists("Tecponto Request", direct.get("name")):
+			raise AssertionError("Execução sob papel acumulado criou solicitação para autoaprovação.")
+		if not frappe.db.exists(
+			"Tecponto Access Audit",
+			{"affected_user": multi_role_user, "change_type": "Ação sob papel acumulado"},
+		):
+			raise AssertionError("Execução sob papel acumulado não deixou trilha de auditoria.")
+
+		frappe.set_user(attendant)
+		pending = create_request(
+			"service_order_discount",
+			order_name,
+			"Atendente sem papel Gestor solicita exceção.",
+			{"discount": max(limit + 2, 2)},
+		)
+		if pending.get("status") != "Pendente" or pending.get("executed_directly"):
+			raise AssertionError("Atendente sem papel Gestor contornou a solicitação de aprovação.")
+		frappe.set_user(manager)
+		if pending["name"] not in {row["name"] for row in list_pending_approvals()}:
+			raise AssertionError("Fluxo normal de aprovação deixou de chegar ao Gestor.")
+
+		from unittest.mock import patch
+		from tecponto_app.tecponto.lean_operations import operation_shape
+
+		with (
+			patch("tecponto_app.tecponto.lean_operations.active_operational_users", return_value={technician}),
+			patch("tecponto_app.tecponto.lean_operations.active_users_with_role", return_value={technician}),
+		):
+			one_person_shape = operation_shape()
+		if not one_person_shape["single_operator"] or not one_person_shape["single_technician"]:
+			raise AssertionError("Operação de uma pessoa não ativou a apresentação enxuta.")
+		with (
+			patch("tecponto_app.tecponto.lean_operations.active_operational_users", return_value={attendant, technician}),
+			patch("tecponto_app.tecponto.lean_operations.active_users_with_role", return_value={technician}),
+		):
+			multi_person_shape = operation_shape()
+		if multi_person_shape["single_operator"]:
+			raise AssertionError("Operação com duas pessoas foi tratada indevidamente como enxuta.")
+
+		return {
+			"commissions_disabled": commission_hidden,
+			"accumulated_role_execution": direct["status"],
+			"audit_recorded": True,
+			"single_role_request": pending["status"],
+			"one_person_shape": one_person_shape,
+			"multi_person_shape": multi_person_shape,
+		}
+	finally:
+		frappe.db.set_single_value("Tecponto Settings", "use_technician_commission", previous_enabled)
 		frappe.set_user(previous_user)
 
 
@@ -5274,6 +5383,7 @@ def _check_director_financial_guard(director: str, manager: str, technician: str
 			"gross_operating_profit",
 			"gross_margin_pct",
 			"team_earnings_accrued",
+			"technician_commissions_enabled",
 			"net_profit_available",
 		}
 		if set(payload) != expected:
@@ -5305,7 +5415,7 @@ def _check_director_strategic_report_guard(director: str, manager: str, technici
 	try:
 		frappe.set_user(director)
 		payload = get_director_strategic_report("month")
-		expected = {"period", "categories", "technicians", "item_costs", "service_order_costs", "trend"}
+		expected = {"period", "technician_commissions_enabled", "categories", "technicians", "item_costs", "service_order_costs", "trend"}
 		if set(payload) != expected:
 			raise AssertionError("Relatorio estrategico retornou uma projeção inesperada.")
 		for row in payload["categories"]:

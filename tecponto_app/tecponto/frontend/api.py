@@ -31,6 +31,7 @@ from tecponto_app.tecponto.workflow import _get_service_order_transitions, get_s
 from tecponto_app.tecponto import service_catalog
 from tecponto_app.tecponto import defect_service_mapping
 from tecponto_app.tecponto import part_requests
+from tecponto_app.tecponto.lean_operations import operation_shape, technician_commissions_enabled
 from tecponto_app.tecponto.permissions import is_restricted_technician, service_order_scope_filters
 from tecponto_app.tecponto.service_order import stage_clock, stage_sla
 from tecponto_app.tecponto.service_order.parts import (
@@ -286,6 +287,8 @@ def _require_store_operation_manager() -> None:
 def _require_technician_commission_role() -> None:
 	"""Allow commission history only for the technician who owns it."""
 	_require_frontend_role()
+	if not technician_commissions_enabled():
+		frappe.throw(_("A comissão de técnico está desativada nesta operação."), frappe.PermissionError)
 	if set(frappe.get_roles(frappe.session.user)).intersection(TECHNICIAN_COMMISSION_ROLES):
 		return
 	frappe.throw(_("Only technicians can consult their own commissions."), frappe.PermissionError)
@@ -363,6 +366,10 @@ def get_boot() -> dict[str, Any]:
 			"version": "3.0",
 		},
 		"identity": identity,
+		"features": {
+			"technician_commissions_enabled": technician_commissions_enabled(),
+			**operation_shape(),
+		},
 		"panels": [
 			{
 				"panel": entry["panel"],
@@ -1649,17 +1656,20 @@ def get_director_financial_summary() -> dict[str, Any]:
 		""",
 		{"posting_date": date},
 	)[0][0]
-	commissions = frappe.db.sql(
-		"""
-		select coalesce(sum(amount), 0)
-		from `tabAdditional Salary`
-		where docstatus = 1
-			and salary_component = 'Comissão'
-			and type = 'Earning'
-			and payroll_date = %(payroll_date)s
-		""",
-		{"payroll_date": date},
-	)[0][0]
+	commissions_enabled = technician_commissions_enabled()
+	commissions = 0
+	if commissions_enabled:
+		commissions = frappe.db.sql(
+			"""
+			select coalesce(sum(amount), 0)
+			from `tabAdditional Salary`
+			where docstatus = 1
+				and salary_component = 'Comissão'
+				and type = 'Earning'
+				and payroll_date = %(payroll_date)s
+			""",
+			{"payroll_date": date},
+		)[0][0]
 	cost = flt(retail_cost) + flt(service_part_cost)
 	gross_profit = flt(revenue) - cost
 	return {
@@ -1671,6 +1681,7 @@ def get_director_financial_summary() -> dict[str, Any]:
 		"gross_operating_profit": float(gross_profit),
 		"gross_margin_pct": float((gross_profit / flt(revenue) * 100) if flt(revenue) else 0),
 		"team_earnings_accrued": float(flt(commissions)),
+		"technician_commissions_enabled": commissions_enabled,
 		"net_profit_available": False,
 	}
 
@@ -1726,18 +1737,23 @@ def get_director_strategic_report(period: str = "month") -> dict[str, Any]:
 		values,
 		as_dict=True,
 	)
-	commission_rows = frappe.db.sql(
-		"""
-		select additional_salary.employee, coalesce(sum(additional_salary.amount), 0) as amount
-		from `tabAdditional Salary` additional_salary
-		where additional_salary.docstatus = 1
-			and additional_salary.salary_component = 'Comissão'
-			and additional_salary.type = 'Earning'
-			and additional_salary.payroll_date between %(from_date)s and %(to_date)s
-		group by additional_salary.employee
-		""",
-		values,
-		as_dict=True,
+	commissions_enabled = technician_commissions_enabled()
+	commission_rows = (
+		frappe.db.sql(
+			"""
+			select additional_salary.employee, coalesce(sum(additional_salary.amount), 0) as amount
+			from `tabAdditional Salary` additional_salary
+			where additional_salary.docstatus = 1
+				and additional_salary.salary_component = 'Comissão'
+				and additional_salary.type = 'Earning'
+				and additional_salary.payroll_date between %(from_date)s and %(to_date)s
+			group by additional_salary.employee
+			""",
+			values,
+			as_dict=True,
+		)
+		if commissions_enabled
+		else []
 	)
 	commissions = {row.employee: flt(row.amount) for row in commission_rows}
 	technicians = [
@@ -1803,6 +1819,7 @@ def get_director_strategic_report(period: str = "month") -> dict[str, Any]:
 	)
 	return {
 		"period": {"key": period, "label": label, "from_date": str(from_date), "to_date": str(today())},
+		"technician_commissions_enabled": commissions_enabled,
 		"categories": [{"category": row.category, "revenue": float(flt(row.revenue))} for row in category_rows],
 		"technicians": technicians,
 		"item_costs": [{"item_code": row.item_code, "item_name": row.item_name, "cost": float(flt(row.cost))} for row in item_costs],
@@ -3299,6 +3316,9 @@ def _with_service_order_scope(filters: dict[str, Any] | None = None) -> dict[str
 
 def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple[float, ...] | set[float] | None = None) -> list[str]:
 	found: set[str] = set()
+	# Feature switches are not payroll values. Keep this list deliberately tiny:
+	# every amount or record containing commission remains sensitive.
+	non_sensitive_feature_flags = {"technician_commissions_enabled"}
 	forbidden_amounts = {round(flt(value), 4) for value in (forbidden_values or []) if abs(flt(value)) > 0.0001}
 
 	def matches_forbidden_amount(value: Any) -> bool:
@@ -3319,6 +3339,8 @@ def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple
 		if isinstance(value, dict):
 			for key, nested in value.items():
 				normalized = key.lower()
+				if normalized in non_sensitive_feature_flags and isinstance(nested, bool):
+					continue
 				if normalized in SENSITIVE_FIELD_NAMES:
 					found.add(key)
 				if "cost" in normalized or "margin" in normalized or "commission" in normalized:

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { approvalRequests } from "./api";
+import type { ApprovalRequest } from "./api/requests";
 import { Button, Modal } from "./ui";
 
 type Toast = (message: string, tone?: "success" | "error") => void;
@@ -8,7 +9,7 @@ type Toast = (message: string, tone?: "success" | "error") => void;
 interface ApprovalRequestModalProps {
   approver?: string;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (request?: ApprovalRequest) => void;
   onToast: Toast;
   open: boolean;
   payload: Record<string, unknown>;
@@ -44,9 +45,14 @@ export function ApprovalRequestModal({
 
     setBusy(true);
     try {
-      await approvalRequests.create(requestType, referenceName, reason.trim(), payload);
-      onToast("Solicitação enviada, aguardando o Gestor.", "success");
-      onCreated();
+      const request = await approvalRequests.create(requestType, referenceName, reason.trim(), payload);
+      onToast(
+        request.executed_directly
+          ? "Ação executada sob a autoridade de papel que você já possui."
+          : "Solicitação enviada, aguardando o Gestor.",
+        "success",
+      );
+      onCreated(request);
       onClose();
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Não foi possível enviar a solicitação.", "error");

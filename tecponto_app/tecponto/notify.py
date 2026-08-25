@@ -58,7 +58,9 @@ def send(user: str, template_key: str, context: dict[str, Any]) -> str | None:
 
 
 def on_request_created(doc, method=None) -> None:
-	for user in _users_with_role(doc.approver_role):
+	# A person who already holds the approving role executes directly through the
+	# request engine. The ordinary request path only notifies another approver.
+	for user in set(_users_with_role(doc.approver_role)) - {doc.requested_by}:
 		enqueue(user, "request_created", {"request": doc.name, "request_type": doc.request_type, "reference_doctype": "Tecponto Request", "reference_name": doc.name})
 
 

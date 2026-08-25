@@ -1,6 +1,8 @@
 import frappe
 from frappe.utils import getdate, today
 
+from tecponto_app.tecponto.lean_operations import technician_commissions_enabled
+
 
 DEFAULT_EMPLOYEE_DATE_OF_BIRTH = "1990-01-01"
 DEFAULT_GENDER = "Not Specified"
@@ -107,6 +109,11 @@ def _ensure_salary_component(component: dict) -> str:
 
 
 def ensure_hr_foundation() -> None:
+	# A lean/single-owner installation must not create payroll structures merely
+	# because its owner also has the Technician role.
+	if not technician_commissions_enabled():
+		return
+
 	if not all(frappe.db.exists("DocType", doctype) for doctype in ("Employee", "Salary Component")):
 		return
 

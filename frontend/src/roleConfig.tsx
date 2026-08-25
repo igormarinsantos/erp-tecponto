@@ -429,23 +429,34 @@ function uniqueByLabel<T extends { label: string }>(items: T[]): T[] {
 }
 
 /** Display-only union: authorization remains entirely server-side. */
-export function getUnifiedPanelDefinition(panels: RolePanel[], fullName: string, brandName = "Empresa"): PanelDefinition {
+export function getUnifiedPanelDefinition(panels: RolePanel[], fullName: string, brandName = "Empresa", commissionsEnabled = true): PanelDefinition {
 	const resolvedPanels = panelOrder.filter((panel) => panels.includes(panel));
-	if (resolvedPanels.length === 1) return withCommercialIdentity({ ...panelDefinitions[resolvedPanels[0]], nav: withSubmenus(panelDefinitions[resolvedPanels[0]].nav) }, brandName);
+	if (resolvedPanels.length === 1) return withCommercialIdentity(withLeanOperationNavigation({ ...panelDefinitions[resolvedPanels[0]], nav: withSubmenus(panelDefinitions[resolvedPanels[0]].nav) }, commissionsEnabled), brandName);
 	if (!resolvedPanels.length) return withCommercialIdentity(panelDefinitions.sem_papel, brandName);
 
   const definitions = resolvedPanels.map((panel) => panelDefinitions[panel]);
   const labels = resolvedPanels.map((panel) => panelLabels[panel]);
 	const firstName = fullName.trim().split(/\s+/)[0] || brandName;
 
-  return withCommercialIdentity({
+	return withCommercialIdentity(withLeanOperationNavigation({
     title: `Ola, ${firstName}!`,
     subtitle: `Visao unificada: ${labels.join(" + ")}.`,
     tableTitle: "Operacao unificada",
     nav: withSubmenus(unifiedNavigation(resolvedPanels)),
     metrics: uniqueByLabel(definitions.flatMap((definition) => definition.metrics)),
     actions: uniqueByLabel(definitions.flatMap((definition) => definition.actions)),
-	}, brandName);
+	}, commissionsEnabled), brandName);
+}
+
+function withLeanOperationNavigation(definition: PanelDefinition, commissionsEnabled: boolean): PanelDefinition {
+	if (commissionsEnabled) return definition;
+	return {
+		...definition,
+		nav: definition.nav.map((section) => ({
+			...section,
+			items: section.items.filter((item) => item.id !== "my-earnings"),
+		})),
+	};
 }
 
 function withCommercialIdentity(definition: PanelDefinition, brandName: string): PanelDefinition {

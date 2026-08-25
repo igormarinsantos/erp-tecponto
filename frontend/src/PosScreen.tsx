@@ -16,6 +16,7 @@ import type { PosCartLine, PosScanFeedback, PosScanStatus, PosSearchStatus, PosT
 interface PosScreenProps {
 	 cashierMode?: boolean;
 	 cashierOperator?: CashierOperatorIdentity | null;
+	 operatorIdentificationOptional?: boolean;
   initialBarcode?: { code: string; id: number } | null;
 	 onCashierSaleCompleted?: (sale: PosSaleResponse) => void;
   onInitialBarcodeHandled?: () => void;
@@ -28,7 +29,7 @@ const INITIAL_SCAN_FEEDBACK: PosScanFeedback = {
   title: "Leitor aguardando",
 };
 
-export function PosScreen({ cashierMode = false, cashierOperator = null, initialBarcode, onCashierSaleCompleted, onInitialBarcodeHandled, onRegisterUnknownBarcode, onToast }: PosScreenProps) {
+export function PosScreen({ cashierMode = false, cashierOperator = null, initialBarcode, onCashierSaleCompleted, onInitialBarcodeHandled, onRegisterUnknownBarcode, onToast, operatorIdentificationOptional = false }: PosScreenProps) {
   const barcodeRef = useRef<HTMLInputElement>(null);
   const manualRef = useRef<HTMLInputElement>(null);
   const discountRef = useRef<HTMLInputElement>(null);
@@ -289,12 +290,12 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
     if (!cart.length) {
       return;
     }
-    if (cashierMode && !cashierOperator?.token) {
+	    if (cashierMode && !operatorIdentificationOptional && !cashierOperator?.token) {
       onToast("Identifique o operador pelo cracha ou PIN antes de finalizar.", "error");
       return;
     }
     setCheckoutOpen(true);
-  }, [cart.length, cashierMode, cashierOperator?.token, onToast]);
+	}, [cart.length, cashierMode, cashierOperator?.token, onToast, operatorIdentificationOptional]);
 
   const submitSale = async (payments: PosSalePaymentPayload[]) => {
     if (!cart.length || checkoutLoading) {
@@ -458,7 +459,21 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
       />
       <ApprovalRequestModal
 		onClose={() => setSaleApproval(null)}
-		onCreated={() => setSaleApproval(null)}
+		onCreated={(request) => {
+			setSaleApproval(null);
+			if (!request?.executed_directly || !request.execution_result) return;
+			const result = request.execution_result as unknown as PosSaleResponse;
+			if (!result.sale || !result.receipt) return;
+			if (cashierMode) {
+				resetForNextSale();
+				onCashierSaleCompleted?.(result);
+				return;
+			}
+			setCompletedSale(result);
+			setCart([]);
+			setDiscount(0);
+			idempotencyRef.current = null;
+		}}
         onToast={onToast}
 		open={Boolean(saleApproval)}
 		payload={saleApproval?.payload ?? {}}

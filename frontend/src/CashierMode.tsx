@@ -8,11 +8,12 @@ import type { PosToast } from "./pos/types";
 
 interface CashierModeProps {
 	brandName: string;
+  singleOperator?: boolean;
   onExit: () => void;
   onToast: PosToast;
 }
 
-export function CashierMode({ brandName, onExit, onToast }: CashierModeProps) {
+export function CashierMode({ brandName, onExit, onToast, singleOperator = false }: CashierModeProps) {
   const badgeInputRef = useRef<HTMLInputElement>(null);
   const [badgeCode, setBadgeCode] = useState("");
   const [pin, setPin] = useState("");
@@ -102,6 +103,8 @@ export function CashierMode({ brandName, onExit, onToast }: CashierModeProps) {
               <button className="mt-4 w-full text-sm font-semibold text-tec-muted transition hover:text-tec-orange" onClick={() => setUsePin((current) => !current)} type="button">
                 {usePin ? "Usar cracha com codigo de barras" : "Meu cracha falhou - usar PIN"}
               </button>
+				{singleOperator ? <button className="mt-3 w-full text-sm font-semibold text-tec-subtle transition hover:text-tec-orange" onClick={() => setOperator({ operator: "", operator_name: "Operador logado", token: "", via: "badge" })} type="button">Continuar sem identificar operador</button> : null}
+				{singleOperator ? <p className="mt-2 text-center text-xs leading-5 text-tec-muted">Venda avulsa permitida: há somente uma pessoa operacional ativa.</p> : null}
             </div>
           </section>
         ) : (
@@ -116,6 +119,7 @@ export function CashierMode({ brandName, onExit, onToast }: CashierModeProps) {
             <PosScreen
               cashierOperator={operator}
               cashierMode
+			  operatorIdentificationOptional={singleOperator}
               onCashierSaleCompleted={handleSaleCompleted}
               onToast={onToast}
             />

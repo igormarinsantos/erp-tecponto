@@ -277,7 +277,13 @@ export function ServiceOrderKanban({
     </Card>
     <ApprovalRequestModal
       onClose={() => setMoveApproval(null)}
-      onCreated={() => setMoveApproval(null)}
+      onCreated={(request) => {
+        setMoveApproval(null);
+        if (request?.executed_directly) {
+          void loadKanban(true);
+          onChanged();
+        }
+      }}
       onToast={onToast}
       open={Boolean(moveApproval)}
       payload={moveApproval?.requestType === "service_order_move" ? { target_state: moveApproval.targetState } : {}}

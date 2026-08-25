@@ -218,6 +218,13 @@ export interface LoggedUser {
 export interface BootResponse {
   user: LoggedUser;
   identity: CompanyIdentity;
+  features: {
+    technician_commissions_enabled: boolean;
+    active_operational_users: number;
+    active_technicians: number;
+    single_operator: boolean;
+    single_technician: boolean;
+  };
   app: {
     name: string;
     route: string;
@@ -764,11 +771,13 @@ export interface DirectorFinancialSummary {
   gross_operating_profit: number;
   gross_margin_pct: number;
   team_earnings_accrued: number;
+	technician_commissions_enabled: boolean;
   net_profit_available: false;
 }
 
 export interface DirectorStrategicReport {
   period: { key: "7d" | "month"; label: string; from_date: string; to_date: string };
+  technician_commissions_enabled: boolean;
   categories: Array<{ category: string; revenue: number }>;
   technicians: Array<{ technician: string; service_orders: number; labor_revenue: number; team_earnings: number }>;
   item_costs: Array<{ item_code: string; item_name: string; cost: number }>;

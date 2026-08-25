@@ -3,6 +3,8 @@ from __future__ import annotations
 import frappe
 from frappe.utils import flt, nowdate
 
+from tecponto_app.tecponto.lean_operations import technician_commissions_enabled
+
 
 DOCTYPE_ADDITIONAL_SALARY = "Additional Salary"
 DOCTYPE_SERVICE_ORDER_SERVICE = "Service Order Service"
@@ -13,6 +15,9 @@ DEFAULT_COMMISSION_PCT = 20
 
 
 def gerar_comissao(doc, method=None) -> list[str]:
+	if not technician_commissions_enabled():
+		return []
+
 	if doc.get("is_warranty"):
 		return []
 
