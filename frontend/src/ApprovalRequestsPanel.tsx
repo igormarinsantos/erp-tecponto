@@ -23,6 +23,7 @@ const REQUEST_TYPE_LABELS: Record<string, string> = {
   stock_transfer: "Transferencia entre estoques",
   tradein_over_max: "Troca acima da tabela",
 };
+const REQUEST_PAGE_SIZE = 20;
 
 function requestTypeLabel(value?: string) {
   return REQUEST_TYPE_LABELS[value ?? ""] ?? value ?? "Solicitacao";
@@ -71,6 +72,7 @@ function RequestGroups({
   totalByType?: Record<string, number>;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [visibleByType, setVisibleByType] = useState<Record<string, number>>({});
   const groups = useMemo(() => {
     const grouped = new Map<string, ApprovalRequest[]>();
     for (const item of items) {
@@ -90,6 +92,9 @@ function RequestGroups({
         const multiple = group.length > 1;
         const open = expanded[type] ?? false;
         const total = totalByType?.[type] ?? group.length;
+        const visibleCount = visibleByType[type] ?? REQUEST_PAGE_SIZE;
+        const visibleItems = group.slice(0, visibleCount);
+        const remaining = group.length - visibleItems.length;
         return (
           <li className="overflow-hidden rounded-control border border-tec-border/15 bg-tec-field/45" key={type}>
             {multiple ? (
@@ -108,7 +113,8 @@ function RequestGroups({
             ) : null}
             {(!multiple || open) ? (
               <ul className={multiple ? "border-t border-tec-border/15" : ""}>
-                {group.map((item) => <RequestRow item={item} key={item.name} onDecide={onDecide} pending={pending} />)}
+                {visibleItems.map((item) => <RequestRow item={item} key={item.name} onDecide={onDecide} pending={pending} />)}
+                {remaining > 0 ? <li className="flex justify-center px-3 py-3"><button className="text-sm font-bold text-tec-orange hover:text-tec-digital-orange" onClick={() => setVisibleByType((current) => ({ ...current, [type]: visibleCount + REQUEST_PAGE_SIZE }))} type="button">Mostrar mais (+{Math.min(remaining, REQUEST_PAGE_SIZE)})</button></li> : null}
               </ul>
             ) : null}
           </li>

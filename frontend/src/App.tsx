@@ -144,6 +144,8 @@ import {
 } from "./ui";
 import { cx } from "./ui/utils";
 
+const LIST_PAGE_SIZE = 20;
+
 type LoadState =
   | { status: "loading" }
   | { status: "login_required"; reason: LoginReason; message?: string }
@@ -2620,6 +2622,7 @@ function OperationsTable({
   const [tableQuery, setTableQuery] = useState("");
   const [movingOrder, setMovingOrder] = useState<string | null>(null);
   const [moveApproval, setMoveApproval] = useState<{ name: string; targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
+  const [visibleCount, setVisibleCount] = useState(LIST_PAGE_SIZE);
 
   async function handleQuickMove(row: ServiceOrderSummary, action: ServiceOrderWorkflowAction) {
     if (["Aprovado", "Reprovado", "Entregue"].includes(action.next_state)) {
@@ -2654,6 +2657,8 @@ function OperationsTable({
       ? statusOrders.filter((order) => matchesServiceOrderSearch(order, effectiveQuery))
       : statusOrders;
   }, [activeFilter, filterBar, orders, showQuickStatusFilters, tableQuery]);
+  useEffect(() => setVisibleCount(LIST_PAGE_SIZE), [visibleOrders]);
+  const displayedOrders = visibleOrders.slice(0, visibleCount);
 
   const columns = useMemo<Array<TableColumn<ServiceOrderSummary>>>(
     () => [
@@ -2788,7 +2793,7 @@ function OperationsTable({
       </div>
       {presentation === "grid" ? (
         <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-          {visibleOrders.map((row) => (
+          {displayedOrders.map((row) => (
             <button
               className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-field"
               data-tp-context="service-order"
@@ -2827,9 +2832,10 @@ function OperationsTable({
             "data-tp-workflow-state": row.workflow_state ?? "",
           })}
           onRowClick={(row) => onOpenOrder(row.name)}
-          rows={visibleOrders}
+          rows={displayedOrders}
         />
       )}
+      <ProgressiveListFooter shown={displayedOrders.length} total={visibleOrders.length} onShowMore={() => setVisibleCount((current) => current + LIST_PAGE_SIZE)} />
       {onShowAll ? (
         <button
           className="mx-auto mt-4 flex items-center gap-2 text-sm font-semibold text-tec-subtle hover:text-white"
@@ -6805,6 +6811,9 @@ function LookupCard<T>({
   tableMinWidthClassName?: string;
   title: string;
 }) {
+  const [visibleCount, setVisibleCount] = useState(LIST_PAGE_SIZE);
+  useEffect(() => setVisibleCount(LIST_PAGE_SIZE), [rows]);
+  const displayedRows = rows.slice(0, visibleCount);
   const searchForm = <form className="flex flex-col gap-3 md:flex-row" onSubmit={onSearch}>
     <div className="relative flex-1">
       <SearchIcon className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tec-muted" size={18} />
@@ -6837,8 +6846,19 @@ function LookupCard<T>({
         </div>
         <div className="flex items-center gap-2">{presentation && onPresentationChange ? <ListGridToggle onChange={onPresentationChange} value={presentation} /> : null}{headerAction}</div>
       </div>
-      {presentation === "grid" ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{rows.map((row, rowIndex) => <button {...getRowProps?.(row)} className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-field" key={rowIndex} onClick={() => onRowClick?.(row)} type="button">{columns.slice(0, 4).map((column) => <div className="mt-2 first:mt-0" key={column.key}><span className="block text-[11px] font-bold uppercase text-tec-muted">{column.label}</span><span className="mt-0.5 block text-sm text-tec-text">{column.render(row)}</span></div>)}</button>)}</div> : <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} getRowProps={getRowProps} onRowClick={onRowClick} rows={rows} tableMinWidthClassName={tableMinWidthClassName} />}
+      {presentation === "grid" ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{displayedRows.map((row, rowIndex) => <button {...getRowProps?.(row)} className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-field" key={rowIndex} onClick={() => onRowClick?.(row)} type="button">{columns.slice(0, 4).map((column) => <div className="mt-2 first:mt-0" key={column.key}><span className="block text-[11px] font-bold uppercase text-tec-muted">{column.label}</span><span className="mt-0.5 block text-sm text-tec-text">{column.render(row)}</span></div>)}</button>)}</div> : <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} getRowProps={getRowProps} onRowClick={onRowClick} rows={displayedRows} tableMinWidthClassName={tableMinWidthClassName} />}
+      <ProgressiveListFooter shown={displayedRows.length} total={rows.length} onShowMore={() => setVisibleCount((current) => current + LIST_PAGE_SIZE)} />
     </Card>
+  );
+}
+
+function ProgressiveListFooter({ onShowMore, shown, total }: { onShowMore: () => void; shown: number; total: number }) {
+  const remaining = total - shown;
+  if (remaining <= 0) return null;
+  return (
+    <div className="mt-4 flex justify-center">
+      <Button onClick={onShowMore} variant="ghost">Mostrar mais (+{Math.min(remaining, LIST_PAGE_SIZE)})</Button>
+    </div>
   );
 }
 

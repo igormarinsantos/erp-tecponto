@@ -6,6 +6,7 @@ import { Button, Card, getStatBarVisual, getStoredListPresentation, LayeredFilte
 
 type ToastTone = "success" | "error";
 type ServiceDraft = Partial<ServiceCatalogService>;
+const CATALOG_PAGE_SIZE = 20;
 
 const emptyService: ServiceDraft = {
   active: true,
@@ -34,6 +35,7 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
   const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.catalog.presentation"));
   const [quickFilter, setQuickFilter] = useState("active");
   const [advancedFilter, setAdvancedFilter] = useState("all");
+  const [visibleCount, setVisibleCount] = useState(CATALOG_PAGE_SIZE);
 
   useEffect(() => {
     window.localStorage.setItem("tecponto.catalog.presentation", presentation);
@@ -64,6 +66,9 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
 
   const activeDeviceTypes = useMemo(() => references.device_types.filter((item) => item.active), [references]);
   const activeCategories = useMemo(() => references.categories.filter((item) => item.active), [references]);
+  const filteredItems = useMemo(() => items.filter((item) => (quickFilter !== "parts" || item.requires_part) && (advancedFilter !== "priced" || item.default_labor_price > 0) && (advancedFilter !== "unpriced" || item.default_labor_price <= 0) && (advancedFilter !== "with_duration" || item.default_duration > 0)), [advancedFilter, items, quickFilter]);
+  useEffect(() => setVisibleCount(CATALOG_PAGE_SIZE), [filteredItems]);
+  const displayedItems = filteredItems.slice(0, visibleCount);
 
   const openNew = () => {
     setEditing({ ...emptyService, device_type: activeDeviceTypes[0]?.name ?? "", category: activeCategories[0]?.name ?? "" });
@@ -109,7 +114,7 @@ export function ServiceCatalogScreen({ canEdit, onToast }: { canEdit: boolean; o
         <div className="flex items-center justify-between border-b border-tec-border/15 px-4 py-3"><div className="flex items-center gap-2"><Wrench className="text-tec-orange" size={18} /><h2 className="font-bold text-white">Serviços</h2></div><div className="flex items-center gap-3"><span className="text-sm text-tec-muted">{items.length} item{items.length === 1 ? "" : "s"}</span><ListGridToggle onChange={setPresentation} value={presentation} /></div></div>
         {loading ? <p className="p-5 text-sm text-tec-muted">Carregando catálogo...</p> : null}
         {!loading && items.length === 0 ? <p className="p-5 text-sm text-tec-muted">Nenhum serviço encontrado com estes filtros.</p> : null}
-        {!loading && items.length > 0 ? <div className={presentation === "grid" ? "grid gap-3 p-4 md:grid-cols-2" : "divide-y divide-tec-border/15"}>{items.filter((item) => (quickFilter !== "parts" || item.requires_part) && (advancedFilter !== "priced" || item.default_labor_price > 0) && (advancedFilter !== "unpriced" || item.default_labor_price <= 0) && (advancedFilter !== "with_duration" || item.default_duration > 0)).map((item) => <ServiceRow canEdit={canEdit} grid={presentation === "grid"} item={item} key={item.name} onEdit={() => { setEditing(item); setEditorOpen(true); }} />)}</div> : null}
+        {!loading && filteredItems.length > 0 ? <><div className={presentation === "grid" ? "grid gap-3 p-4 md:grid-cols-2" : "divide-y divide-tec-border/15"}>{displayedItems.map((item) => <ServiceRow canEdit={canEdit} grid={presentation === "grid"} item={item} key={item.name} onEdit={() => { setEditing(item); setEditorOpen(true); }} />)}</div>{displayedItems.length < filteredItems.length ? <div className="flex justify-center border-t border-tec-border/15 p-4"><Button onClick={() => setVisibleCount((current) => current + CATALOG_PAGE_SIZE)} variant="ghost">Mostrar mais (+{Math.min(filteredItems.length - displayedItems.length, CATALOG_PAGE_SIZE)})</Button></div> : null}</> : null}
       </Card>
       <ServiceEditor activeCategories={activeCategories} activeDeviceTypes={activeDeviceTypes} canEdit={canEdit} draft={editing} onChange={setEditing} onClose={() => setEditorOpen(false)} onSave={() => void saveService()} open={editorOpen} />
       <ReferenceManager onChanged={() => void load()} onClose={() => setReferencesOpen(false)} onToast={onToast} open={referencesOpen} references={references} />
