@@ -20,7 +20,8 @@ export type NavigationTarget =
   | "pos"
   | "sales"
   | "approval-requests"
-  | "notifications";
+  | "notifications"
+  | "user-management";
 
 export interface ProductCategoryNode {
   name: string;
@@ -213,6 +214,47 @@ export interface LoggedUser {
   role_label: string;
   role_name: string;
   subtitle: string;
+  can_manage_users: boolean;
+}
+
+export interface UserRoleOption {
+  role: string;
+  allowed: boolean;
+  reason: string;
+}
+
+export interface ManagedUserAccount {
+  name: string;
+  full_name: string;
+  email: string;
+  enabled: boolean;
+  last_login: string;
+  roles: string[];
+  business_roles: string[];
+  account_level: string;
+  discount_limit: number;
+  cashier: {
+    enabled: boolean;
+    badge_code: string;
+    has_pin: boolean;
+  };
+}
+
+export interface UserAccountListResponse {
+  items: ManagedUserAccount[];
+  stats: { total: number; active: number; administrators: number; operational: number };
+  role_options: UserRoleOption[];
+  actor: { name: string; account_level: string };
+}
+
+export interface UserAccountPayload {
+  name?: string;
+  email?: string;
+  full_name: string;
+  enabled: boolean;
+  roles: string[];
+  discount_limit: number;
+  cashier?: { enabled: boolean; badge_code: string; pin?: string };
 }
 
 export interface BootResponse {

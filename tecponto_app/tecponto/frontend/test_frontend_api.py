@@ -78,6 +78,9 @@ from tecponto_app.tecponto.frontend.api import (
 	save_catalog_service,
 	save_stage_sla,
 	save_defect_service_mapping,
+	list_user_accounts,
+	save_user_account,
+	send_user_password_reset,
 	submit_stock_transfer,
 	create_technical_part_request,
 	cancel_part_request,
@@ -193,6 +196,7 @@ def run_foundation_checks() -> dict:
 		# Running this first also makes later fixture users subject to the same
 		# server-side anti-escalation rules as production users.
 		user_access_checks = run_user_access_control_checks()
+		user_management_checks = run_user_management_api_checks()
 		users = {role: _find_or_create_user(role) for role in FRONTEND_ROLES}
 		company_identity_check = _check_company_identity(users["Tecponto Atendente"])
 		panel_checks = _check_role_panels(users)
@@ -322,6 +326,7 @@ def run_foundation_checks() -> dict:
 			"tracking_budget_checks": tracking_budget_checks,
 			"tracking_lifecycle_checks": tracking_lifecycle_checks,
 			"user_access_checks": user_access_checks,
+			"user_management_checks": user_management_checks,
 		}
 	finally:
 		frappe.flags.in_test = previous_in_test
@@ -2074,6 +2079,92 @@ def run_inoperative_entry_term_checks() -> dict:
 		frappe.set_user(previous_user)
 
 
+def run_user_management_api_checks() -> dict:
+	"""Prove the React-facing account API cannot bypass the native User guards."""
+	from tecponto_app.tecponto import user_access
+	from frappe.utils.password import get_decrypted_password
+	from tecponto_app.tecponto.pricing import _get_discount_limit
+
+	previous_user = frappe.session.user
+	try:
+		owner = user_access.ensure_access_control()
+		frappe.set_user(owner)
+		used_pins = {
+			get_decrypted_password("Tecponto Cashier Operator", operator, "pin", raise_exception=False)
+			for operator in frappe.get_all("Tecponto Cashier Operator", filters={"active": 1}, pluck="name")
+		}
+		cashier_pin = next(f"{number:04d}" for number in range(1000, 10000) if f"{number:04d}" not in used_pins)
+		created = save_user_account(
+			{
+				"full_name": "Operador Multipapel 3.15",
+				"email": f"user-management-{frappe.generate_hash(length=8)}@tecponto.local",
+				"enabled": True,
+				"roles": ["Tecponto Atendente", "Tecponto Tecnico"],
+				"discount_limit": 27.5,
+				"cashier": {"enabled": True, "badge_code": f"TP-USER-{frappe.generate_hash(length=6)}", "pin": cashier_pin},
+			}
+		)["item"]
+		if set(created["business_roles"]) != {"Tecponto Atendente", "Tecponto Tecnico"}:
+			raise AssertionError("A tela/API não persistiu os múltiplos papéis da pessoa.")
+		if created["cashier"]["badge_code"] == "" or created["cashier"].get("pin"):
+			raise AssertionError("A API de pessoas expôs PIN ou não registrou o crachá.")
+		frappe.set_user(created["name"])
+		if _get_discount_limit() != 27.5:
+			raise AssertionError("O limite individual de desconto não foi aplicado pelo motor.")
+
+		frappe.set_user(owner)
+		listed = list_user_accounts()
+		listed_item = next((item for item in listed["items"] if item["name"] == created["name"]), None)
+		if not listed_item or listed_item["discount_limit"] != 27.5 or '"pin":' in frappe.as_json(listed_item).lower():
+			raise AssertionError("A listagem de pessoas expôs credencial ou perdeu configuração individual.")
+		send_user_password_reset(created["name"])
+
+		admin = save_user_account(
+			{
+				"full_name": "Administrador 3.15",
+				"email": f"user-admin-{frappe.generate_hash(length=8)}@tecponto.local",
+				"enabled": True,
+				"roles": [user_access.SYSTEM_MANAGER_ROLE],
+				"discount_limit": 0,
+			}
+		)["item"]
+		frappe.set_user(admin["name"])
+		director_blocked = False
+		try:
+			save_user_account(
+				{
+					"name": created["name"],
+					"full_name": created["full_name"],
+					"enabled": True,
+					"roles": ["Tecponto Atendente", "Tecponto Tecnico", "Tecponto Diretor"],
+					"discount_limit": 27.5,
+				}
+			)
+		except frappe.PermissionError:
+			director_blocked = True
+		if not director_blocked:
+			raise AssertionError("Administrador concedeu Diretor pela API de pessoas.")
+
+		frappe.set_user(created["name"])
+		attendant_blocked = False
+		try:
+			list_user_accounts()
+		except frappe.PermissionError:
+			attendant_blocked = True
+		if not attendant_blocked:
+			raise AssertionError("Usuário operacional acessou a lista de pessoas.")
+		return {
+			"status": "ok",
+			"multi_role_user": created["name"],
+			"individual_discount_limit": 27.5,
+			"cashier_pin_withheld": True,
+			"director_grant_blocked_for_admin": director_blocked,
+			"operational_user_blocked": attendant_blocked,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
 def run_user_access_control_checks() -> dict:
 	"""Exercise every 3.15-1 anti-escalation rule through native User writes."""
 	from tecponto_app.tecponto import user_access
@@ -2311,9 +2402,9 @@ def run_user_access_control_checks() -> dict:
 			"owner": owner,
 			"multi_role_user": operator,
 			"second_owner_blocked": second_owner_blocked,
+			"owner_edit_blocked": owner_edit_blocked,
 			"employee_owner_sync_allowed": True,
 			"employee_sync_does_not_bypass_owner_guard": direct_owner_edit_still_blocked,
-			"owner_edit_blocked": owner_edit_blocked,
 			"owner_delete_blocked": owner_delete_blocked,
 			"director_grant_blocked": director_grant_blocked,
 			"administrator_creation_blocked": administrator_creation_blocked,

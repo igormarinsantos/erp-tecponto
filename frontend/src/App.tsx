@@ -37,6 +37,7 @@ import {
   Target,
 	QrCode,
   UserRound,
+  Users,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -112,6 +113,7 @@ import { DefectServiceMappingScreen } from "./DefectServiceMappingScreen";
 import { NotificationHistoryScreen } from "./NotificationHistoryScreen";
 import { MyEarningsScreen } from "./MyEarningsScreen";
 import { PartRequestModal, PartRequestsScreen } from "./PartRequestsScreen";
+import { UserManagementScreen } from "./UserManagementScreen";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
@@ -402,6 +404,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
     title: "Notificações",
     subtitle: "Histórico de avisos e encaminhamentos da operação.",
   },
+  "user-management": {
+    title: "Pessoas e acessos",
+    subtitle: "Contas, papéis operacionais e controles individuais.",
+  },
 };
 
 export function App() {
@@ -435,9 +441,12 @@ export function App() {
     }
     try {
       const boot = await getBoot();
-      if (boot.user.panel === "sem_papel") {
+      if (boot.user.panel === "sem_papel" && !boot.user.can_manage_users) {
         setState({ status: "no_role", boot });
         return;
+      }
+      if (boot.user.panel === "sem_papel" && boot.user.can_manage_users) {
+        setActiveView("user-management");
       }
       const [orderList, metrics, notificationList] = await Promise.all([serviceOrders.list(12), balcao.getDashboardMetrics(), notifications.list()]);
       setState({ status: "ready", boot, metrics, notifications: notificationList, orders: orderList.items });
@@ -1016,7 +1025,18 @@ export function App() {
     }
     : state.boot.user;
   const brandName = state.boot.identity.display_name;
-	const panel = getUnifiedPanelDefinition(rolePanels, state.boot.user.full_name, brandName, state.boot.features.technician_commissions_enabled);
+  const basePanel = getUnifiedPanelDefinition(
+    rolePanels,
+    state.boot.user.full_name,
+    brandName,
+    state.boot.features.technician_commissions_enabled,
+  );
+  const panel = state.boot.user.can_manage_users
+    ? {
+      ...basePanel,
+      nav: [...basePanel.nav, { label: "Administração", items: [{ id: "user-management" as NavigationTarget, icon: Users, label: "Pessoas e acessos", subtitle: "Contas e papéis" }] }],
+    }
+    : basePanel;
   const currentView = activeView === "overview"
     ? null
     : activeView === "service-order-detail" && !state.metrics.sales_visible
@@ -1142,6 +1162,7 @@ export function App() {
               canViewStoreOperations={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
 			  singleTechnician={state.boot.features.single_technician}
 			  commissionsEnabled={state.boot.features.technician_commissions_enabled}
+			  canManageUsers={state.boot.user.can_manage_users}
 			  isRestrictedTechnician={!state.metrics.sales_visible}
               onInitialPosBarcodeHandled={() => setPendingPosBarcode(null)}
               onInitialRetailBarcodeHandled={() => setPendingRetailBarcode(null)}
@@ -2250,6 +2271,7 @@ function NavigationContent({
   canViewStoreOperations,
 	 singleTechnician,
 	 commissionsEnabled,
+	canManageUsers,
 	 isRestrictedTechnician,
   onInitialPosBarcodeHandled,
   onInitialRetailBarcodeHandled,
@@ -2275,6 +2297,7 @@ function NavigationContent({
   canViewStoreOperations: boolean;
 	 singleTechnician: boolean;
 	 commissionsEnabled: boolean;
+	canManageUsers: boolean;
 	 isRestrictedTechnician: boolean;
   initialPosBarcode: PendingPosBarcode | null;
   initialRetailBarcode: PendingRetailBarcode | null;
@@ -2433,6 +2456,10 @@ function NavigationContent({
 
   if (activeView === "notifications") {
     return <NotificationHistoryScreen onNotificationsChanged={onNotificationsChanged} onOpenServiceOrder={onOpenServiceOrder} onToast={onToast} />;
+  }
+
+  if (activeView === "user-management") {
+    return canManageUsers ? <UserManagementScreen onToast={onToast} /> : <Card className="p-5 text-sm font-semibold text-tec-red">Você não possui acesso à gestão de pessoas.</Card>;
   }
 
   if (activeView === "my-earnings" && commissionsEnabled) {

@@ -32,6 +32,8 @@ from tecponto_app.tecponto import service_catalog
 from tecponto_app.tecponto import defect_service_mapping
 from tecponto_app.tecponto import part_requests
 from tecponto_app.tecponto.lean_operations import operation_shape, technician_commissions_enabled
+from tecponto_app.tecponto import user_access
+from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_DOCTYPE, POS_OPERATOR_ROLES
 from tecponto_app.tecponto.permissions import is_restricted_technician, service_order_scope_filters
 from tecponto_app.tecponto.service_order import stage_clock, stage_sla
 from tecponto_app.tecponto.service_order.parts import (
@@ -350,6 +352,7 @@ def get_logged_user() -> dict[str, Any]:
 		"role_label": panel["label"],
 		"role_name": panel["role"],
 		"subtitle": panel["subtitle"],
+		"can_manage_users": user == user_access.get_owner_user() or user_access.SYSTEM_MANAGER_ROLE in set(roles),
 	}
 
 
@@ -380,6 +383,209 @@ def get_boot() -> dict[str, Any]:
 			for entry in ROLE_PANELS
 		],
 	}
+
+
+@frappe.whitelist()
+def list_user_accounts(query: str = "", include_inactive: bool = True) -> dict[str, Any]:
+	"""Return native users for account administration, never credentials or PINs."""
+	_require_user_management_role()
+	user_access.ensure_user_access_fields()
+	query = (query or "").strip()
+	filters: dict[str, Any] = {"name": ["!=", "Guest"]}
+	if not cint(include_inactive):
+		filters["enabled"] = 1
+	if query:
+		filters["name"] = ["like", f"%{query}%"]
+	users = frappe.get_all(
+		"User",
+		filters=filters,
+		fields=["name", "full_name", "email", "enabled", "last_login", user_access.INDIVIDUAL_DISCOUNT_LIMIT_FIELD],
+		order_by="enabled desc, full_name asc",
+		limit_page_length=500,
+	)
+	operator_rows = frappe.get_all(
+		CASHIER_OPERATOR_DOCTYPE,
+		fields=["user", "active", "badge_code"],
+		limit_page_length=500,
+	)
+	operators = {row.user: row for row in operator_rows}
+	items = [_serialize_user_account(row, operators.get(row.name)) for row in users]
+	return {
+		"items": items,
+		"stats": {
+			"total": len(items),
+			"active": sum(1 for item in items if item["enabled"]),
+			"administrators": sum(1 for item in items if item["account_level"] == "Administrador do Sistema"),
+			"operational": sum(1 for item in items if item["business_roles"]),
+		},
+		"role_options": _user_role_options(),
+		"actor": {
+			"name": frappe.session.user,
+			"account_level": user_access.get_account_level(frappe.session.user),
+		},
+	}
+
+
+@frappe.whitelist()
+def save_user_account(payload: dict[str, Any] | str) -> dict[str, Any]:
+	"""Create or update a User through the same native hooks used by Desk."""
+	_require_user_management_role()
+	user_access.ensure_user_access_fields()
+	payload = _parse_user_account_payload(payload)
+	name = str(payload.get("name") or "").strip()
+	roles = _normalize_managed_roles(payload.get("roles"))
+	creating = not name
+	if creating:
+		email = str(payload.get("email") or "").strip().lower()
+		if not email or "@" not in email:
+			frappe.throw("Informe um e-mail válido para a nova pessoa.", frappe.ValidationError)
+		if frappe.db.exists("User", email):
+			frappe.throw("Já existe uma pessoa cadastrada com este e-mail.", frappe.ValidationError)
+		doc = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": str(payload.get("full_name") or "").strip() or email.split("@", 1)[0],
+				"enabled": cint(payload.get("enabled", 1)),
+				"send_welcome_email": 0,
+			}
+		)
+	else:
+		if not frappe.db.exists("User", name):
+			frappe.throw("Pessoa não encontrada.", frappe.DoesNotExistError)
+		doc = frappe.get_doc("User", name)
+		if "full_name" in payload:
+			doc.first_name = str(payload.get("full_name") or "").strip() or doc.first_name
+		if "enabled" in payload:
+			doc.enabled = cint(payload.get("enabled"))
+
+	current_roles = {row.role for row in (doc.get("roles") or []) if row.role}
+	unmanaged_roles = current_roles - user_access.MANAGED_ROLES
+	doc.set("roles", [{"role": role} for role in sorted(unmanaged_roles | roles)])
+	if frappe.db.has_column("User", user_access.INDIVIDUAL_DISCOUNT_LIMIT_FIELD):
+		doc.set(user_access.INDIVIDUAL_DISCOUNT_LIMIT_FIELD, flt(payload.get("discount_limit") or 0))
+	if creating:
+		doc.insert(ignore_permissions=True)
+	else:
+		doc.save(ignore_permissions=True)
+
+	_save_cashier_operator(doc.name, roles, payload.get("cashier"))
+	frappe.clear_cache(user=doc.name)
+	operator = frappe.db.get_value(CASHIER_OPERATOR_DOCTYPE, doc.name, ["active", "badge_code"], as_dict=True)
+	return {"item": _serialize_user_account(frappe.db.get_value("User", doc.name, ["name", "full_name", "email", "enabled", "last_login", user_access.INDIVIDUAL_DISCOUNT_LIMIT_FIELD], as_dict=True), operator)}
+
+
+@frappe.whitelist()
+def send_user_password_reset(user: str) -> dict[str, bool]:
+	"""Delegate reset delivery to Frappe; no password ever reaches Tecponto."""
+	_require_user_management_role()
+	user = (user or "").strip()
+	if not frappe.db.exists("User", user):
+		frappe.throw("Pessoa não encontrada.", frappe.DoesNotExistError)
+	from frappe.core.doctype.user.user import reset_password
+
+	reset_password(user)
+	return {"sent": True}
+
+
+def _require_user_management_role() -> None:
+	_require_login()
+	actor = frappe.session.user
+	if actor == user_access.get_owner_user() or user_access.SYSTEM_MANAGER_ROLE in set(frappe.get_roles(actor)):
+		return
+	frappe.throw("A gestão de pessoas é restrita ao Proprietário e Administradores do Sistema.", frappe.PermissionError)
+
+
+def _parse_user_account_payload(payload: dict[str, Any] | str) -> dict[str, Any]:
+	if isinstance(payload, str):
+		payload = frappe.parse_json(payload)
+	if not isinstance(payload, dict):
+		frappe.throw("Dados de pessoa inválidos.", frappe.ValidationError)
+	return payload
+
+
+def _normalize_managed_roles(value: Any) -> set[str]:
+	if isinstance(value, str):
+		value = frappe.parse_json(value)
+	if not isinstance(value, list):
+		frappe.throw("Informe os papéis da pessoa.", frappe.ValidationError)
+	roles = {str(role).strip() for role in value if str(role).strip()}
+	unknown = roles - user_access.MANAGED_ROLES
+	if unknown:
+		frappe.throw("Papel inválido: {0}.".format(", ".join(sorted(unknown))), frappe.ValidationError)
+	return roles
+
+
+def _user_role_options() -> list[dict[str, Any]]:
+	actor = frappe.session.user
+	actor_roles = set(frappe.get_roles(actor))
+	is_owner = actor == user_access.get_owner_user()
+	options = []
+	for role in sorted(user_access.MANAGED_ROLES):
+		allowed = is_owner or (role not in {user_access.SYSTEM_MANAGER_ROLE, "Tecponto Diretor"} and role in actor_roles)
+		reason = ""
+		if not allowed:
+			reason = (
+				"Somente o Proprietário pode conceder Administrador do Sistema."
+				if role == user_access.SYSTEM_MANAGER_ROLE
+				else "Somente o Proprietário pode conceder o papel Diretor."
+				if role == "Tecponto Diretor"
+				else "Você só pode conceder papéis que já possui."
+			)
+		options.append({"role": role, "allowed": allowed, "reason": reason})
+	return options
+
+
+def _serialize_user_account(user: Any, operator: Any) -> dict[str, Any]:
+	roles = user_access._user_roles(user.name)
+	managed_roles = sorted(roles & user_access.MANAGED_ROLES)
+	return {
+		"name": user.name,
+		"full_name": user.full_name or user.name,
+		"email": user.email or user.name,
+		"enabled": bool(user.enabled),
+		"last_login": str(user.last_login or ""),
+		"roles": managed_roles,
+		"business_roles": sorted(roles & user_access.BUSINESS_ROLES),
+		"account_level": user_access.get_account_level(user.name),
+		"discount_limit": flt(user.get(user_access.INDIVIDUAL_DISCOUNT_LIMIT_FIELD) or 0),
+		"cashier": {
+			"enabled": bool(operator and operator.active),
+			"badge_code": operator.badge_code if operator else "",
+			"has_pin": bool(operator),
+		},
+	}
+
+
+def _save_cashier_operator(user: str, roles: set[str], cashier: Any) -> None:
+	if cashier is None:
+		return
+	if isinstance(cashier, str):
+		cashier = frappe.parse_json(cashier)
+	if not isinstance(cashier, dict):
+		frappe.throw("Dados de crachá inválidos.", frappe.ValidationError)
+	existing = frappe.db.exists(CASHIER_OPERATOR_DOCTYPE, user)
+	enabled = bool(cint(cashier.get("enabled")))
+	if not enabled and existing:
+		doc = frappe.get_doc(CASHIER_OPERATOR_DOCTYPE, user)
+		doc.active = 0
+		doc.save(ignore_permissions=True)
+		return
+	if not enabled:
+		return
+	if not (roles & POS_OPERATOR_ROLES):
+		frappe.throw("Crachá/PIN só pode ser ativado para quem possui papel de operação do PDV.", frappe.ValidationError)
+	badge_code = str(cashier.get("badge_code") or "").strip()
+	pin = str(cashier.get("pin") or "").strip()
+	if not existing and (not badge_code or not pin):
+		frappe.throw("Informe crachá e PIN de 4 dígitos para ativar o modo caixa.", frappe.ValidationError)
+	doc = frappe.get_doc(CASHIER_OPERATOR_DOCTYPE, user) if existing else frappe.get_doc({"doctype": CASHIER_OPERATOR_DOCTYPE, "user": user})
+	doc.active = 1
+	if badge_code:
+		doc.badge_code = badge_code
+	if pin:
+		doc.pin = pin
+	doc.save(ignore_permissions=True) if existing else doc.insert(ignore_permissions=True)
 
 
 @frappe.whitelist()

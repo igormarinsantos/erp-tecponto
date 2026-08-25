@@ -11,6 +11,7 @@ import json
 from contextlib import contextmanager
 
 import frappe
+from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.utils import now_datetime
 
 
@@ -24,6 +25,7 @@ BUSINESS_ROLES = {
 }
 MANAGED_ROLES = BUSINESS_ROLES | {SYSTEM_MANAGER_ROLE}
 AUDIT_DOCTYPE = "Tecponto Access Audit"
+INDIVIDUAL_DISCOUNT_LIMIT_FIELD = "custom_tecponto_discount_limit"
 
 
 def ensure_access_control() -> str:
@@ -33,6 +35,7 @@ def ensure_access_control() -> str:
 	Existing installations with a configured owner are never silently reassigned.
 	A later ownership transfer is an explicit, audited 3.15-3 action.
 	"""
+	ensure_user_access_fields()
 	if not frappe.db.exists("DocType", "Tecponto Settings"):
 		return ""
 
@@ -50,6 +53,27 @@ def ensure_access_control() -> str:
 	frappe.clear_cache(user=owner)
 
 	return owner
+
+
+def ensure_user_access_fields() -> None:
+	"""Keep the per-person commercial limit on the native User record."""
+	if not frappe.db.exists("DocType", "User"):
+		return
+	create_custom_fields(
+		{
+			"User": [
+				{
+					"fieldname": INDIVIDUAL_DISCOUNT_LIMIT_FIELD,
+					"fieldtype": "Currency",
+					"label": "Limite individual de desconto",
+					"description": "Quando preenchido, substitui o limite geral para este usuário.",
+					"insert_after": "mobile_no",
+					"module": "Tecponto",
+				}
+			]
+		},
+		update=True,
+	)
 
 
 def set_initial_owner(user: str) -> str:

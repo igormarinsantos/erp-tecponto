@@ -12,6 +12,7 @@ export { defectServiceMappings } from "./defectServiceMappings";
 export { productCategories } from "./productCategories";
 export { productVariants } from "./productVariants";
 export { catalogListings } from "./catalogListings";
+export { userAccounts } from "./userAccounts";
 export type { ApprovalRequest } from "./requests";
 export { serviceOrders, type ServiceOrderQueryParams } from "./serviceOrders";
 export type {
@@ -126,4 +127,8 @@ export type {
 	ConfirmTradeInOperationResponse,
 	TradeOutputDeviceListResponse,
 	SetTradeInApprovedValueResponse,
+	ManagedUserAccount,
+	UserAccountListResponse,
+	UserAccountPayload,
+	UserRoleOption,
 } from "./types";

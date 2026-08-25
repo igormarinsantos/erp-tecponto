@@ -1,6 +1,8 @@
 import frappe
 from frappe.utils import flt
 
+from tecponto_app.tecponto.user_access import INDIVIDUAL_DISCOUNT_LIMIT_FIELD
+
 
 MANAGER_ROLES = {"Tecponto Gestor", "System Manager"}
 
@@ -10,6 +12,10 @@ def _user_can_override_pricing() -> bool:
 
 
 def _get_discount_limit() -> float:
+	if frappe.db.has_column("User", INDIVIDUAL_DISCOUNT_LIMIT_FIELD):
+		individual_limit = flt(frappe.db.get_value("User", frappe.session.user, INDIVIDUAL_DISCOUNT_LIMIT_FIELD) or 0)
+		if individual_limit > 0:
+			return individual_limit
 	return flt(frappe.db.get_single_value("Tecponto Settings", "discount_limit"))
 
 
