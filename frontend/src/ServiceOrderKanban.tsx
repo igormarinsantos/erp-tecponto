@@ -1,5 +1,5 @@
 import { type DragEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, Clock3, GripVertical, RefreshCw, UserRound, Wrench } from "lucide-react";
+import { ArrowRight, Clock3, GripVertical, PanelLeftClose, RefreshCw, UserRound, Wrench } from "lucide-react";
 
 import {
   serviceOrders,
@@ -62,7 +62,7 @@ export function ServiceOrderKanban({
   const [state, setState] = useState<KanbanState>({ status: "loading" });
   const [dragged, setDragged] = useState<DraggedCard | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const [expandedState, setExpandedState] = useState<string | null>(null);
+  const [expandedStates, setExpandedStates] = useState<string[]>([]);
   const [compactMode, setCompactMode] = useState(false);
   const [moving, setMoving] = useState<string | null>(null);
   const [moveApproval, setMoveApproval] = useState<{ name: string; targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
@@ -112,10 +112,16 @@ export function ServiceOrderKanban({
     if (state.status !== "ready" || !state.data.columns.length) {
       return;
     }
-    setExpandedState((current) =>
-      current && state.data.columns.some((column) => column.state === current) ? current : null,
-    );
+    setExpandedStates((current) => current.filter((stateName) => state.data.columns.some((column) => column.state === stateName)));
   }, [state]);
+
+  const toggleColumn = useCallback((stateName: string) => {
+    setExpandedStates((current) => (
+      current.includes(stateName)
+        ? current.filter((entry) => entry !== stateName)
+        : [...current, stateName]
+    ));
+  }, []);
 
   const moveCard = useCallback(
     async (targetState: string) => {
@@ -238,7 +244,7 @@ export function ServiceOrderKanban({
           compactMode
             ? {
                 gridTemplateColumns: filteredColumns
-                  .map((column) => (column.state === expandedState ? "minmax(0, 1fr)" : "42px"))
+                  .map((column) => (expandedStates.includes(column.state) ? "minmax(272px, 340px)" : "42px"))
                   .join(" "),
               }
             : undefined
@@ -249,11 +255,11 @@ export function ServiceOrderKanban({
             compact={compactMode}
             column={column}
             dropTarget={dropTarget}
-            expanded={!compactMode || column.state === expandedState}
+            expanded={!compactMode || expandedStates.includes(column.state)}
             key={column.state}
             moving={moving}
             urgent={columnHasUrgentDeadline(column)}
-            onExpand={() => setExpandedState(column.state)}
+            onToggle={() => toggleColumn(column.state)}
             onDragEnd={() => {
               setDragged(null);
               setDropTarget(null);
@@ -295,7 +301,7 @@ function KanbanColumn({
   onDragEnd,
   onDragStart,
   onDrop,
-  onExpand,
+  onToggle,
   onOpenOrder,
   onQuickMove,
   onShowList,
@@ -307,7 +313,7 @@ function KanbanColumn({
   expanded: boolean;
   moving: string | null;
   urgent: boolean;
-  onExpand: () => void;
+  onToggle: () => void;
   onDragEnd: () => void;
   onDragStart: (item: ServiceOrderSummary) => void;
   onDrop: () => void;
@@ -340,13 +346,13 @@ function KanbanColumn({
         }}
         onDrop={(event) => {
           event.preventDefault();
-          onExpand();
+          onToggle();
           onDrop();
         }}
       >
         <button
           className="flex h-full min-h-[430px] w-full flex-col items-center gap-3 rounded-card px-2 py-3 text-center transition hover:bg-tec-field/55"
-          onClick={onExpand}
+          onClick={onToggle}
           title={urgent ? `Abrir funil ${column.state} - prazo urgente` : `Abrir funil ${column.state}`}
           type="button"
         >
@@ -391,7 +397,20 @@ function KanbanColumn({
             </div>
             <p className="mt-1 text-xs text-tec-muted">{column.count.toLocaleString("pt-BR")} OS</p>
           </div>
-          <span className={cx("rounded-full px-2 py-1 text-xs font-bold", tone.badge)}>{column.items.length}</span>
+          <div className="flex shrink-0 items-center gap-1">
+            <span className={cx("rounded-full px-2 py-1 text-xs font-bold", tone.badge)}>{column.items.length}</span>
+            {compact ? (
+              <button
+                aria-label={`Recolher funil ${column.state}`}
+                className="grid h-7 w-7 place-items-center rounded-control text-tec-muted transition hover:bg-tec-field hover:text-white"
+                onClick={onToggle}
+                title={`Recolher ${column.state}`}
+                type="button"
+              >
+                <PanelLeftClose size={15} />
+              </button>
+            ) : null}
+          </div>
         </div>
       </header>
 

@@ -250,7 +250,8 @@ h4 {
   align-items: stretch;
   display: grid;
   gap: 0.5rem;
-  min-width: 0;
+  min-width: 100%;
+  width: max-content;
 }
 
 .tp-kanban-rail-label {
