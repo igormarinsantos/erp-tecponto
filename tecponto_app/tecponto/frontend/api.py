@@ -859,6 +859,11 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"approved_by_attendant": doc.get("approved_by_attendant"),
 			"approval_date": str(doc.get("approval_date") or ""),
 			"notes": doc.get("approval_notes"),
+			"expired": bool(
+				doc.get("approval_deadline")
+				and doc.get("workflow_state") == "Aguardando aprovação"
+				and doc.get("approval_deadline") < now_datetime()
+			),
 		},
 		"entry_date": str(doc.get("entry_date") or ""),
 		"modified": str(doc.get("modified") or ""),

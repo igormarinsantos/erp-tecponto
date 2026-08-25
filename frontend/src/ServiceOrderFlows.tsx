@@ -38,7 +38,8 @@ export function BudgetDecisionModal({ detail, mode, onClose, onUpdated, open }: 
   }, [open, mode, detail.name]);
 
   const rejecting = mode === "reject";
-  const canSubmit = !rejecting || Boolean(notes.trim());
+  const approvalExpired = !rejecting && detail.approval.expired;
+  const canSubmit = (!rejecting || Boolean(notes.trim())) && !approvalExpired;
 
   async function submit() {
     setError(null);
@@ -98,6 +99,11 @@ export function BudgetDecisionModal({ detail, mode, onClose, onUpdated, open }: 
             required={rejecting}
             value={notes}
           />
+          {approvalExpired ? (
+            <div className="rounded-control border border-tec-amber/30 bg-tec-amber/10 px-3 py-2 text-sm text-tec-amber">
+              Este orçamento venceu. Crie ou envie uma nova versão antes de registrar a aprovação.
+            </div>
+          ) : null}
           {error ? <ErrorBox message={error} /> : null}
         </section>
         <aside className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
@@ -115,7 +121,7 @@ export function BudgetDecisionModal({ detail, mode, onClose, onUpdated, open }: 
             onClick={submit}
             variant={rejecting ? "secondary" : "primary"}
           >
-            {submitting ? "Registrando..." : rejecting ? "Reprovar" : "Aprovar"}
+            {submitting ? "Registrando..." : rejecting ? "Reprovar" : approvalExpired ? "Orçamento vencido" : "Aprovar"}
           </Button>
         </aside>
       </div>

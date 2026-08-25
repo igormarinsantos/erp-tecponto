@@ -2355,6 +2355,9 @@ def run_workflow_metadata_gate_checks() -> dict:
 			update_modified=False,
 		)
 		frappe.set_user(attendant)
+		expired_detail = get_service_order_detail(expired_order)
+		if not expired_detail["approval"]["expired"]:
+			raise AssertionError("Detalhe da OS não sinalizou orçamento expirado para a interface.")
 		internal_expiration_blocked = False
 		try:
 			decide_service_order_budget(expired_order, {"decision": "approve", "channel": "Presencial", "notes": ""})

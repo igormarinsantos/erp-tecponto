@@ -409,6 +409,7 @@ export interface ServiceOrderDetailResponse {
     approved_by_attendant: string | null;
     approval_date: string;
     notes: string | null;
+    expired: boolean;
   };
   entry_date: string;
   modified: string;
