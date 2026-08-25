@@ -189,6 +189,10 @@ def run_foundation_checks() -> dict:
 	try:
 		frappe.flags.in_test = True
 		ensure_frontend_foundation()
+		# Access control must initialize after the Tecponto roles themselves exist.
+		# Running this first also makes later fixture users subject to the same
+		# server-side anti-escalation rules as production users.
+		user_access_checks = run_user_access_control_checks()
 		users = {role: _find_or_create_user(role) for role in FRONTEND_ROLES}
 		company_identity_check = _check_company_identity(users["Tecponto Atendente"])
 		panel_checks = _check_role_panels(users)
@@ -264,7 +268,6 @@ def run_foundation_checks() -> dict:
 		tracking_checks = run_public_tracking_checks()
 		tracking_budget_checks = run_public_tracking_budget_checks()
 		tracking_lifecycle_checks = run_tracking_lifecycle_checks()
-
 		return {
 			"status": "ok",
 			"panel_checks": panel_checks,
@@ -316,6 +319,7 @@ def run_foundation_checks() -> dict:
 			"tracking_checks": tracking_checks,
 			"tracking_budget_checks": tracking_budget_checks,
 			"tracking_lifecycle_checks": tracking_lifecycle_checks,
+			"user_access_checks": user_access_checks,
 		}
 	finally:
 		frappe.flags.in_test = previous_in_test
@@ -2063,6 +2067,226 @@ def run_inoperative_entry_term_checks() -> dict:
 		frappe.set_user(previous_user)
 
 
+def run_user_access_control_checks() -> dict:
+	"""Exercise every 3.15-1 anti-escalation rule through native User writes."""
+	from tecponto_app.tecponto import user_access
+
+	previous_user = frappe.session.user
+	created_users: list[str] = []
+	administrator_role_parents: list[str] = []
+	owner = ""
+	owner_setting_before_delete_test = ""
+	try:
+		frappe.set_user("Administrator")
+		owner = user_access.ensure_access_control()
+		if not owner or user_access.get_account_level(owner) != "Proprietário":
+			raise AssertionError("A conta Proprietário única não foi inicializada.")
+		owner_roles = set(frappe.get_roles(owner))
+		if not user_access.MANAGED_ROLES.issubset(owner_roles):
+			raise AssertionError("O Proprietário precisa acumular administração e todos os papéis de negócio.")
+
+		def create_user(label: str, roles: list[str]) -> str:
+			email = f"access-{label}-{frappe.generate_hash(length=8)}@tecponto.local"
+			doc = frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": f"Access {label}",
+					"enabled": 1,
+					"send_welcome_email": 0,
+					"roles": [{"role": role} for role in roles],
+				}
+			)
+			doc.insert(ignore_permissions=True)
+			created_users.append(doc.name)
+			return doc.name
+
+		frappe.set_user(owner)
+		admin = create_user("admin", [user_access.SYSTEM_MANAGER_ROLE])
+		operator = create_user("operator", ["Tecponto Atendente", "Tecponto Tecnico"])
+		role_target = create_user("target", ["Tecponto Atendente"])
+
+		second_owner_blocked = False
+		try:
+			user_access.set_initial_owner(operator)
+		except frappe.ValidationError:
+			second_owner_blocked = True
+		if not second_owner_blocked:
+			raise AssertionError("Foi possível criar um segundo Proprietário.")
+
+		frappe.set_user(admin)
+		owner_edit_blocked = False
+		try:
+			owner_doc = frappe.get_doc("User", owner)
+			owner_doc.first_name = "Alteração indevida"
+			owner_doc.save(ignore_permissions=True)
+		except frappe.PermissionError:
+			owner_edit_blocked = True
+		if not owner_edit_blocked:
+			raise AssertionError("Administrador editou a conta Proprietário.")
+
+		# Administrator has native Frappe deletion restrictions of its own. Point the
+		# protected-owner setting at a disposable ordinary user and delete it through
+		# frappe.delete_doc so this specifically proves our on_trash hook is invoked.
+		frappe.set_user(owner)
+		owner_delete_target = create_user("owner-delete-target", ["Tecponto Atendente"])
+		owner_setting_before_delete_test = owner
+		frappe.db.set_single_value("Tecponto Settings", user_access.OWNER_FIELD, owner_delete_target, update_modified=False)
+		frappe.clear_cache()
+		owner_delete_blocked = False
+		try:
+			frappe.delete_doc("User", owner_delete_target, ignore_permissions=True)
+		except frappe.PermissionError:
+			owner_delete_blocked = True
+		finally:
+			frappe.db.set_single_value(
+				"Tecponto Settings",
+				user_access.OWNER_FIELD,
+				owner_setting_before_delete_test,
+				update_modified=False,
+			)
+			frappe.clear_cache()
+		if not owner_delete_blocked:
+			raise AssertionError("Foi possível excluir a conta Proprietário pelo caminho nativo.")
+		frappe.set_user(admin)
+
+		director_grant_blocked = False
+		try:
+			target_doc = frappe.get_doc("User", role_target)
+			target_doc.append("roles", {"role": "Tecponto Diretor"})
+			target_doc.save(ignore_permissions=True)
+		except frappe.PermissionError:
+			director_grant_blocked = True
+		if not director_grant_blocked:
+			raise AssertionError("Administrador concedeu Diretor sem ser Proprietário.")
+
+		administrator_creation_blocked = False
+		try:
+			create_user("forbidden-admin", [user_access.SYSTEM_MANAGER_ROLE])
+		except frappe.PermissionError:
+			administrator_creation_blocked = True
+		if not administrator_creation_blocked:
+			raise AssertionError("Administrador criou outro Administrador.")
+
+		role_not_possessed_blocked = False
+		try:
+			target_doc = frappe.get_doc("User", role_target)
+			target_doc.append("roles", {"role": "Tecponto Gestor"})
+			target_doc.save(ignore_permissions=True)
+		except frappe.PermissionError:
+			role_not_possessed_blocked = True
+		if not role_not_possessed_blocked:
+			raise AssertionError("Administrador concedeu papel operacional que não possui.")
+
+		frappe.set_user(operator)
+		self_deactivation_blocked = False
+		try:
+			operator_doc = frappe.get_doc("User", operator)
+			operator_doc.enabled = 0
+			operator_doc.save(ignore_permissions=True)
+		except frappe.PermissionError:
+			self_deactivation_blocked = True
+		if not self_deactivation_blocked:
+			raise AssertionError("Usuário conseguiu desativar a própria conta.")
+
+		# Direct database setup isolates the last-admin guard without ever weakening
+		# a production account through a normal workflow. The persistent test site
+		# can contain pre-existing System Managers, so save and restore every one.
+		administrator_role_parents = [
+			row.parent
+			for row in frappe.get_all(
+				"Has Role",
+				filters={"parenttype": "User", "parentfield": "roles", "role": user_access.SYSTEM_MANAGER_ROLE},
+				fields=["parent"],
+			)
+		]
+		frappe.db.delete(
+			"Has Role",
+			{"parenttype": "User", "parentfield": "roles", "role": user_access.SYSTEM_MANAGER_ROLE},
+		)
+		frappe.get_doc(
+			{
+				"doctype": "Has Role",
+				"parent": admin,
+				"parenttype": "User",
+				"parentfield": "roles",
+				"idx": 99,
+				"role": user_access.SYSTEM_MANAGER_ROLE,
+			}
+		).insert(ignore_permissions=True)
+		frappe.clear_cache()
+		frappe.set_user(admin)
+		last_administrator_blocked = False
+		try:
+			admin_doc = frappe.get_doc("User", admin)
+			admin_doc.set("roles", [row for row in admin_doc.roles if row.role != user_access.SYSTEM_MANAGER_ROLE])
+			admin_doc.save(ignore_permissions=True)
+		except frappe.PermissionError:
+			last_administrator_blocked = True
+		if not last_administrator_blocked:
+			raise AssertionError("Foi possível remover o último Administrador do Sistema.")
+
+		audits = frappe.get_all(
+			user_access.AUDIT_DOCTYPE,
+			filters={"affected_user": operator},
+			fields=["name", "change_type", "actor", "before_state", "after_state"],
+		)
+		if not any(row.change_type == "Usuário criado" and row.actor == owner for row in audits):
+			raise AssertionError("Criação de usuário não gerou trilha de auditoria.")
+		audit = frappe.get_doc(user_access.AUDIT_DOCTYPE, audits[0].name)
+		audit_update_blocked = False
+		try:
+			audit.change_type = "Alteração indevida"
+			audit.save(ignore_permissions=True)
+		except frappe.PermissionError:
+			audit_update_blocked = True
+		if not audit_update_blocked:
+			raise AssertionError("Foi possível alterar uma trilha de auditoria de acesso.")
+		audit_delete_blocked = False
+		try:
+			frappe.delete_doc(user_access.AUDIT_DOCTYPE, audit.name, ignore_permissions=True)
+		except frappe.PermissionError:
+			audit_delete_blocked = True
+		if not audit_delete_blocked:
+			raise AssertionError("Foi possível excluir uma trilha de auditoria de acesso.")
+
+		return {
+			"status": "ok",
+			"owner": owner,
+			"multi_role_user": operator,
+			"second_owner_blocked": second_owner_blocked,
+			"owner_edit_blocked": owner_edit_blocked,
+			"owner_delete_blocked": owner_delete_blocked,
+			"director_grant_blocked": director_grant_blocked,
+			"administrator_creation_blocked": administrator_creation_blocked,
+			"last_administrator_blocked": last_administrator_blocked,
+			"self_deactivation_blocked": self_deactivation_blocked,
+			"role_not_possessed_blocked": role_not_possessed_blocked,
+			"audit_recorded": True,
+			"audit_update_blocked": audit_update_blocked,
+			"audit_delete_blocked": audit_delete_blocked,
+		}
+	finally:
+		if administrator_role_parents:
+			frappe.db.delete(
+				"Has Role",
+				{"parenttype": "User", "parentfield": "roles", "role": user_access.SYSTEM_MANAGER_ROLE},
+			)
+			for user in administrator_role_parents:
+				frappe.get_doc(
+					{
+						"doctype": "Has Role",
+						"parent": user,
+						"parenttype": "User",
+						"parentfield": "roles",
+						"idx": 99,
+						"role": user_access.SYSTEM_MANAGER_ROLE,
+					}
+				).insert(ignore_permissions=True)
+			frappe.clear_cache()
+		frappe.set_user(previous_user)
+
+
 def run_workflow_metadata_gate_checks() -> dict:
 	"""Native Desk workflow actions cannot bypass budget decision evidence."""
 	from frappe.model.workflow import apply_workflow
@@ -3466,6 +3690,9 @@ def _find_or_create_user(role: str) -> str:
 
 
 def _find_or_create_multi_role_user() -> str:
+	from tecponto_app.tecponto import user_access
+
+	previous_user = frappe.session.user
 	email = "front-multipapel@tecponto.local"
 	if frappe.db.exists("User", email):
 		user = frappe.get_doc("User", email)
@@ -3492,18 +3719,25 @@ def _find_or_create_multi_role_user() -> str:
 				"role": frontend_role,
 			},
 		)
-	user.reload()
-	assigned_roles = {entry.role for entry in user.roles}
-	for role in ("Tecponto Atendente", "Tecponto Gestor"):
-		if role not in assigned_roles:
-			user.append("roles", {"role": role})
-	user.save(ignore_permissions=True)
-	frappe.db.commit()
-	return user.name
+	try:
+		frappe.set_user(user_access.get_owner_user())
+		user.reload()
+		assigned_roles = {entry.role for entry in user.roles}
+		for role in ("Tecponto Atendente", "Tecponto Gestor"):
+			if role not in assigned_roles:
+				user.append("roles", {"role": role})
+		user.save(ignore_permissions=True)
+		frappe.db.commit()
+		return user.name
+	finally:
+		frappe.set_user(previous_user)
 
 
 def _find_or_create_attendant_technician_user() -> str:
 	"""A real multi-role account used to prove the backend keeps the role union."""
+	from tecponto_app.tecponto import user_access
+
+	previous_user = frappe.session.user
 	email = "front-atendente-tecnico@tecponto.local"
 	if frappe.db.exists("User", email):
 		user = frappe.get_doc("User", email)
@@ -3531,11 +3765,17 @@ def _find_or_create_attendant_technician_user() -> str:
 			},
 		)
 	user.reload()
-	for role in ("Tecponto Atendente", "Tecponto Tecnico"):
-		user.append("roles", {"role": role})
-	user.save(ignore_permissions=True)
-	frappe.db.commit()
-	return user.name
+	try:
+		# Fixture setup uses the protected owner path too; a transient technician
+		# session must not bypass the rule that a person only grants roles it has.
+		frappe.set_user(user_access.get_owner_user())
+		for role in ("Tecponto Atendente", "Tecponto Tecnico"):
+			user.append("roles", {"role": role})
+		user.save(ignore_permissions=True)
+		frappe.db.commit()
+		return user.name
+	finally:
+		frappe.set_user(previous_user)
 
 
 def _get_or_create_demo_customer() -> str:

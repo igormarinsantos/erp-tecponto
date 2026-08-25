@@ -265,6 +265,19 @@ has_permission = {
 # Hook on document methods and events
 
 doc_events = {
+	"User": {
+		"validate": "tecponto_app.tecponto.user_access.validate_user_access",
+		"after_insert": "tecponto_app.tecponto.user_access.audit_user_creation",
+		"on_update": "tecponto_app.tecponto.user_access.audit_user_access_change",
+		"on_trash": "tecponto_app.tecponto.user_access.validate_user_deletion",
+	},
+	"Tecponto Settings": {
+		"validate": "tecponto_app.tecponto.user_access.validate_owner_setting",
+	},
+	"Tecponto Access Audit": {
+		"validate": "tecponto_app.tecponto.user_access.validate_access_audit_immutable",
+		"on_trash": "tecponto_app.tecponto.user_access.prevent_access_audit_deletion",
+	},
 	"Customer": {
 		"validate": "tecponto_app.tecponto.customer.validate_customer_registration",
 	},
@@ -354,6 +367,7 @@ after_migrate = [
 	"tecponto_app.tecponto.payments.ensure_card_receivables_setup",
 	"tecponto_app.tecponto.hr.ensure_hr_foundation",
 	"tecponto_app.tecponto.frontend.setup.ensure_frontend_foundation",
+	"tecponto_app.tecponto.user_access.ensure_access_control",
 	"tecponto_app.tecponto.workflow.ensure_service_order_workflow",
 	"tecponto_app.tecponto.tradein.workflow.ensure_tradein_workflow_states",
 	"tecponto_app.tecponto.tradein.buyback.ensure_serial_batch_for_used_devices",

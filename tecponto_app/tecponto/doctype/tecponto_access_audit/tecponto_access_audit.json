@@ -1,0 +1,24 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:TPAU-{#####}",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["actor", "affected_user", "change_type", "occurred_on", "before_state", "after_state"],
+ "fields": [
+  {"fieldname":"actor","fieldtype":"Link","label":"Alterado por","options":"User","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"affected_user","fieldtype":"Link","label":"Usuário afetado","options":"User","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"change_type","fieldtype":"Data","label":"Tipo de alteração","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"occurred_on","fieldtype":"Datetime","label":"Data e hora","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"before_state","fieldtype":"Long Text","label":"Estado anterior","read_only":1},
+  {"fieldname":"after_state","fieldtype":"Long Text","label":"Estado posterior","read_only":1}
+ ],
+ "module": "Tecponto",
+ "name": "Tecponto Access Audit",
+ "permissions": [
+  {"role":"System Manager","read":1,"report":1,"export":1,"print":1}
+ ],
+ "sort_field": "occurred_on",
+ "sort_order": "DESC",
+ "track_changes": 0
+}
