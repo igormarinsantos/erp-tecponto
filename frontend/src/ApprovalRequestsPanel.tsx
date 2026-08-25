@@ -14,7 +14,7 @@ const REQUEST_TYPE_LABELS: Record<string, string> = {
   "Transferência entre estoques": "Transferência entre estoques",
   "Troca acima da tabela": "Troca acima da tabela",
   "Venda abaixo do custo": "Venda abaixo do custo",
-  billed_service_order_cancel: "Cancelar OS faturada",
+  billed_service_order_cancel: "Cancelar OS faturada e estornar nota",
   courtesy_warranty: "Garantia-cortesia",
   pos_discount: "Desconto no PDV",
   pos_price_floor: "Venda abaixo do piso",

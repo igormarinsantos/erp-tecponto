@@ -2811,7 +2811,7 @@ function OperationsTable({
         referenceName={moveApproval?.name ?? ""}
         requestType={moveApproval?.requestType ?? "service_order_move"}
         title={moveApproval?.requestType === "billed_service_order_cancel"
-          ? "Esta OS já possui nota fiscal. Deseja solicitar ao Gestor o cancelamento faturado?"
+          ? "Esta OS possui nota fiscal vinculada. Ao aprovar, o Gestor cancelará/estornará a nota fiscal e só então concluirá o cancelamento da OS. Deseja solicitar essa ação?"
           : `Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
       />
     </Card>
@@ -3224,7 +3224,7 @@ function ServiceOrderDetail({
         referenceName={detail.name}
         requestType={moveApproval?.requestType ?? "service_order_move"}
         title={moveApproval?.requestType === "billed_service_order_cancel"
-          ? "Esta OS já possui nota fiscal. Deseja solicitar ao Gestor o cancelamento faturado?"
+          ? "Esta OS possui nota fiscal vinculada. Ao aprovar, o Gestor cancelará/estornará a nota fiscal e só então concluirá o cancelamento da OS. Deseja solicitar essa ação?"
           : `Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
       />
     </div>
