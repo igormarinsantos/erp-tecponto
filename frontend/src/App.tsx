@@ -2686,7 +2686,7 @@ function OperationsTable({
         label: "",
         render: (row) => (
           <div className="flex justify-end gap-2">
-            <WorkflowMoveMenu actions={row.workflow_transitions} busy={movingOrder === row.name} onSelect={(action) => void handleQuickMove(row, action)} />
+			<WorkflowMoveMenu actions={row.workflow_transitions} blockedTransitions={row.workflow_blockers} busy={movingOrder === row.name} onSelect={(action) => void handleQuickMove(row, action)} />
             <button className="inline-flex min-h-8 items-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-bold text-tec-text transition hover:border-tec-orange/50 hover:bg-tec-orange/10" onClick={(event) => { event.stopPropagation(); onOpenOrder(row.name); }} title={`Abrir ${row.name}`} type="button">Abrir <ArrowRight size={14} /></button>
           </div>
         ),
@@ -3130,6 +3130,7 @@ function ServiceOrderDetail({
         <aside className="space-y-4">
           <NextActionCard
             actions={detail.workflow_transitions}
+			blockedTransitions={detail.workflow_blockers}
             detail={detail}
             onOpenFlow={setActiveFlow}
             onOpenHistory={() => setHistoryOpen(true)}
@@ -3569,6 +3570,7 @@ function TechnicalServiceOrderDetail({
               <BadgeStatus status={detail.workflow_state} />
               <WorkflowMoveMenu
                 actions={detail.workflow_transitions}
+				blockedTransitions={detail.workflow_blockers}
                 busy={moving}
                 onSelect={(action) => void move(action)}
                 status={detail.workflow_state}
@@ -3878,6 +3880,7 @@ function serviceOrderStepSubtitles(detail: ServiceOrderDetailResponse, activeInd
 
 function NextActionCard({
   actions,
+	blockedTransitions,
   detail,
   onOpenFlow,
   onOpenHistory,
@@ -3887,6 +3890,7 @@ function NextActionCard({
 	onStartNoRepairPickup,
 }: {
   actions: ServiceOrderWorkflowAction[];
+	blockedTransitions: Record<string, string>;
   detail: ServiceOrderDetailResponse;
   onOpenFlow: (flow: "approve" | "reject" | "pickup") => void;
   onOpenHistory: () => void;
@@ -3960,16 +3964,16 @@ function NextActionCard({
         <div className="mt-2 space-y-2">
           {actions.length ? actions.map((workflowAction) => (
             <button
-              className="group flex w-full items-center justify-between gap-3 rounded-control border border-tec-border/15 bg-tec-field/60 px-3 py-2.5 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10"
-              disabled={Boolean(movingTo)}
+				className="group flex w-full items-center justify-between gap-3 rounded-control border border-tec-border/15 bg-tec-field/60 px-3 py-2.5 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-tec-field/60"
+				disabled={Boolean(movingTo) || Boolean(blockedTransitions[workflowAction.next_state])}
               key={`${workflowAction.action}-${workflowAction.next_state}`}
               onClick={() => void handleWorkflowAction(workflowAction)}
-              title={workflowActionTitle(workflowAction)}
+			  title={blockedTransitions[workflowAction.next_state] || workflowActionTitle(workflowAction)}
               type="button"
             >
               <span className="min-w-0">
                 <span className="block text-sm font-bold text-white">{movingTo === workflowAction.next_state ? "Atualizando..." : workflowActionLabel(workflowAction)}</span>
-                <span className="mt-0.5 block text-xs text-tec-muted">{workflowActionDescription(workflowAction)}</span>
+				<span className={cx("mt-0.5 block text-xs", blockedTransitions[workflowAction.next_state] ? "text-tec-amber" : "text-tec-muted")}>{blockedTransitions[workflowAction.next_state] || workflowActionDescription(workflowAction)}</span>
               </span>
               <ArrowRight className="shrink-0 text-tec-orange transition group-hover:translate-x-0.5" size={16} />
             </button>
@@ -4743,7 +4747,7 @@ function WorkflowCard({
         </div>
         <BadgeStatus status={detail.workflow_state} />
       </div>
-      <WorkflowMoveMenu actions={actions} busy={Boolean(movingTo)} className="mt-4" onSelect={(action) => void handleAction(action)} />
+	  <WorkflowMoveMenu actions={actions} blockedTransitions={detail.workflow_blockers} busy={Boolean(movingTo)} className="mt-4" onSelect={(action) => void handleAction(action)} />
       <div className="mt-4 space-y-3">
         {actions.length ? (
           actions.map((action) => (

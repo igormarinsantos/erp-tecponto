@@ -7,6 +7,7 @@ import { cx } from "./ui/utils";
 
 export function WorkflowMoveMenu({
   actions,
+	blockedTransitions = {},
   busy = false,
   className,
   onSelect,
@@ -14,6 +15,7 @@ export function WorkflowMoveMenu({
   variant = "default",
 }: {
   actions: ServiceOrderWorkflowAction[];
+	blockedTransitions?: Record<string, string>;
   busy?: boolean;
   className?: string;
   onSelect: (action: ServiceOrderWorkflowAction) => void;
@@ -55,12 +57,14 @@ export function WorkflowMoveMenu({
         <div className={cx("absolute z-30 mt-2 w-56 rounded-card border border-tec-border/25 bg-tec-panel p-1.5 shadow-xl", variant === "status" ? "left-0" : "right-0")}>
           {actions.map((action) => (
             <button
-              className="flex min-h-10 w-full items-center justify-between gap-3 rounded-control px-3 text-left text-sm font-semibold text-tec-subtle transition hover:bg-tec-field hover:text-white"
+				className="flex min-h-10 w-full items-center justify-between gap-3 rounded-control px-3 text-left text-sm font-semibold text-tec-subtle transition hover:bg-tec-field hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+				disabled={Boolean(blockedTransitions[action.next_state])}
               key={`${action.action}-${action.next_state}-${action.role}`}
               onClick={(event) => { event.stopPropagation(); setOpen(false); onSelect(action); }}
+				title={blockedTransitions[action.next_state]}
               type="button"
             >
-              <span>{action.next_state}</span>
+				<span><span className="block">{action.next_state}</span>{blockedTransitions[action.next_state] ? <span className="mt-0.5 block text-[11px] font-medium text-tec-amber">{blockedTransitions[action.next_state]}</span> : null}</span>
               <MoveRight className="shrink-0 text-tec-orange" size={15} />
             </button>
           ))}

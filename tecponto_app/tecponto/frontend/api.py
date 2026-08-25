@@ -94,6 +94,7 @@ TECHNICIAN_COMMISSION_ROLES = {"System Manager", "Tecponto Tecnico"}
 DIRECTOR_FINANCIAL_ROLES = {"Tecponto Diretor"}
 APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp", "Link"}
 STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
+STATE_EM_DIAGNOSTICO = "Em diagnóstico"
 STATE_APROVADO = "Aprovado"
 STATE_REPROVADO = "Reprovado"
 STATE_PRONTO_RETIRADA = "Pronto para retirada"
@@ -906,6 +907,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		},
 		"workflow_actions": _get_visible_workflow_actions(doc),
 		"workflow_transitions": _get_service_order_transition_options(doc.get("workflow_state")),
+		"workflow_blockers": _get_workflow_blockers(doc),
 		"timeline": _get_service_order_timeline(doc),
 		"print_links": _get_service_order_print_links(doc.name) if not technical_view else [],
 	}
@@ -2581,12 +2583,39 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 		"workflow_state": item.get("workflow_state"),
 		"stage_clock": clock,
 		"workflow_transitions": _get_service_order_transition_options(item.get("workflow_state")),
+		"workflow_blockers": _get_workflow_blockers(item),
 		"next_action": action_for_service_order_state(item.get("workflow_state")),
 		"reported_defect": item.get("reported_defect"),
 		"approval_status": item.get("approval_status"),
 		"approval_deadline": str(item.get("approval_deadline") or ""),
 		"modified": str(item.get("modified") or ""),
 	}
+
+
+def _get_workflow_blockers(order: Any) -> dict[str, str]:
+	"""Expose safe, actionable preflight guidance for workflow controls."""
+	if order.get("workflow_state") != STATE_EM_DIAGNOSTICO:
+		return {}
+
+	name = order.get("name")
+	values = order
+	if not order.get("problem_found") or not order.get("diagnosis_date"):
+		values = frappe.db.get_value(
+			"Service Order",
+			name,
+			["problem_found", "diagnosis_date"],
+			as_dict=True,
+		) or {}
+	diagnosis = (values.get("problem_found") or "").strip()
+	diagnosis_date = values.get("diagnosis_date")
+	if not diagnosis or not diagnosis_date:
+		return {STATE_AGUARDANDO_APROVACAO: "Registre e salve o diagnóstico técnico antes de enviar o orçamento."}
+	if not (
+		frappe.db.count("Service Order Service", {"parent": name})
+		or frappe.db.count("Service Order Part", {"parent": name})
+	):
+		return {STATE_AGUARDANDO_APROVACAO: "Inclua ao menos um serviço ou peça no orçamento antes de enviar ao cliente."}
+	return {}
 
 
 def _serialize_customer(item: dict[str, Any], include_fiscal: bool = True) -> dict[str, Any]:

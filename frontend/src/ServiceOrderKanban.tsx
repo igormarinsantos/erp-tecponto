@@ -480,7 +480,7 @@ function KanbanCard({
       </div>
 
 		<div className="mt-3 flex min-w-0 items-center justify-between gap-2">
-		  <WorkflowMoveMenu actions={item.workflow_transitions} busy={moving} onSelect={(action) => onQuickMove(item, action.next_state)} status={item.workflow_state} variant="status" />
+		  <WorkflowMoveMenu actions={item.workflow_transitions} blockedTransitions={item.workflow_blockers} busy={moving} onSelect={(action) => onQuickMove(item, action.next_state)} status={item.workflow_state} variant="status" />
 		  {item.stage_clock?.is_overdue ? <span className="shrink-0 text-xs font-bold text-red-400">Atrasada</span> : null}
 		</div>
     </article>

@@ -2398,6 +2398,9 @@ def run_workflow_metadata_gate_checks() -> dict:
 			update_modified=False,
 		)
 		frappe.set_user(manager)
+		missing_diagnosis_frontend = get_service_order_detail(submission_order)
+		if "Aguardando aprovação" not in missing_diagnosis_frontend["workflow_blockers"]:
+			raise AssertionError("A interface não recebeu a orientação de diagnóstico pendente.")
 		missing_diagnosis_blocked = False
 		try:
 			apply_workflow(
@@ -2415,6 +2418,9 @@ def run_workflow_metadata_gate_checks() -> dict:
 		submission_doc.set("services", [])
 		submission_doc.set("parts", [])
 		submission_doc.save(ignore_permissions=True)
+		missing_budget_frontend = get_service_order_detail(submission_order)
+		if "Aguardando aprovação" not in missing_budget_frontend["workflow_blockers"]:
+			raise AssertionError("A interface não recebeu a orientação de orçamento pendente.")
 		missing_budget_blocked = False
 		try:
 			apply_workflow(
@@ -2437,6 +2443,8 @@ def run_workflow_metadata_gate_checks() -> dict:
 			},
 		)
 		submission_doc.save(ignore_permissions=True)
+		if get_service_order_detail(submission_order)["workflow_blockers"]:
+			raise AssertionError("A interface manteve uma trava após diagnóstico e orçamento completos.")
 		apply_workflow(
 			frappe.as_json({"doctype": "Service Order", "name": submission_order}),
 			"Aguardando aprovação",
