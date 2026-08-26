@@ -22,6 +22,7 @@ import {
   Star,
   Target,
   Users,
+	WalletCards,
   Wrench,
   Zap,
 } from "lucide-react";
@@ -107,6 +108,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         label: "Venda",
         items: [
           { id: "pos", icon: ShoppingCart, label: "PDV / Lançar venda", subtitle: "Venda rápida no balcão" },
+          { id: "cash-statement", icon: WalletCards, label: "Caixa", subtitle: "Extrato e fechamento" },
           { id: "sales", icon: CreditCard, label: "Vendas", subtitle: "Histórico do balcão" },
           { id: "commercial-products", icon: Boxes, label: "Produtos", subtitle: "Catálogo e variações", children: [
             { id: "commercial-products", icon: Boxes, label: "Catálogo", subtitle: "Estoque comercial" },
@@ -217,6 +219,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         label: "Venda",
         items: [
           { id: "pos", icon: ShoppingCart, label: "PDV / Lançar venda", subtitle: "Venda rápida no balcão" },
+          { id: "cash-statement", icon: WalletCards, label: "Caixa", subtitle: "Extrato e fechamento" },
           { id: "sales", icon: CreditCard, label: "Vendas", subtitle: "Volume e faturamento" },
           { id: "commercial-products", icon: ShoppingCart, label: "Produtos", subtitle: "Prateleira comercial", children: [
             { id: "commercial-products", icon: Boxes, label: "Catálogo", subtitle: "Estoque comercial" },
@@ -276,6 +279,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
 			{ id: "used-devices", icon: Smartphone, label: "Aparelhos usados", subtitle: "Itens únicos de trade-in" },
           { id: "product-categories", icon: Grid2X2, label: "Categorias", subtitle: "Estrutura comercial" },
           { id: "sales", icon: CreditCard, label: "Financeiro", subtitle: "Receitas e fluxo" },
+          { id: "cash-statement", icon: WalletCards, label: "Caixa", subtitle: "Extrato e fechamento" },
         ],
       },
     ],
@@ -330,6 +334,7 @@ const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
   "my-earnings": "Reparo",
   "parts-stock": "Reparo",
   pos: "Venda",
+  "cash-statement": "Venda",
   sales: "Venda",
   "commercial-products": "Venda",
   "product-attributes": "Venda",

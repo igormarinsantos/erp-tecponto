@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 import frappe
@@ -15,6 +17,8 @@ SESSION_CLOSED = "Fechado"
 DIRECTION_IN = "Entrada"
 DIRECTION_OUT = "Saída"
 MOVEMENT_OPENING = "Abertura"
+MOVEMENT_WITHDRAWAL = "Sangria"
+MOVEMENT_SUPPLY = "Suprimento"
 
 
 def get_default_company() -> str:
@@ -210,7 +214,7 @@ def get_cash_session_summary(cash_session: str, *, idempotent_replay: bool = Fal
 	movements = frappe.get_all(
 		CASH_MOVEMENT_DOCTYPE,
 		filters={"cash_session": session.name},
-		fields=["name", "movement_type", "direction", "amount", "payment_mode", "affects_drawer", "occurred_on", "reference_doctype", "reference_name"],
+		fields=["name", "movement_type", "direction", "amount", "payment_mode", "affects_drawer", "occurred_on", "registered_by", "reason", "reference_doctype", "reference_name"],
 		order_by="occurred_on asc, creation asc",
 	)
 	balance = sum(
@@ -227,11 +231,145 @@ def get_cash_session_summary(cash_session: str, *, idempotent_replay: bool = Fal
 		"opened_by": session.opened_by,
 		"opened_at": str(session.opened_at),
 		"opening_amount": flt(session.opening_amount, 2),
+		"closed_by": session.closed_by or None,
+		"closed_at": str(session.closed_at) if session.closed_at else None,
+		"closing_reason": session.closing_reason or None,
+		"closing_expected_drawer": flt(session.closing_expected_drawer, 2),
+		"closing_counted_drawer": flt(session.closing_counted_drawer, 2),
+		"closing_drawer_difference": flt(session.closing_drawer_difference, 2),
 		"drawer_balance": flt(balance, 2),
 		"movement_count": len(movements),
 		"drawer_movement_count": sum(1 for row in movements if row.affects_drawer),
 		"idempotent_replay": bool(idempotent_replay),
 	}
+
+
+def get_cash_statement(*, cash_session: str | None = None) -> dict[str, Any]:
+	"""Return a read-only operational statement; accounting remains in native invoices/payments."""
+	session_name = cash_session or frappe.db.get_value(
+		CASH_SESSION_DOCTYPE,
+		{"company": get_default_company(), "cash_point": DEFAULT_CASH_POINT, "status": SESSION_OPEN},
+		"name",
+	)
+	if not session_name:
+		session_name = frappe.db.get_value(
+			CASH_SESSION_DOCTYPE,
+			{"company": get_default_company(), "cash_point": DEFAULT_CASH_POINT},
+			"name",
+			order_by="opened_at desc",
+		)
+	if not session_name:
+		return {"session": None, "movements": [], "payment_totals": [], "drawer_balance": 0.0}
+
+	summary = get_cash_session_summary(session_name)
+	movements = frappe.get_all(
+		CASH_MOVEMENT_DOCTYPE,
+		filters={"cash_session": session_name},
+		fields=["name", "movement_type", "direction", "amount", "payment_mode", "affects_drawer", "occurred_on", "registered_by", "reason", "reference_doctype", "reference_name"],
+		order_by="occurred_on desc, creation desc",
+	)
+	expected = _expected_totals(movements)
+	return {
+		"session": summary,
+		"drawer_balance": summary["drawer_balance"],
+		"payment_totals": [
+			{"payment_mode": mode, "expected_amount": flt(amount, 2), "affects_drawer": mode == "Dinheiro"}
+			for mode, amount in expected.items()
+		],
+		"movements": [_statement_movement_payload(row) for row in movements],
+	}
+
+
+def close_cash_session(*, counted_amounts: Any, reason: str, idempotency_key: str, closed_by: str | None = None, cash_session: str | None = None) -> dict[str, Any]:
+	"""Close a drawer once, recording counted totals and any explained discrepancy."""
+	key = _validate_idempotency_key(idempotency_key)
+	operator = closed_by or frappe.session.user
+	if not operator or operator == "Guest":
+		frappe.throw(_("Informe um operador autenticado para fechar o caixa."), frappe.PermissionError)
+	counts = _normalize_counted_amounts(counted_amounts)
+	open_session = get_cash_session_summary(cash_session) if cash_session else get_open_cash_session()
+	if open_session and open_session["status"] != SESSION_OPEN:
+		open_session = None
+	if not open_session:
+		existing_name = frappe.db.get_value(CASH_SESSION_DOCTYPE, {"closing_idempotency_key": key}, "name")
+		if existing_name:
+			existing = frappe.get_doc(CASH_SESSION_DOCTYPE, existing_name)
+			if existing.closing_request_hash == _closing_request_hash(counts, reason):
+				return {**get_cash_session_summary(existing.name, idempotent_replay=True), "closing": _closing_payload(existing)}
+		frappe.throw(_("Não existe um caixa aberto para fechar."), frappe.ValidationError)
+	statement = get_cash_statement(cash_session=open_session["session"])
+	expected = {row["payment_mode"]: flt(row["expected_amount"], 2) for row in statement["payment_totals"]}
+	missing = [mode for mode in expected if mode not in counts]
+	if missing:
+		frappe.throw(_("Informe o valor contado para: {0}.").format(", ".join(missing)), frappe.ValidationError)
+	unknown = sorted(set(counts) - set(expected))
+	if unknown:
+		frappe.throw(_("Forma de pagamento sem movimento nesta sessão: {0}.").format(", ".join(unknown)), frappe.ValidationError)
+	request_hash = _closing_request_hash(counts, reason)
+	doc = frappe.get_doc(CASH_SESSION_DOCTYPE, open_session["session"])
+	if doc.status == SESSION_CLOSED:
+		if doc.closing_idempotency_key == key and doc.closing_request_hash == request_hash:
+			return {**get_cash_session_summary(doc.name, idempotent_replay=True), "closing": _closing_payload(doc)}
+		frappe.throw(_("Este caixa já foi fechado."), frappe.ValidationError)
+
+	rows = []
+	for mode, expected_amount in expected.items():
+		counted = counts[mode]
+		difference = flt(counted - expected_amount, 2)
+		rows.append({"payment_mode": mode, "expected_amount": expected_amount, "counted_amount": counted, "difference": difference})
+	if any(row["difference"] for row in rows) and not (reason or "").strip():
+		frappe.throw(_("Informe o motivo da divergência antes de fechar o caixa."), frappe.ValidationError)
+
+	savepoint = f"tp_cash_close_{frappe.generate_hash(length=12)}"
+	frappe.db.savepoint(savepoint)
+	try:
+		doc.status = SESSION_CLOSED
+		doc.closed_by = operator
+		doc.closed_at = now_datetime()
+		doc.closing_reason = (reason or "").strip() or None
+		doc.closing_idempotency_key = key
+		doc.closing_request_hash = request_hash
+		drawer_row = next((row for row in rows if row["payment_mode"] == "Dinheiro"), {"expected_amount": 0, "counted_amount": 0, "difference": 0})
+		doc.closing_expected_drawer = drawer_row["expected_amount"]
+		doc.closing_counted_drawer = drawer_row["counted_amount"]
+		doc.closing_drawer_difference = drawer_row["difference"]
+		doc.set("closing_counts", [])
+		for row in rows:
+			doc.append("closing_counts", row)
+		doc.save(ignore_permissions=True)
+		return {**get_cash_session_summary(doc.name, idempotent_replay=False), "closing": _closing_payload(doc)}
+	except Exception:
+		frappe.db.rollback(save_point=savepoint)
+		raise
+
+
+def record_drawer_adjustment(*, movement_type: str, amount: Any, reason: str, idempotency_key: str, registered_by: str | None = None, cash_session: str | None = None) -> dict[str, Any]:
+	"""Register physical drawer movement with a mandatory reason, never by editing balances."""
+	if movement_type not in {MOVEMENT_WITHDRAWAL, MOVEMENT_SUPPLY}:
+		frappe.throw(_("Use Sangria ou Suprimento para movimentar a gaveta."), frappe.ValidationError)
+	if not (reason or "").strip():
+		frappe.throw(_("Informe o motivo da sangria ou suprimento."), frappe.ValidationError)
+	session = get_cash_session_summary(cash_session) if cash_session else require_open_cash_session()
+	if session["status"] != SESSION_OPEN:
+		frappe.throw(_("O movimento exige um caixa aberto."), frappe.ValidationError)
+	value = flt(amount, 2)
+	if value <= 0:
+		frappe.throw(_("Informe um valor maior que zero."), frappe.ValidationError)
+	if movement_type == MOVEMENT_WITHDRAWAL and value > flt(session["drawer_balance"], 2):
+		frappe.throw(_("A sangria não pode ser maior que o saldo físico derivado da gaveta."), frappe.ValidationError)
+	return record_cash_movement(
+		cash_session=session["session"],
+		movement_type=movement_type,
+		direction=DIRECTION_OUT if movement_type == MOVEMENT_WITHDRAWAL else DIRECTION_IN,
+		amount=value,
+		idempotency_key=idempotency_key,
+		registered_by=registered_by or frappe.session.user,
+		payment_mode="Dinheiro",
+		affects_drawer=True,
+		reference_doctype=CASH_SESSION_DOCTYPE,
+		reference_name=session["session"],
+		reason=(reason or "").strip(),
+	)
 
 
 def _movement_payload(movement, *, idempotent_replay: bool) -> dict[str, Any]:
@@ -243,6 +381,64 @@ def _movement_payload(movement, *, idempotent_replay: bool) -> dict[str, Any]:
 		"amount": flt(movement.amount, 2),
 		"affects_drawer": bool(movement.affects_drawer),
 		"idempotent_replay": bool(idempotent_replay),
+	}
+
+
+def _expected_totals(movements: list[Any]) -> dict[str, float]:
+	totals: dict[str, float] = {"Dinheiro": 0.0}
+	for row in movements:
+		mode = row.payment_mode or "Dinheiro"
+		totals.setdefault(mode, 0.0)
+		totals[mode] += flt(row.amount) if row.direction == DIRECTION_IN else -flt(row.amount)
+	return {mode: flt(amount, 2) for mode, amount in totals.items()}
+
+
+def _normalize_counted_amounts(value: Any) -> dict[str, float]:
+	if isinstance(value, str):
+		try:
+			value = json.loads(value)
+		except ValueError:
+			frappe.throw(_("Conferência de fechamento inválida."), frappe.ValidationError)
+	if not isinstance(value, dict):
+		frappe.throw(_("Informe os valores contados por forma de pagamento."), frappe.ValidationError)
+	return {str(mode).strip(): flt(amount, 2) for mode, amount in value.items() if str(mode).strip()}
+
+
+def _closing_request_hash(counts: dict[str, float], reason: str) -> str:
+	payload = {"counts": {mode: counts[mode] for mode in sorted(counts)}, "reason": (reason or "").strip()}
+	return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _closing_payload(session) -> dict[str, Any]:
+	return {
+		"closed_by": session.closed_by,
+		"closed_at": str(session.closed_at) if session.closed_at else None,
+		"reason": session.closing_reason or None,
+		"counts": [
+			{
+				"payment_mode": row.payment_mode,
+				"expected_amount": flt(row.expected_amount, 2),
+				"counted_amount": flt(row.counted_amount, 2),
+				"difference": flt(row.difference, 2),
+			}
+			for row in session.get("closing_counts")
+		],
+	}
+
+
+def _statement_movement_payload(row) -> dict[str, Any]:
+	return {
+		"movement": row.name,
+		"movement_type": row.movement_type,
+		"direction": row.direction,
+		"amount": flt(row.amount, 2),
+		"payment_mode": row.payment_mode or "Dinheiro",
+		"affects_drawer": bool(row.affects_drawer),
+		"occurred_on": str(row.occurred_on),
+		"registered_by": row.registered_by,
+		"reason": row.reason or None,
+		"reference_doctype": row.reference_doctype or None,
+		"reference_name": row.reference_name or None,
 	}
 
 

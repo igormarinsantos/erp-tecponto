@@ -37,8 +37,11 @@ from tecponto_app.tecponto.operation_config import get_operation_config
 from tecponto_app.tecponto import user_access
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_DOCTYPE, POS_OPERATOR_ROLES
 from tecponto_app.tecponto.cash import (
+	close_cash_session,
+	get_cash_statement,
 	get_open_cash_session,
 	open_cash_session,
+	record_drawer_adjustment,
 	record_sales_invoice_cash_movements,
 	require_open_cash_session,
 )
@@ -268,6 +271,40 @@ def open_store_cash_session(opening_amount: float = 0, idempotency_key: str = ""
 def get_store_cash_session() -> dict[str, Any]:
 	_require_pos_role()
 	return {"session": get_open_cash_session()}
+
+
+@frappe.whitelist()
+def get_store_cash_statement(cash_session: str = "") -> dict[str, Any]:
+	_require_pos_role()
+	return get_cash_statement(cash_session=cash_session or None)
+
+
+@frappe.whitelist()
+def register_store_drawer_movement(
+	movement_type: str = "",
+	amount: float = 0,
+	reason: str = "",
+	idempotency_key: str = "",
+) -> dict[str, Any]:
+	_require_pos_role()
+	return record_drawer_adjustment(
+		movement_type=movement_type,
+		amount=amount,
+		reason=reason,
+		idempotency_key=idempotency_key,
+		registered_by=frappe.session.user,
+	)
+
+
+@frappe.whitelist()
+def close_store_cash_session(counted_amounts: Any = None, reason: str = "", idempotency_key: str = "") -> dict[str, Any]:
+	_require_pos_role()
+	return close_cash_session(
+		counted_amounts=counted_amounts or {},
+		reason=reason,
+		idempotency_key=idempotency_key,
+		closed_by=frappe.session.user,
+	)
 
 
 def _require_post_sale_role() -> None:

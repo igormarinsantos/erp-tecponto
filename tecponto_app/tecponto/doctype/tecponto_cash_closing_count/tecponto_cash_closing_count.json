@@ -1,0 +1,16 @@
+{
+ "actions": [],
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": ["payment_mode", "expected_amount", "counted_amount", "difference"],
+ "fields": [
+  {"fieldname":"payment_mode","fieldtype":"Data","label":"Forma de pagamento","in_list_view":1,"read_only":1,"reqd":1},
+  {"fieldname":"expected_amount","fieldtype":"Currency","label":"Esperado","in_list_view":1,"read_only":1,"reqd":1},
+  {"fieldname":"counted_amount","fieldtype":"Currency","label":"Contado","in_list_view":1,"read_only":1,"reqd":1},
+  {"fieldname":"difference","fieldtype":"Currency","label":"Diferença","in_list_view":1,"read_only":1,"reqd":1}
+ ],
+ "istable": 1,
+ "module": "Tecponto",
+ "name": "Tecponto Cash Closing Count"
+}

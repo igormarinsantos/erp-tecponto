@@ -32,6 +32,8 @@ export type {
 	WarrantyCandidateResponse,
 	CashierOperatorIdentity,
 	CashSessionSummary,
+	CashStatementResponse,
+	CashClosingResponse,
 	CreateCustomerPayload,
 	CreateCustomerResponse,
   CreateCustomerDevicePayload,

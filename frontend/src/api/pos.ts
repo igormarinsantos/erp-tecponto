@@ -2,6 +2,8 @@ import { rpc } from "./client";
 import type {
 	CashierOperatorIdentity,
 	CashSessionSummary,
+	CashStatementResponse,
+	CashClosingResponse,
   PosBarcodeLabelResponse,
   PosItemSearchResponse,
   PosSalePayload,
@@ -30,6 +32,19 @@ export const pos = {
 	openCashSession(openingAmount: number, idempotencyKey: string) {
 		return rpc<CashSessionSummary>(`${API}.open_store_cash_session`, {
 			body: { opening_amount: openingAmount, idempotency_key: idempotencyKey },
+		});
+	},
+	getCashStatement(cashSession = "") {
+		return rpc<CashStatementResponse>(`${API}.get_store_cash_statement`, { query: cashSession ? { cash_session: cashSession } : undefined });
+	},
+	registerDrawerMovement(movementType: "Sangria" | "Suprimento", amount: number, reason: string, idempotencyKey: string) {
+		return rpc(`${API}.register_store_drawer_movement`, {
+			body: { movement_type: movementType, amount, reason, idempotency_key: idempotencyKey },
+		});
+	},
+	closeCashSession(countedAmounts: Record<string, number>, reason: string, idempotencyKey: string) {
+		return rpc<CashClosingResponse>(`${API}.close_store_cash_session`, {
+			body: { counted_amounts: countedAmounts, reason, idempotency_key: idempotencyKey },
 		});
 	},
   barcodeLabelUrl(itemCode: string) {

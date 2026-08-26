@@ -4,7 +4,7 @@
  "autoname": "naming_series:",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": ["naming_series", "company", "cash_point", "business_date", "session_key", "status", "opened_by", "opened_at", "opening_amount", "opening_idempotency_key", "closed_by", "closed_at"],
+ "field_order": ["naming_series", "company", "cash_point", "business_date", "session_key", "status", "opened_by", "opened_at", "opening_amount", "opening_idempotency_key", "closed_by", "closed_at", "closing_expected_drawer", "closing_counted_drawer", "closing_drawer_difference", "closing_reason", "closing_idempotency_key", "closing_request_hash", "closing_counts"],
  "fields": [
   {"fieldname":"naming_series","fieldtype":"Select","label":"Série","options":"TPCX-.YYYY.-.#####","default":"TPCX-.YYYY.-.#####","reqd":1,"read_only":1},
   {"fieldname":"company","fieldtype":"Link","label":"Empresa","options":"Company","reqd":1,"read_only":1,"in_list_view":1},
@@ -17,7 +17,14 @@
   {"fieldname":"opening_amount","fieldtype":"Currency","label":"Valor inicial","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"opening_idempotency_key","fieldtype":"Data","label":"Referência idempotente de abertura","reqd":1,"read_only":1,"unique":1},
   {"fieldname":"closed_by","fieldtype":"Link","label":"Fechado por","options":"User","read_only":1},
-  {"fieldname":"closed_at","fieldtype":"Datetime","label":"Fechado em","read_only":1}
+  {"fieldname":"closed_at","fieldtype":"Datetime","label":"Fechado em","read_only":1},
+  {"fieldname":"closing_expected_drawer","fieldtype":"Currency","label":"Gaveta esperada no fechamento","read_only":1},
+  {"fieldname":"closing_counted_drawer","fieldtype":"Currency","label":"Gaveta contada no fechamento","read_only":1},
+  {"fieldname":"closing_drawer_difference","fieldtype":"Currency","label":"Diferença de gaveta","read_only":1},
+  {"fieldname":"closing_reason","fieldtype":"Small Text","label":"Motivo da divergência","read_only":1},
+  {"fieldname":"closing_idempotency_key","fieldtype":"Data","label":"Referência idempotente de fechamento","read_only":1,"unique":1},
+  {"fieldname":"closing_request_hash","fieldtype":"Data","label":"Hash do fechamento","read_only":1},
+  {"fieldname":"closing_counts","fieldtype":"Table","label":"Conferência por forma","options":"Tecponto Cash Closing Count","read_only":1}
  ],
  "module": "Tecponto",
  "name": "Tecponto Cash Session",

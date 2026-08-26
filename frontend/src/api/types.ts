@@ -18,6 +18,7 @@ export type NavigationTarget =
   | "product-categories"
   | "used-devices"
   | "pos"
+  | "cash-statement"
   | "sales"
   | "approval-requests"
   | "notifications"
@@ -614,6 +615,55 @@ export interface CashSessionSummary {
 	opening_amount: number;
 	session: string;
 	status: "Aberto" | "Fechado";
+	closed_at?: string | null;
+	closed_by?: string | null;
+	closing_counted_drawer?: number;
+	closing_drawer_difference?: number;
+	closing_expected_drawer?: number;
+	closing_reason?: string | null;
+}
+
+export interface CashPaymentTotal {
+  payment_mode: string;
+  expected_amount: number;
+  affects_drawer: boolean;
+}
+
+export interface CashStatementMovement {
+  movement: string;
+  movement_type: string;
+  direction: "Entrada" | "Saída";
+  amount: number;
+  payment_mode: string;
+  affects_drawer: boolean;
+  occurred_on: string;
+  registered_by: string;
+  reason: string | null;
+  reference_doctype: string | null;
+  reference_name: string | null;
+}
+
+export interface CashStatementResponse {
+  session: CashSessionSummary | null;
+  drawer_balance: number;
+  payment_totals: CashPaymentTotal[];
+  movements: CashStatementMovement[];
+}
+
+export interface CashClosingCount {
+  payment_mode: string;
+  expected_amount: number;
+  counted_amount: number;
+  difference: number;
+}
+
+export interface CashClosingResponse extends CashSessionSummary {
+  closing: {
+    closed_by: string | null;
+    closed_at: string | null;
+    reason: string | null;
+    counts: CashClosingCount[];
+  };
 }
 
 export interface CashierOperatorIdentity {

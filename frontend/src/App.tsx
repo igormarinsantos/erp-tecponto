@@ -114,6 +114,7 @@ import { NotificationHistoryScreen } from "./NotificationHistoryScreen";
 import { MyEarningsScreen } from "./MyEarningsScreen";
 import { PartRequestModal, PartRequestsScreen } from "./PartRequestsScreen";
 import { UserManagementScreen } from "./UserManagementScreen";
+import { CashStatementScreen } from "./CashStatementScreen";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition, type OperationPillars } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
@@ -393,6 +394,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   pos: {
     title: "PDV do balcão",
     subtitle: "Venda rápida por código de barras ou busca de produto.",
+  },
+  "cash-statement": {
+    title: "Caixa e extrato",
+    subtitle: "Conferência da gaveta, movimentos e fechamento diário.",
   },
   sales: {
     title: "Vendas e acessórios",
@@ -2488,6 +2493,10 @@ function NavigationContent({
 
   if (activeView === "part-requests") {
     return <PartRequestsScreen onOpenServiceOrder={onOpenServiceOrder} onToast={onToast} />;
+  }
+
+  if (activeView === "cash-statement") {
+    return <CashStatementScreen onToast={onToast} />;
   }
 
   if (activeView === "customers") {

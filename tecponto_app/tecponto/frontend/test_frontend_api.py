@@ -35,6 +35,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_technician_workload,
 	get_boot,
 	get_store_cash_session,
+	get_store_cash_statement,
 	get_list_statbar,
 	get_service_order_statbar,
 	get_service_order_detail,
@@ -153,10 +154,14 @@ from tecponto_app.tecponto.pos import (
 from tecponto_app.tecponto import notify
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD
 from tecponto_app.tecponto.cash import (
+	CASH_SESSION_DOCTYPE,
 	CASH_MOVEMENT_DOCTYPE,
+	close_cash_session,
+	get_cash_statement,
 	get_open_cash_session,
 	get_cash_session_summary,
 	open_cash_session,
+	record_drawer_adjustment,
 	record_cash_movement,
 )
 from tecponto_app.tecponto.pending import complete_manual_task, create_manual_task, list_agenda_calendar, list_daily_actions
@@ -248,6 +253,7 @@ def run_foundation_checks() -> dict:
 		operation_config_check = run_operation_config_checks()
 		cash_session_check = run_cash_session_checks()
 		pos_cash_integration_check = run_pos_cash_integration_checks()
+		cash_closing_check = run_cash_closing_checks()
 		technician_part_request_check = run_technician_part_request_checks()
 		part_purchase_cycle_check = run_part_purchase_cycle_checks()
 		part_receipt_check = run_part_receipt_reservation_checks()
@@ -314,6 +320,7 @@ def run_foundation_checks() -> dict:
 			"operation_config": operation_config_check,
 			"cash_session": cash_session_check,
 			"pos_cash_integration": pos_cash_integration_check,
+			"cash_closing": cash_closing_check,
 			"technician_part_requests": technician_part_request_check,
 			"part_purchase_cycle": part_purchase_cycle_check,
 			"part_receipt_reservation": part_receipt_check,
@@ -5330,6 +5337,91 @@ def run_pos_cash_integration_checks() -> dict:
 			"return_replay": True,
 			"atomic_rollback": True,
 			"closed_cash_blocked": closed_cash_blocked,
+			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_cash_closing_checks() -> dict:
+	"""Prove closing counts, explained discrepancies, drawer adjustments and a cost-safe statement."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		frappe.set_user(attendant)
+
+		matched = open_cash_session(
+			opening_amount=100,
+			idempotency_key=f"tp-close-match-{frappe.generate_hash(length=18)}",
+			opened_by=attendant,
+			cash_point=f"Fechamento 4.3 {frappe.generate_hash(length=9)}",
+		)
+		record_drawer_adjustment(
+			movement_type="Suprimento", amount=30, reason="Troco adicional", idempotency_key=f"tp-supply-{frappe.generate_hash(length=18)}", registered_by=attendant, cash_session=matched["session"],
+		)
+		record_drawer_adjustment(
+			movement_type="Sangria", amount=20, reason="Retirada para cofre", idempotency_key=f"tp-withdraw-{frappe.generate_hash(length=18)}", registered_by=attendant, cash_session=matched["session"],
+		)
+		record_cash_movement(
+			cash_session=matched["session"], movement_type="Recebimento de venda", direction="Entrada", amount=40, payment_mode="Pix", affects_drawer=False,
+			idempotency_key=f"tp-close-pix-{frappe.generate_hash(length=18)}", registered_by=attendant, reference_doctype=CASH_SESSION_DOCTYPE, reference_name=matched["session"],
+		)
+		record_cash_movement(
+			cash_session=matched["session"], movement_type="Recebimento de venda", direction="Entrada", amount=60, payment_mode="Crédito à vista", affects_drawer=False,
+			idempotency_key=f"tp-close-card-{frappe.generate_hash(length=18)}", registered_by=attendant, reference_doctype=CASH_SESSION_DOCTYPE, reference_name=matched["session"],
+		)
+		statement = get_cash_statement(cash_session=matched["session"])
+		expected = {row["payment_mode"]: row["expected_amount"] for row in statement["payment_totals"]}
+		if expected != {"Dinheiro": 110.0, "Pix": 40.0, "Crédito à vista": 60.0} or statement["drawer_balance"] != 110.0:
+			raise AssertionError("Extrato não derivou gaveta, Pix e cartão dos movimentos imutáveis.")
+		if not any(row["movement_type"] == "Sangria" and row["reason"] == "Retirada para cofre" for row in statement["movements"]):
+			raise AssertionError("Sangria não apareceu no extrato com motivo auditável.")
+		closing = close_cash_session(
+			counted_amounts=expected, reason="", idempotency_key=f"tp-close-clean-{frappe.generate_hash(length=18)}", closed_by=attendant, cash_session=matched["session"],
+		)
+		if closing["status"] != "Fechado" or any(row["difference"] for row in closing["closing"]["counts"]):
+			raise AssertionError("Fechamento que bate não foi registrado limpo.")
+
+		divergent = open_cash_session(
+			opening_amount=75,
+			idempotency_key=f"tp-close-diff-{frappe.generate_hash(length=18)}",
+			opened_by=attendant,
+			cash_point=f"Divergência 4.3 {frappe.generate_hash(length=9)}",
+		)
+		without_reason_blocked = False
+		try:
+			close_cash_session(counted_amounts={"Dinheiro": 70}, reason="", idempotency_key=f"tp-close-no-reason-{frappe.generate_hash(length=18)}", closed_by=attendant, cash_session=divergent["session"])
+		except frappe.ValidationError:
+			without_reason_blocked = True
+		if not without_reason_blocked:
+			raise AssertionError("Fechamento com divergência foi aceito sem motivo.")
+		divergence = close_cash_session(
+			counted_amounts={"Dinheiro": 70}, reason="Falta apurada na conferência", idempotency_key=f"tp-close-with-reason-{frappe.generate_hash(length=18)}", closed_by=attendant, cash_session=divergent["session"],
+		)
+		if divergence["status"] != "Fechado" or divergence["closing"]["reason"] != "Falta apurada na conferência" or divergence["closing"]["counts"][0]["difference"] != -5.0:
+			raise AssertionError("Divergência com motivo não foi fechada e auditada como esperado.")
+
+		frappe.set_user(technician)
+		technician_blocked = False
+		try:
+			get_store_cash_statement()
+		except frappe.PermissionError:
+			technician_blocked = True
+		if not technician_blocked:
+			raise AssertionError("Técnico conseguiu acessar o extrato do caixa.")
+
+		leaks = contains_sensitive_field(statement, forbidden_values={BUDGET_COST_GUARD_VALUATION})
+		if leaks:
+			raise AssertionError(f"Extrato de caixa vazou custo ou margem: {', '.join(leaks)}")
+		return {
+			"status": "ok",
+			"clean_closing": matched["session"],
+			"divergence_closing": divergent["session"],
+			"supply_and_withdrawal": True,
+			"technician_blocked": technician_blocked,
 			"leaked_fields": leaks,
 		}
 	finally:
