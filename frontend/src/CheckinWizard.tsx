@@ -1562,6 +1562,7 @@ function ServiceDataStep({
 }) {
   const isFullyOperational = serviceOrder.entry_operating_condition === "Liga e permite teste";
   const isPartiallyOperational = serviceOrder.entry_operating_condition === "Liga parcialmente";
+  const normalizedDefect = serviceOrder.reported_defect.trim().toLocaleLowerCase("pt-BR").replace(/\s+/g, " ");
   const toggle = (key: keyof Omit<ServiceSelections, "observations">, value: string) => {
     setSelections((current) => {
       const exists = current[key].includes(value);
@@ -1584,17 +1585,20 @@ function ServiceDataStep({
             <div className="grid gap-2 lg:grid-cols-2">
               {warrantyCandidates.map((candidate) => {
                 const active = originalServiceOrder === candidate.name;
+                const sameDefect = Boolean(normalizedDefect) && (candidate.reported_defect || "").trim().toLocaleLowerCase("pt-BR").replace(/\s+/g, " ") === normalizedDefect;
                 return (
                   <button
                     className={`rounded-control border p-3 text-left transition ${
-                      active ? "border-tec-orange bg-tec-orange/10" : "border-tec-border/20 bg-tec-field hover:border-tec-orange/55"
+                      active ? "border-tec-orange bg-tec-orange/10" : sameDefect ? "border-tec-border/20 bg-tec-field hover:border-tec-orange/55" : "cursor-not-allowed border-tec-border/15 bg-tec-field/45 opacity-65"
                     }`}
+                    disabled={!sameDefect && !active}
                     key={candidate.name}
                     onClick={() => setOriginalServiceOrder(active ? "" : candidate.name)}
                     type="button"
                   >
                     <span className="block text-sm font-bold text-white">Garantia da {candidate.name}</span>
                     <span className="mt-1 block line-clamp-2 text-xs text-tec-muted">{candidate.reported_defect || "Reparo anterior entregue"}</span>
+                    {!sameDefect ? <span className="mt-1 block text-xs text-tec-amber">Disponível apenas para o mesmo defeito informado.</span> : null}
                     <span className="mt-2 block text-xs font-semibold text-tec-success">Garantia at{"\u00e9"} {formatShortDate(candidate.warranty_expiry)}</span>
                   </button>
                 );

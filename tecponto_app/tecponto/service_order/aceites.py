@@ -1,6 +1,8 @@
 import frappe
 from frappe.utils import add_days, now, nowdate
 
+from tecponto_app.tecponto.operation_config import get_operation_config
+
 
 STATE_ENTRADA_CRIADA = "Entrada criada"
 STATE_ENTREGUE = "Entregue"
@@ -124,6 +126,9 @@ def _validate_delivery_acceptance(doc) -> None:
 	if doc.get("workflow_state") != STATE_ENTREGUE:
 		return
 
+	previous = doc.get_doc_before_save() if not doc.is_new() else None
+	is_delivery_transition = not previous or previous.get("workflow_state") != STATE_ENTREGUE
+
 	if not doc.get("is_warranty") and (doc.get("sales_invoice") or not doc.get("pickup_without_repair")):
 		_exigir_nota_paga(doc)
 
@@ -138,8 +143,24 @@ def _validate_delivery_acceptance(doc) -> None:
 		required=bool(doc.get("link_acceptance_required")),
 	)
 
-	if doc.meta.has_field("warranty_expiry") and not doc.get("warranty_expiry"):
-		doc.warranty_expiry = add_days(nowdate(), 90)
+	# Delivery is the legal and operational start of a normal warranty. The
+	# resulting dates are written once, so later settings changes cannot rewrite
+	# a warranty already granted.
+	if not is_delivery_transition:
+		return
+
+	if doc.meta.has_field("pickup_date"):
+		doc.pickup_date = nowdate()
+
+	if not doc.meta.has_field("warranty_expiry"):
+		return
+
+	if doc.get("is_warranty"):
+		if not doc.get("warranty_expiry"):
+			frappe.throw("Retrabalho em garantia exige a validade registrada da OS original.")
+		return
+
+	doc.warranty_expiry = add_days(doc.pickup_date, get_operation_config()["default_warranty_days"])
 
 
 def _exigir_nota_paga(doc) -> None:

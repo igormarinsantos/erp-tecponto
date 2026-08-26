@@ -268,6 +268,7 @@ def run_foundation_checks() -> dict:
 		tradein_frontend_check = run_tradein_frontend_checks()
 		post_sale_checks = run_post_sale_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
+		warranty_delivery_check = run_warranty_delivery_checks()
 		budget_presentation_check = run_budget_presentation_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
@@ -333,6 +334,7 @@ def run_foundation_checks() -> dict:
 			"tradein_frontend": tradein_frontend_check,
 			"post_sale": post_sale_checks,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
+			"warranty_delivery": warranty_delivery_check,
 			"budget_presentation": budget_presentation_check,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
@@ -1257,6 +1259,179 @@ def run_warranty_mode_checks() -> dict:
 		if created_catalog_service and frappe.db.exists("Tecponto Service", created_catalog_service):
 			frappe.delete_doc("Tecponto Service", created_catalog_service, ignore_permissions=True, force=True)
 		frappe.set_user(previous_user)
+
+
+def run_warranty_delivery_checks() -> dict:
+	"""Prove warranty starts on delivery and a rework cannot extend it."""
+	previous_user = frappe.session.user
+	settings = frappe.get_single("Tecponto Settings")
+	previous_days = settings.get("default_warranty_days")
+	created_catalog_service = None
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		frappe.db.set_single_value("Tecponto Settings", "default_warranty_days", 90)
+
+		original_name = _create_action_request_service_order(attendant)
+		original = frappe.get_doc("Service Order", original_name)
+		frappe.db.set_value(
+			"Customer",
+			original.customer,
+			{"mobile_no": "11999998888", "custom_whatsapp": "11999998888", "custom_cpf": "12345678909"},
+			update_modified=False,
+		)
+		frappe.db.set_value("Service Order", original.name, "entry_date", add_days(nowdate(), -7), update_modified=False)
+		original.reload()
+		_deliver_warranty_test_order(original)
+		original.db_set(
+			{"workflow_state": "Entregue", "pickup_date": original.pickup_date, "warranty_expiry": original.warranty_expiry},
+			update_modified=False,
+		)
+
+		expected_original_expiry = add_days(nowdate(), 90)
+		if str(original.pickup_date) != nowdate() or str(original.warranty_expiry) != expected_original_expiry:
+			raise AssertionError("Garantia normal não foi calculada a partir da data de entrega configurada.")
+		if str(original.warranty_expiry) == str(add_days(original.entry_date, 90)):
+			raise AssertionError("Garantia foi calculada a partir da criação, e não da entrega.")
+
+		frappe.set_user(manager)
+		catalog_references = list_catalog_references()
+		created_catalog_service = save_catalog_service(
+			{
+				"service_name": f"Garantia entrega {frappe.generate_hash(length=7).upper()}",
+				"device_type": catalog_references["device_types"][0]["name"],
+				"category": catalog_references["categories"][0]["name"],
+				"default_labor_price": 199.9,
+				"default_duration": 2,
+				"duration_unit": "Horas",
+				"active": True,
+			}
+		)["item"]["name"]
+
+		photo = BytesIO()
+		Image.new("RGB", (24, 24), color=(20, 40, 60)).save(photo, format="JPEG")
+		photo_data = "data:image/jpeg;base64," + b64encode(photo.getvalue()).decode()
+		frappe.set_user(attendant)
+		warranty = create_service_order_checkin(
+			{
+				"customer": {"existing_name": original.customer},
+				"device": {"existing_name": original.customer_device},
+				"service_order": {
+					"reported_defect": original.reported_defect,
+					"physical_state": "Sem danos adicionais aparentes.",
+					"is_warranty": 1,
+					"original_service_order": original.name,
+				},
+				"entry_photo": {"data_url": photo_data, "filename": "warranty-delivery-entry.jpg"},
+			}
+		)
+		warranty_doc = frappe.get_doc("Service Order", warranty["service_order"]["name"])
+		if str(warranty_doc.warranty_expiry) != expected_original_expiry:
+			raise AssertionError("Retrabalho não herdou a validade imutável da OS original.")
+		_deliver_warranty_test_order(warranty_doc)
+		if str(warranty_doc.warranty_expiry) != expected_original_expiry:
+			raise AssertionError("A entrega do retrabalho reiniciou a garantia original.")
+
+		with_service = add_catalog_service_to_service_order(
+			warranty_doc.name,
+			created_catalog_service,
+			{"qty": 1, "rate": 199.9, "duration": 2, "duration_unit": "Horas"},
+		)
+		if with_service["services"][-1].get("unit_price") != 0:
+			raise AssertionError("Retrabalho em garantia cobrou mão de obra.")
+		customer_part = add_service_order_budget_line(
+			warranty_doc.name,
+			{
+				"type": "part",
+				"part_source": "Cliente",
+				"description": "Peça trazida pelo cliente",
+				"customer_part_note": "Cliente forneceu a peça para o retrabalho.",
+				"qty": 1,
+				"rate": 999,
+			},
+		)
+		customer_part_row = customer_part["parts"][-1]
+		if customer_part_row.get("part_source") != "Cliente" or customer_part_row.get("unit_price") != 0:
+			raise AssertionError("Peça do cliente foi cobrada ou tratada como peça da loja na garantia.")
+		if not frappe.db.get_value("Service Order", warranty_doc.name, "customer_supplied_part_term_required"):
+			raise AssertionError("Peça do cliente não exigiu o termo que exclui cobertura da peça fornecida.")
+
+		different_defect_blocked = False
+		try:
+			create_service_order_checkin(
+				{
+					"customer": {"existing_name": original.customer},
+					"device": {"existing_name": original.customer_device},
+					"service_order": {
+						"reported_defect": "Defeito diferente, fora da garantia.",
+						"physical_state": "Sem danos adicionais aparentes.",
+						"is_warranty": 1,
+						"original_service_order": original.name,
+					},
+					"entry_photo": {"data_url": photo_data, "filename": "different-defect.jpg"},
+				}
+			)
+		except frappe.ValidationError:
+			different_defect_blocked = True
+		if not different_defect_blocked:
+			raise AssertionError("Defeito diferente foi aceito indevidamente como retrabalho em garantia.")
+
+		normal_order = create_service_order_checkin(
+			{
+				"customer": {"existing_name": original.customer},
+				"device": {"existing_name": original.customer_device},
+				"service_order": {"reported_defect": "Defeito diferente, fora da garantia.", "physical_state": "Sem danos adicionais aparentes."},
+				"entry_photo": {"data_url": photo_data, "filename": "normal-different-defect.jpg"},
+			}
+		)
+		normal_quote = add_catalog_service_to_service_order(
+			normal_order["service_order"]["name"],
+			created_catalog_service,
+			{"qty": 1, "rate": 199.9, "duration": 2, "duration_unit": "Horas"},
+		)
+		if normal_quote["services"][-1].get("unit_price") != 199.9:
+			raise AssertionError("Defeito diferente não abriu OS normal com cobrança regular.")
+
+		frappe.db.set_single_value("Tecponto Settings", "default_warranty_days", 30)
+		if str(frappe.db.get_value("Service Order", original.name, "warranty_expiry")) != expected_original_expiry:
+			raise AssertionError("Alterar a configuração reescreveu a garantia de uma OS já entregue.")
+		second_name = _create_action_request_service_order(attendant)
+		second = frappe.get_doc("Service Order", second_name)
+		frappe.db.set_value("Service Order", second.name, "entry_date", add_days(nowdate(), -3), update_modified=False)
+		second.reload()
+		_deliver_warranty_test_order(second)
+		if str(second.warranty_expiry) != add_days(nowdate(), 30):
+			raise AssertionError("Nova OS não respeitou o prazo de garantia configurável.")
+
+		return {
+			"status": "ok",
+			"pickup_date": str(original.pickup_date),
+			"original_warranty_expiry": expected_original_expiry,
+			"rework_inherits_original_expiry": True,
+			"different_defect_blocked": different_defect_blocked,
+			"customer_part_excluded_from_warranty": True,
+			"new_configured_warranty_expiry": str(second.warranty_expiry),
+		}
+	finally:
+		frappe.db.set_single_value("Tecponto Settings", "default_warranty_days", previous_days or 90)
+		if created_catalog_service and frappe.db.exists("Tecponto Service", created_catalog_service):
+			frappe.delete_doc("Tecponto Service", created_catalog_service, ignore_permissions=True, force=True)
+		frappe.set_user(previous_user)
+
+
+def _deliver_warranty_test_order(doc) -> None:
+	"""Exercise the same delivery hooks without needing a financial fixture."""
+	from tecponto_app.tecponto.service_order.aceites import validate_aceites
+	from tecponto_app.tecponto.service_order.policies import validate_repare_rules
+
+	doc.workflow_state = "Entregue"
+	doc.pickup_without_repair = 1
+	doc.entry_signature = doc.entry_signature or "Assinatura de entrada de teste"
+	doc.customer_signature = "Assinatura de retirada de teste"
+	doc.link_acceptance_required = 0
+	validate_aceites(doc)
+	validate_repare_rules(doc)
 
 
 def run_customer_registration_checks() -> dict:

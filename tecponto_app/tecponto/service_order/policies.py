@@ -55,6 +55,7 @@ def _validate_warranty(doc) -> None:
 			frappe.throw("Somente Gestor pode marcar garantia-cortesia.")
 
 	if not doc.get("is_warranty"):
+		_validate_delivery_dates_are_immutable(doc)
 		return
 
 	if not doc.get("original_service_order"):
@@ -66,7 +67,7 @@ def _validate_warranty(doc) -> None:
 	original = frappe.db.get_value(
 		"Service Order",
 		doc.original_service_order,
-		["customer", "customer_device", "workflow_state", "warranty_expiry"],
+		["customer", "customer_device", "workflow_state", "warranty_expiry", "reported_defect"],
 		as_dict=True,
 	)
 	if not original:
@@ -77,14 +78,40 @@ def _validate_warranty(doc) -> None:
 		frappe.throw("OS original precisa estar entregue para abrir retrabalho em garantia.")
 
 	warranty_expiry = original.warranty_expiry
-	if doc.get("courtesy_warranty"):
-		return
-
 	if not warranty_expiry:
 		frappe.throw("OS original nao possui garantia vigente registrada.")
 
+	# A rework continues the original warranty; it never starts a new one.
+	# Copy on every validation so Desk/API payloads cannot replace the date.
+	doc.warranty_expiry = warranty_expiry
+	_validate_delivery_dates_are_immutable(doc)
+
+	if doc.get("courtesy_warranty"):
+		return
+
+	if _normalize_defect(original.reported_defect) != _normalize_defect(doc.get("reported_defect")):
+		frappe.throw("Retrabalho em garantia exige o mesmo defeito registrado na OS original.")
+
 	if getdate(warranty_expiry) < getdate(nowdate()):
 		frappe.throw("Garantia vencida. Use garantia-cortesia com justificativa do Gestor.")
+
+
+def _validate_delivery_dates_are_immutable(doc) -> None:
+	"""Prevent a later edit from extending a warranty already delivered."""
+	if doc.is_new():
+		return
+
+	previous = doc.get_doc_before_save()
+	if not previous or previous.get("workflow_state") != "Entregue":
+		return
+
+	for fieldname, label in (("pickup_date", "data de entrega"), ("warranty_expiry", "validade da garantia")):
+		if str(previous.get(fieldname) or "") != str(doc.get(fieldname) or ""):
+			frappe.throw(f"A {label} de uma OS entregue e imutavel.")
+
+
+def _normalize_defect(value: str | None) -> str:
+	return " ".join((value or "").casefold().split())
 
 
 def _validate_sinal(doc) -> None:
