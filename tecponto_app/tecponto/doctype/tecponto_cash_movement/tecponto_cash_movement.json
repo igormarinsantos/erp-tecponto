@@ -1,0 +1,33 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["naming_series", "cash_session", "movement_type", "direction", "amount", "payment_mode", "occurred_on", "registered_by", "reason", "reference_doctype", "reference_name", "idempotency_key"],
+ "fields": [
+  {"fieldname":"naming_series","fieldtype":"Select","label":"Série","options":"TPCM-.YYYY.-.#####","default":"TPCM-.YYYY.-.#####","reqd":1,"read_only":1},
+  {"fieldname":"cash_session","fieldtype":"Link","label":"Sessão de caixa","options":"Tecponto Cash Session","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"movement_type","fieldtype":"Select","label":"Tipo","options":"Abertura\nRecebimento de venda\nSangria\nSuprimento\nEstorno\nAjuste","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"direction","fieldtype":"Select","label":"Direção","options":"Entrada\nSaída","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"amount","fieldtype":"Currency","label":"Valor","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"payment_mode","fieldtype":"Data","label":"Forma de pagamento","read_only":1},
+  {"fieldname":"occurred_on","fieldtype":"Datetime","label":"Ocorrido em","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"registered_by","fieldtype":"Link","label":"Registrado por","options":"User","reqd":1,"read_only":1},
+  {"fieldname":"reason","fieldtype":"Small Text","label":"Motivo","read_only":1},
+  {"fieldname":"reference_doctype","fieldtype":"Data","label":"Tipo do documento de origem","read_only":1},
+  {"fieldname":"reference_name","fieldtype":"Dynamic Link","label":"Documento de origem","options":"reference_doctype","read_only":1},
+  {"fieldname":"idempotency_key","fieldtype":"Data","label":"Referência idempotente","reqd":1,"read_only":1,"unique":1}
+ ],
+ "module": "Tecponto",
+ "name": "Tecponto Cash Movement",
+ "permissions": [
+  {"role":"System Manager","read":1,"report":1,"export":1,"print":1},
+  {"role":"Tecponto Diretor","read":1,"report":1,"export":1,"print":1},
+  {"role":"Tecponto Gestor","read":1,"report":1,"export":1,"print":1},
+  {"role":"Tecponto Atendente","read":1,"report":1,"print":1}
+ ],
+ "sort_field": "occurred_on",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

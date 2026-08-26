@@ -35,6 +35,7 @@ from tecponto_app.tecponto.lean_operations import operation_shape, technician_co
 from tecponto_app.tecponto.operation_config import get_operation_config
 from tecponto_app.tecponto import user_access
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_DOCTYPE, POS_OPERATOR_ROLES
+from tecponto_app.tecponto.cash import get_open_cash_session, open_cash_session
 from tecponto_app.tecponto.permissions import is_restricted_technician, service_order_scope_filters
 from tecponto_app.tecponto.service_order import stage_clock, stage_sla
 from tecponto_app.tecponto.service_order.parts import (
@@ -243,6 +244,23 @@ def _require_pos_role() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(POS_ALLOWED_ROLES):
 		return
 	frappe.throw(_("Usuário sem permissão para operar o PDV do balcão."), frappe.PermissionError)
+
+
+@frappe.whitelist()
+def open_store_cash_session(opening_amount: float = 0, idempotency_key: str = "") -> dict[str, Any]:
+	"""Open the single physical drawer; sales integration arrives in cash phase 4.2."""
+	_require_pos_role()
+	return open_cash_session(
+		opening_amount=opening_amount,
+		idempotency_key=idempotency_key,
+		opened_by=frappe.session.user,
+	)
+
+
+@frappe.whitelist()
+def get_store_cash_session() -> dict[str, Any]:
+	_require_pos_role()
+	return {"session": get_open_cash_session()}
 
 
 def _require_post_sale_role() -> None:

@@ -33,6 +33,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_director_strategic_report,
 	get_technician_workload,
 	get_boot,
+	get_store_cash_session,
 	get_list_statbar,
 	get_service_order_statbar,
 	get_service_order_detail,
@@ -47,6 +48,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_checkin_delivery_suggestion,
 	list_defect_service_mappings,
 	list_warranty_candidates,
+	open_store_cash_session,
 	create_customer,
 	list_catalog_references,
 	list_catalog_services,
@@ -149,6 +151,12 @@ from tecponto_app.tecponto.pos import (
 )
 from tecponto_app.tecponto import notify
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD
+from tecponto_app.tecponto.cash import (
+	CASH_MOVEMENT_DOCTYPE,
+	get_cash_session_summary,
+	open_cash_session,
+	record_cash_movement,
+)
 from tecponto_app.tecponto.pending import complete_manual_task, create_manual_task, list_agenda_calendar, list_daily_actions
 from tecponto_app.tecponto.used_device_warranty import consultar_garantia_usado
 from tecponto_app.tecponto.service_order.stage_clock import get_stage_clock
@@ -235,6 +243,7 @@ def run_foundation_checks() -> dict:
 		technician_commission_check = run_technician_commission_checks()
 		lean_operation_check = run_lean_operation_checks()
 		operation_config_check = run_operation_config_checks()
+		cash_session_check = run_cash_session_checks()
 		technician_part_request_check = run_technician_part_request_checks()
 		part_purchase_cycle_check = run_part_purchase_cycle_checks()
 		part_receipt_check = run_part_receipt_reservation_checks()
@@ -299,6 +308,7 @@ def run_foundation_checks() -> dict:
 			"technician_commissions": technician_commission_check,
 			"lean_operation": lean_operation_check,
 			"operation_config": operation_config_check,
+			"cash_session": cash_session_check,
 			"technician_part_requests": technician_part_request_check,
 			"part_purchase_cycle": part_purchase_cycle_check,
 			"part_receipt_reservation": part_receipt_check,
@@ -5080,6 +5090,110 @@ def run_operation_config_checks() -> dict:
 		frappe.set_user("Administrator")
 		settings.update(original)
 		settings.save(ignore_permissions=True)
+		frappe.set_user(previous_user)
+
+
+def run_cash_session_checks() -> dict:
+	"""Prove opening idempotency, derived balance and append-only cash movements."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		cash_point = f"Teste caixa 4.1 {frappe.generate_hash(length=10)}"
+		key = f"tp-cash-open-{frappe.generate_hash(length=20)}"
+
+		frappe.set_user(attendant)
+		opened = open_cash_session(
+			opening_amount=120.50,
+			idempotency_key=key,
+			opened_by=attendant,
+			cash_point=cash_point,
+		)
+		if opened["drawer_balance"] != 120.50 or opened["movement_count"] != 1:
+			raise AssertionError("Abertura não criou o saldo inicial derivado esperado.")
+
+		replay = open_cash_session(
+			opening_amount=120.50,
+			idempotency_key=key,
+			opened_by=attendant,
+			cash_point=cash_point,
+		)
+		if replay["session"] != opened["session"] or not replay["idempotent_replay"]:
+			raise AssertionError("Reenvio da abertura não retornou a mesma sessão de caixa.")
+		if frappe.db.count(CASH_MOVEMENT_DOCTYPE, {"cash_session": opened["session"]}) != 1:
+			raise AssertionError("Reenvio idempotente criou um segundo movimento de abertura.")
+
+		supply_key = f"tp-cash-supply-{frappe.generate_hash(length=20)}"
+		supply = record_cash_movement(
+			cash_session=opened["session"],
+			movement_type="Suprimento",
+			direction="Entrada",
+			amount=25.25,
+			idempotency_key=supply_key,
+			registered_by=attendant,
+			reason="Troco adicional",
+		)
+		if not supply["movement"]:
+			raise AssertionError("Motor não registrou o movimento de suprimento.")
+		if not record_cash_movement(
+			cash_session=opened["session"],
+			movement_type="Suprimento",
+			direction="Entrada",
+			amount=25.25,
+			idempotency_key=supply_key,
+			registered_by=attendant,
+			reason="Troco adicional",
+		)["idempotent_replay"]:
+			raise AssertionError("Reenvio do movimento não foi idempotente.")
+		summary = get_cash_session_summary(opened["session"])
+		if summary["drawer_balance"] != 145.75 or summary["movement_count"] != 2:
+			raise AssertionError("Saldo da gaveta não foi derivado dos movimentos.")
+		cash_leaks = contains_sensitive_field(summary, forbidden_values={BUDGET_COST_GUARD_VALUATION})
+		if cash_leaks:
+			raise AssertionError(f"Resumo de caixa vazou campo sensível: {', '.join(cash_leaks)}")
+
+		movement = frappe.get_doc(CASH_MOVEMENT_DOCTYPE, supply["movement"])
+		movement.reason = "Tentativa de alterar lançamento"
+		immutable = False
+		try:
+			movement.save(ignore_permissions=True)
+		except frappe.ValidationError:
+			immutable = True
+		if not immutable:
+			raise AssertionError("Movimento de caixa pôde ser alterado após o registro.")
+		deletion_blocked = False
+		try:
+			frappe.delete_doc(CASH_MOVEMENT_DOCTYPE, supply["movement"], ignore_permissions=True)
+		except frappe.ValidationError:
+			deletion_blocked = True
+		if not deletion_blocked:
+			raise AssertionError("Movimento de caixa pôde ser excluído após o registro.")
+
+		frappe.set_user(technician)
+		technician_blocked = False
+		try:
+			open_store_cash_session(50, f"tp-cash-tech-{frappe.generate_hash(length=20)}")
+		except frappe.PermissionError:
+			technician_blocked = True
+		if not technician_blocked:
+			raise AssertionError("Técnico conseguiu abrir o caixa da loja.")
+
+		frappe.set_user(attendant)
+		status_payload = get_store_cash_session()
+		if "session" not in status_payload:
+			raise AssertionError("Endpoint de status do caixa não retornou o contrato esperado.")
+		return {
+			"status": "ok",
+			"session": opened["session"],
+			"idempotency": {"opening": replay["idempotent_replay"], "movement": True},
+			"drawer_balance": summary["drawer_balance"],
+			"immutability": {"update_blocked": immutable, "deletion_blocked": deletion_blocked},
+			"technician_blocked": technician_blocked,
+			"sensitive_guard": {"leaked_fields": cash_leaks},
+		}
+	finally:
 		frappe.set_user(previous_user)
 
 
