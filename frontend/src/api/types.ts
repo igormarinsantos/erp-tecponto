@@ -489,6 +489,11 @@ export interface ServiceOrderDetailResponse {
   };
   services: ServiceOrderBudgetLine[];
   parts: ServiceOrderBudgetLine[];
+	budget: {
+		presentation: "Fechado" | "Discriminado";
+		closed_lines: Array<{ description: string; amount: number }>;
+		customer_supplied_part_term_required: boolean;
+	};
   totals: {
     service_total: number;
     parts_price_total: number;
@@ -539,6 +544,9 @@ export interface ServiceOrderBudgetLine {
 	reservation?: string | null;
 	stock_entry?: string | null;
 	used_date?: string | null;
+	part_source?: "Loja" | "Cliente";
+	service_row?: string | null;
+	customer_part_note?: string | null;
 }
 
 export type BudgetLineType = "service" | "part";
@@ -640,8 +648,11 @@ export interface BudgetWarehouseListResponse {
 
 export interface BudgetLinePayload {
   type: BudgetLineType;
-  item_code: string;
+  item_code?: string;
   description?: string;
+	part_source?: "Loja" | "Cliente";
+	service_row?: string;
+	customer_part_note?: string;
   qty: number;
   rate: number;
   warehouse?: string;

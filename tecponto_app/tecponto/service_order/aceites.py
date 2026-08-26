@@ -91,9 +91,15 @@ def _validate_approval_acceptance(doc) -> None:
 	# not collect selfie/signature. Those evidences are required only when the
 	# customer authorizes the financially relevant repair.
 	if approval_channel == "Link" and workflow_state == STATE_APROVADO:
-		from tecponto_app.tecponto.acceptance import assert_completed_acceptance_evidence
+		from tecponto_app.tecponto.acceptance import (
+			assert_completed_acceptance_evidence,
+			assert_completed_customer_supplied_part_term,
+		)
+		from tecponto_app.tecponto.service_order.customer_supplied_part import requires_customer_supplied_part_term
 
 		assert_completed_acceptance_evidence(doc.name, "Orçamento", required=True)
+		if requires_customer_supplied_part_term(doc):
+			assert_completed_customer_supplied_part_term(doc.name)
 
 	if workflow_state == STATE_APROVADO:
 		from tecponto_app.tecponto.service_order.deadline import assert_budget_approval_within_deadline

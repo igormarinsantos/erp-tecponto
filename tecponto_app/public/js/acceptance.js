@@ -30,6 +30,7 @@
 		const companyName = applyIdentity(data.identity);
 		const order = data.service_order;
 		const inoperativeTerm = data.acceptance.inoperative_device_term;
+		const customerPartTerm = data.acceptance.customer_part_term;
 		card.innerHTML = `
 			<p class="tp-acceptance-brand">${data.acceptance.type === "Orçamento" ? "APROVAÇÃO DE ORÇAMENTO" : "ACEITE DIGITAL"}</p>
 			<h1>${data.acceptance.type === "Orçamento" ? "Confirme seu orçamento" : "Confirme seu atendimento"}</h1>
@@ -46,6 +47,7 @@
 				<div class="tp-acceptance-field"><b>Acessórios</b>${escape(order.accessories_received)}</div>
 			</div>
 			${inoperativeTerm ? `<section class="tp-acceptance-notice"><b>Termo de ciência — aparelho recebido sem funcionamento</b><br><small>[PENDENTE REVISÃO JURÍDICA] · versão ${escape(inoperativeTerm.version)}</small><p class="tp-acceptance-term">${escape(inoperativeTerm.text)}</p></section>` : ""}
+			${customerPartTerm ? `<section class="tp-acceptance-notice"><b>Termo de ciência — peça fornecida pelo cliente</b><br><small>[PENDENTE REVISÃO JURÍDICA] · versão ${escape(customerPartTerm.version)}</small><p class="tp-acceptance-term">${escape(customerPartTerm.text)}</p></section>` : ""}
 			<div class="tp-acceptance-notice"><b>Privacidade e LGPD</b><br>${escape(data.lgpd_notice.text)}</div>
 			<section class="tp-camera" aria-labelledby="selfie-title">
 				<div class="tp-camera-heading"><div><b id="selfie-title">Selfie de confirmação</b><p>Use somente a câmera ao vivo. Não aceitamos envio de fotos.</p></div><span class="tp-camera-required">Obrigatório</span></div>
@@ -77,10 +79,12 @@
 				</section>
 				<label class="tp-lgpd-consent"><input type="checkbox" data-lgpd-consent> <span>Li e concordo com o termo de consentimento LGPD, versão ${escape(data.lgpd_notice.version)}.</span></label>
 				${inoperativeTerm ? `<label class="tp-lgpd-consent"><input type="checkbox" data-inoperative-term-consent> <span>Li e estou ciente do Termo de ciência — aparelho recebido sem funcionamento, versão ${escape(inoperativeTerm.version)}.</span></label>` : ""}
+				${customerPartTerm ? `<label class="tp-lgpd-consent"><input type="checkbox" data-customer-part-term-consent> <span>Li e estou ciente do Termo de ciência — peça fornecida pelo cliente, versão ${escape(customerPartTerm.version)}.</span></label>` : ""}
 				<div class="tp-camera-actions"><button class="tp-camera-primary" type="button" data-complete-acceptance disabled>Concluir aceite</button></div>`;
 			const canvas = stage.querySelector(".tp-signature-canvas");
 			const consent = stage.querySelector("[data-lgpd-consent]");
 			const inoperativeConsent = stage.querySelector("[data-inoperative-term-consent]");
+			const customerPartConsent = stage.querySelector("[data-customer-part-term-consent]");
 			const complete = stage.querySelector("[data-complete-acceptance]");
 			const resizeCanvas = () => {
 				const ratio = window.devicePixelRatio || 1;
@@ -99,7 +103,7 @@
 				const rect = canvas.getBoundingClientRect();
 				return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 			};
-			const syncComplete = () => { complete.disabled = !signatureData || !consent.checked || Boolean(inoperativeTerm && !inoperativeConsent?.checked); };
+			const syncComplete = () => { complete.disabled = !signatureData || !consent.checked || Boolean(inoperativeTerm && !inoperativeConsent?.checked) || Boolean(customerPartTerm && !customerPartConsent?.checked); };
 			const clearSignature = () => { signatureData = null; resizeCanvas(); syncComplete(); };
 			canvas.addEventListener("pointerdown", (event) => {
 				const context = canvas.getContext("2d");
@@ -128,6 +132,7 @@
 			stage.querySelector("[data-clear-signature]").addEventListener("click", clearSignature);
 			consent.addEventListener("change", syncComplete);
 			inoperativeConsent?.addEventListener("change", syncComplete);
+			customerPartConsent?.addEventListener("change", syncComplete);
 			complete.addEventListener("click", completeAcceptance);
 			resizeCanvas();
 		};
@@ -192,8 +197,8 @@
 		const completeAcceptance = async () => {
 			const button = stage.querySelector("[data-complete-acceptance]");
 			const consent = stage.querySelector("[data-lgpd-consent]");
-			if (!signatureData || !consent?.checked || (inoperativeTerm && !stage.querySelector("[data-inoperative-term-consent]")?.checked)) {
-				feedback.textContent = inoperativeTerm
+			if (!signatureData || !consent?.checked || (inoperativeTerm && !stage.querySelector("[data-inoperative-term-consent]")?.checked) || (customerPartTerm && !stage.querySelector("[data-customer-part-term-consent]")?.checked)) {
+				feedback.textContent = (inoperativeTerm || customerPartTerm)
 					? "Assine e confirme o consentimento LGPD e o termo adicional antes de concluir."
 					: "Assine e confirme o consentimento LGPD antes de concluir.";
 				return;
@@ -205,7 +210,7 @@
 					method: "POST",
 					credentials: "omit",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ token, signature_data: signatureData, lgpd_consent: 1, inoperative_term_consent: inoperativeTerm ? 1 : 0 }),
+					body: JSON.stringify({ token, signature_data: signatureData, lgpd_consent: 1, inoperative_term_consent: inoperativeTerm ? 1 : 0, customer_part_term_consent: customerPartTerm ? 1 : 0 }),
 				});
 				const payload = await response.json();
 				if (!response.ok || payload.exc || !payload.message?.completed) throw new Error("Não foi possível concluir o aceite.");

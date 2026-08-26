@@ -40,6 +40,7 @@ from tecponto_app.tecponto.frontend.api import (
 	set_service_order_part_outcome,
 	get_service_order_kanban,
 	issue_os_acceptance,
+	add_service_order_budget_line,
 	add_catalog_service_to_service_order,
 	create_service_order_checkin,
 	decide_service_order_budget,
@@ -242,6 +243,7 @@ def run_foundation_checks() -> dict:
 		tradein_frontend_check = run_tradein_frontend_checks()
 		post_sale_checks = run_post_sale_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
+		budget_presentation_check = run_budget_presentation_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
 			users["Tecponto Atendente"],
@@ -302,6 +304,7 @@ def run_foundation_checks() -> dict:
 			"tradein_frontend": tradein_frontend_check,
 			"post_sale": post_sale_checks,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
+			"budget_presentation": budget_presentation_check,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
 			"cashier_mode_checks": cashier_mode_checks,
@@ -332,6 +335,47 @@ def run_foundation_checks() -> dict:
 		}
 	finally:
 		frappe.flags.in_test = previous_in_test
+		frappe.set_user(previous_user)
+
+
+def run_budget_presentation_checks() -> dict:
+	"""Prove closed/discriminated quotes never expose part cost outside Director."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		director = _find_or_create_user("Tecponto Diretor")
+		order_name = _create_action_request_service_order(attendant)
+		repair_warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+		frappe.set_user("Administrator")
+		part_item = _ensure_part_request_repair_item()
+		_ensure_pos_demo_stock(part_item, repair_warehouse, valuation_rate=41.23)
+		service_item = frappe.db.get_value("Item", {"item_code": "MO-REPARO", "disabled": 0}, "name")
+		if not service_item:
+			raise AssertionError("Item MO-REPARO não encontrado para a prova do orçamento.")
+
+		frappe.set_user(attendant)
+		with_service = add_service_order_budget_line(order_name, {"type": "service", "item_code": service_item, "description": "Troca de tela", "qty": 1, "rate": 180})
+		service_row = with_service["services"][-1]["name"]
+		add_service_order_budget_line(order_name, {"type": "part", "item_code": part_item, "description": "Tela compatível", "qty": 1, "rate": 320, "warehouse": repair_warehouse, "service_row": service_row})
+		add_service_order_budget_line(order_name, {"type": "part", "description": "Tela fornecida pelo cliente", "qty": 1, "rate": 999, "part_source": "Cliente", "service_row": service_row, "customer_part_note": "Tela do cliente"})
+		attendant_detail = get_service_order_detail(order_name)
+		leaks = contains_sensitive_field(attendant_detail, forbidden_values={41.23})
+		if leaks or attendant_detail.get("budget", {}).get("internal") is not None:
+			raise AssertionError("Orçamento do atendente expôs custo ou composição interna.")
+		closed = attendant_detail["budget"]["closed_lines"]
+		if not any(flt(line["amount"]) == 500 for line in closed):
+			raise AssertionError("Orçamento fechado não agregou preço de venda da peça ao serviço.")
+		customer_part = next(row for row in attendant_detail["parts"] if row.get("part_source") == "Cliente")
+		if flt(customer_part.get("amount")) != 0 or not attendant_detail["budget"]["customer_supplied_part_term_required"]:
+			raise AssertionError("Peça do cliente não ficou sem preço/estoque e sem termo obrigatório.")
+
+		frappe.set_user(director)
+		director_financial = get_director_financial_summary()
+		if "operational_cost" not in director_financial or "gross_operating_profit" not in director_financial:
+			raise AssertionError("Diretor não recebeu a visão financeira exclusiva de custo e lucro bruto.")
+		return {"closed_total": 500, "customer_part_stock": False, "attendant_leaked_fields": [], "director_financial": True}
+	finally:
 		frappe.set_user(previous_user)
 
 

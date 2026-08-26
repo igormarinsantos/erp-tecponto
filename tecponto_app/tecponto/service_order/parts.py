@@ -47,6 +47,8 @@ def processar_pecas(doc, method=None) -> None:
 	reservar_pecas(doc, method=method)
 
 	for part_row in doc.get("parts") or []:
+		if part_row.get("part_source") == "Cliente":
+			continue
 		baixar_peca(part_row, doc)
 
 	liberar_reservas(doc, method=method)
@@ -57,6 +59,8 @@ def reservar_pecas(doc, method=None) -> None:
 		return
 
 	for part_row in doc.get("parts") or []:
+		if part_row.get("part_source") == "Cliente":
+			continue
 		if part_row.get("reservation") or part_row.get("stock_entry"):
 			continue
 
@@ -97,6 +101,8 @@ def liberar_reservas(doc, method=None) -> None:
 		return
 
 	for part_row in doc.get("parts") or []:
+		if part_row.get("part_source") == "Cliente":
+			continue
 		if part_row.get("reservation") and not part_row.get("stock_entry"):
 			_liberar_reserva(part_row.reservation)
 			_set_part_value(part_row, "reservation", None)

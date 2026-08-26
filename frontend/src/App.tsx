@@ -4176,6 +4176,7 @@ function BudgetCard({
   detail: ServiceOrderDetailResponse;
   onOpenBudgetEditor: (type: BudgetLineType) => void;
 }) {
+	const [discriminated, setDiscriminated] = useState(detail.budget.presentation === "Discriminado");
   return (
     <Card className="p-5">
       <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -4189,13 +4190,19 @@ function BudgetCard({
           <p className="text-xs font-semibold uppercase text-tec-muted">Total do orçamento</p>
           <span className="tp-metric-value text-3xl font-bold text-tec-orange">{formatCurrency(detail.totals.grand_total)}</span>
         </div>
+			<button className="self-start rounded-control border border-tec-border/20 bg-tec-field px-3 py-2 text-xs font-bold text-tec-subtle hover:border-tec-orange/50 hover:text-white" onClick={() => setDiscriminated((value) => !value)} type="button">
+				{discriminated ? "Ocultar composição" : "Discriminar"}
+			</button>
       </div>
 
-      <BudgetLines lines={detail.services} onOpenBudgetEditor={onOpenBudgetEditor} title="Serviços" type="service" />
-      <div className="mt-4">
-        <BudgetLines lines={detail.parts} onOpenBudgetEditor={onOpenBudgetEditor} title="Peças" type="part" />
-      </div>
-
+		{discriminated ? <>
+        <BudgetLines lines={detail.services} onOpenBudgetEditor={onOpenBudgetEditor} title="Mão de obra" type="service" />
+        <div className="mt-4"><BudgetLines lines={detail.parts} onOpenBudgetEditor={onOpenBudgetEditor} title="Peças" type="part" /></div>
+			<p className="mt-3 text-xs text-tec-muted">Composição exibida com preços de venda. Custos internos não fazem parte deste orçamento.</p>
+		</> : <div className="overflow-hidden rounded-card border border-tec-border/20">
+			{detail.budget.closed_lines.map((line, index) => <div className="flex items-center justify-between gap-4 border-b border-tec-border/15 bg-tec-field/40 px-4 py-3 text-sm last:border-0" key={`${line.description}-${index}`}><span className="font-semibold text-white">{line.description}</span><span className="shrink-0 font-bold text-tec-orange">{formatCurrency(line.amount)}</span></div>)}
+			{detail.budget.customer_supplied_part_term_required ? <p className="border-t border-tec-amber/20 bg-tec-amber/10 px-4 py-3 text-xs font-semibold text-tec-amber">Peça fornecida pelo cliente: cobra-se apenas o serviço; a garantia não cobre a peça do cliente.</p> : null}
+		</div>}
       <div className="mt-5 grid gap-3 border-t border-tec-border/20 pt-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
         <TotalPill label="Mão de obra" value={formatCurrency(detail.totals.service_total)} />
         <TotalPill label="Peças" value={formatCurrency(detail.totals.parts_price_total)} />
@@ -4319,7 +4326,9 @@ function BudgetLineModal({
   const [qty, setQty] = useState("1");
   const [rate, setRate] = useState("");
   const [duration, setDuration] = useState("");
-  const [durationUnit, setDurationUnit] = useState<"Horas" | "Dias úteis">("Horas");
+	const [durationUnit, setDurationUnit] = useState<"Horas" | "Dias úteis">("Horas");
+	const [customerSuppliedPart, setCustomerSuppliedPart] = useState(false);
+	const [serviceRow, setServiceRow] = useState("");
   const [loadingItems, setLoadingItems] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -4340,6 +4349,8 @@ function BudgetLineModal({
     setDuration("");
     setDurationUnit("Horas");
     setWarehouse("");
+		setCustomerSuppliedPart(false);
+		setServiceRow("");
     setError(null);
     setSubmitting(false);
   }, [lineType, detail.name]);
@@ -4412,7 +4423,7 @@ function BudgetLineModal({
   const parsedQty = Number(qty.replace(",", "."));
   const parsedRate = Number(rate.replace(",", "."));
   const parsedDuration = Number(duration.replace(",", "."));
-  const canSubmit = (isService && serviceEntryMode === "catalog" ? Boolean(selectedCatalogService) : Boolean(selectedItem)) && parsedQty > 0 && parsedRate >= 0 && (serviceEntryMode !== "catalog" || !duration || parsedDuration >= 0) && (isService || Boolean(warehouse));
+  const canSubmit = (isService && serviceEntryMode === "catalog" ? Boolean(selectedCatalogService) : customerSuppliedPart ? Boolean(description.trim()) : Boolean(selectedItem)) && parsedQty > 0 && parsedRate >= 0 && (serviceEntryMode !== "catalog" || !duration || parsedDuration >= 0) && (isService || customerSuppliedPart || Boolean(warehouse));
 
   function selectItem(item: BudgetItemSummary) {
     setSelectedItem(item);
@@ -4437,7 +4448,7 @@ function BudgetLineModal({
       setError("Selecione um serviço do catálogo ou use Serviço avulso.");
       return;
     }
-    if ((!isService || serviceEntryMode === "manual") && !selectedItem) {
+    if ((!isService || serviceEntryMode === "manual") && !selectedItem && !customerSuppliedPart) {
       setError("Selecione um item para o orçamento.");
       return;
     }
@@ -4458,11 +4469,14 @@ function BudgetLineModal({
           })
         : await serviceOrders.addBudgetLine(detail.name, {
             description: description.trim(),
-            item_code: selectedItem!.item_code,
+						item_code: customerSuppliedPart ? undefined : selectedItem!.item_code,
             qty: parsedQty,
             rate: parsedRate,
             type: activeLineType,
-            warehouse: isService ? undefined : warehouse,
+			warehouse: isService ? undefined : warehouse,
+			part_source: customerSuppliedPart ? "Cliente" : "Loja",
+			service_row: !isService ? serviceRow || undefined : undefined,
+			customer_part_note: customerSuppliedPart ? description.trim() : undefined,
           });
       onUpdated(updated);
       onToast(`${isService ? "Serviço" : "Peça"} adicionado ao orçamento.`);
@@ -4574,7 +4588,7 @@ function BudgetLineModal({
               <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Valor unitário</span>
               <input
                 className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isWarrantyLabor}
+                disabled={isWarrantyLabor || customerSuppliedPart}
                 min="0"
                 onChange={(event) => setRate(event.target.value)}
                 step="0.01"
@@ -4586,6 +4600,13 @@ function BudgetLineModal({
           </div>
 
           {!isService ? (
+				<div className="rounded-card border border-tec-amber/25 bg-tec-amber/10 p-3">
+					<label className="flex cursor-pointer items-start gap-2 text-sm font-semibold text-tec-amber"><input checked={customerSuppliedPart} className="mt-1" onChange={(event) => { setCustomerSuppliedPart(event.target.checked); if (event.target.checked) setRate("0"); }} type="checkbox" />Cliente trouxe a própria peça</label>
+					<p className="mt-2 text-xs leading-5 text-tec-muted">Não há baixa de estoque e o orçamento cobra apenas mão de obra. O aceite incluirá o termo específico.</p>
+				</div>
+			) : null}
+
+			{!isService && !customerSuppliedPart ? (
             <label className="block">
               <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Estoque da peça</span>
               <select
@@ -4598,6 +4619,16 @@ function BudgetLineModal({
                     {item.warehouse_name ?? item.name}
                   </option>
                 ))}
+              </select>
+            </label>
+          ) : null}
+
+          {!isService && detail.services.length ? (
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">Vincular ao serviço</span>
+              <select className="h-11 w-full rounded-control border border-tec-border/20 bg-tec-field px-3 text-sm font-semibold text-tec-text outline-none transition focus:border-tec-orange/70" onChange={(event) => setServiceRow(event.target.value)} value={serviceRow}>
+                <option value="">Peça avulsa no orçamento</option>
+                {detail.services.map((service) => <option key={service.name ?? service.description} value={service.name ?? ""}>{service.description || service.item_code || "Serviço"}</option>)}
               </select>
             </label>
           ) : null}
@@ -6526,6 +6557,7 @@ function StockLookup({
 					</div>
 				</div>
 			) : null}
+
 		</Modal>
 		<ApprovalRequestModal
 			onClose={() => setTransferApproval(null)}

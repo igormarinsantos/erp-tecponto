@@ -4,7 +4,7 @@
  "autoname": "format:OSA-{#####}",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": ["service_order", "acceptance_type", "signer_role", "signer_name", "signer_document", "signer_authorization", "tracking_link", "budget_version", "identity_document_type", "identity_verified_on", "status", "token_hash", "selfie_file", "selfie_exception", "selfie_exception_reason", "selfie_exception_by", "selfie_exception_on", "selfie_exception_request", "signature_file", "consent_version", "consented_on", "inoperative_device_term_version", "inoperative_device_term_text", "inoperative_device_term_accepted_on", "accepted_ip", "accepted_user_agent", "expires_on", "issued_by", "used_on"],
+ "field_order": ["service_order", "acceptance_type", "signer_role", "signer_name", "signer_document", "signer_authorization", "tracking_link", "budget_version", "identity_document_type", "identity_verified_on", "status", "token_hash", "selfie_file", "selfie_exception", "selfie_exception_reason", "selfie_exception_by", "selfie_exception_on", "selfie_exception_request", "signature_file", "consent_version", "consented_on", "inoperative_device_term_version", "inoperative_device_term_text", "inoperative_device_term_accepted_on", "customer_part_term_version", "customer_part_term_text", "customer_part_term_accepted_on", "accepted_ip", "accepted_user_agent", "expires_on", "issued_by", "used_on"],
  "fields": [
   {"fieldname":"service_order","fieldtype":"Link","label":"Ordem de serviço","options":"Service Order","reqd":1,"in_list_view":1,"read_only":1},
   {"fieldname":"acceptance_type","fieldtype":"Select","label":"Tipo de aceite","options":"Entrada\nRetirada\nOrçamento","reqd":1,"in_list_view":1,"read_only":1},
@@ -30,6 +30,9 @@
   {"fieldname":"inoperative_device_term_version","fieldtype":"Data","label":"Versão do termo de aparelho sem funcionamento","read_only":1},
   {"fieldname":"inoperative_device_term_text","fieldtype":"Long Text","label":"Termo de aparelho sem funcionamento","read_only":1},
   {"fieldname":"inoperative_device_term_accepted_on","fieldtype":"Datetime","label":"Termo adicional aceito em","read_only":1},
+  {"fieldname":"customer_part_term_version","fieldtype":"Data","label":"Versão do termo de peça do cliente","read_only":1},
+  {"fieldname":"customer_part_term_text","fieldtype":"Long Text","label":"Termo de peça do cliente","read_only":1},
+  {"fieldname":"customer_part_term_accepted_on","fieldtype":"Datetime","label":"Termo de peça do cliente aceito em","read_only":1},
   {"fieldname":"accepted_ip","fieldtype":"Data","label":"IP do aceite","read_only":1},
   {"fieldname":"accepted_user_agent","fieldtype":"Small Text","label":"Navegador do aceite","read_only":1},
   {"fieldname":"expires_on","fieldtype":"Datetime","label":"Expira em","reqd":1,"in_list_view":1,"read_only":1},

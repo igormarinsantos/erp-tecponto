@@ -9,6 +9,9 @@
  "field_order": [
   "item_code",
   "qty",
+  "part_source",
+  "service_row",
+  "customer_part_note",
   "warehouse",
   "valuation_rate",
   "rate",
@@ -27,8 +30,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Item",
-   "options": "Item",
-   "reqd": 1
+   "options": "Item"
   },
   {
    "default": "1",
@@ -37,6 +39,24 @@
    "in_list_view": 1,
    "label": "Quantidade",
    "reqd": 1
+  },
+  {
+   "default": "Loja",
+   "fieldname": "part_source",
+   "fieldtype": "Select",
+   "label": "Origem da peça",
+   "options": "Loja\nCliente"
+  },
+  {
+   "fieldname": "service_row",
+   "fieldtype": "Data",
+   "label": "Linha de serviço vinculada",
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer_part_note",
+   "fieldtype": "Small Text",
+   "label": "Identificação da peça do cliente"
   },
   {
    "fieldname": "warehouse",

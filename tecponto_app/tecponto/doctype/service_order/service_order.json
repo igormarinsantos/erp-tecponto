@@ -40,6 +40,8 @@
   "budget_section",
   "services",
   "parts",
+  "budget_presentation",
+  "customer_supplied_part_term_required",
   "labor_total",
   "parts_total",
   "budget_column_break",
@@ -286,6 +288,20 @@
    "fieldtype": "Table",
    "label": "Peças",
    "options": "Service Order Part"
+  },
+  {
+   "default": "Fechado",
+   "fieldname": "budget_presentation",
+   "fieldtype": "Select",
+   "label": "Apresentação padrão do orçamento",
+   "options": "Fechado\nDiscriminado"
+  },
+  {
+   "default": "0",
+   "fieldname": "customer_supplied_part_term_required",
+   "fieldtype": "Check",
+   "label": "Exige termo de peça fornecida pelo cliente",
+   "read_only": 1
   },
   {
    "fieldname": "labor_total",

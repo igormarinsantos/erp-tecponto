@@ -1062,6 +1062,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 	parts_price_total = sum(row["amount"] for row in parts) if not technical_view else 0
 	discount = flt(doc.get("discount") or 0)
 	grand_total = flt(doc.get("grand_total") or (service_total + parts_price_total - discount))
+	closed_lines = _build_closed_budget_lines(services, parts)
 
 	return {
 		"name": doc.name,
@@ -1099,6 +1100,11 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		},
 		"services": services,
 		"parts": parts,
+		"budget": {
+			"presentation": doc.get("budget_presentation") or "Fechado",
+			"closed_lines": closed_lines,
+			"customer_supplied_part_term_required": bool(doc.get("customer_supplied_part_term_required")),
+		},
 		"totals": {
 			"service_total": service_total,
 			"parts_price_total": parts_price_total,
@@ -1366,28 +1372,32 @@ def add_service_order_budget_line(name: str, payload: str | dict[str, Any] | Non
 	data = _parse_payload(payload)
 	line_type = _validate_budget_line_type(data.get("type"))
 	item_code = (data.get("item_code") or "").strip()
+	part_source = (data.get("part_source") or "Loja").strip()
 	qty = flt(data.get("qty") or 0)
 	rate = flt(data.get("rate") or 0)
 
-	if not item_code:
+	if part_source not in {"Loja", "Cliente"}:
+		frappe.throw(_("Origem da peça inválida."), frappe.ValidationError)
+	if line_type == "service" and part_source != "Loja":
+		frappe.throw(_("Origem de peça só se aplica a linhas de peça."), frappe.ValidationError)
+	if not item_code and not (line_type == "part" and part_source == "Cliente"):
 		frappe.throw(_("Selecione o item do orçamento."), frappe.ValidationError)
 	if qty <= 0:
 		frappe.throw(_("Quantidade precisa ser maior que zero."), frappe.ValidationError)
 	if rate < 0:
 		frappe.throw(_("Valor unitário não pode ser negativo."), frappe.ValidationError)
 
-	item = frappe.db.get_value(
-		"Item",
-		item_code,
-		["name", "item_name", "is_stock_item", "disabled"],
-		as_dict=True,
-	)
-	if not item or item.disabled:
-		frappe.throw(_("Item do orçamento inválido."), frappe.ValidationError)
-	if line_type == "service" and item.is_stock_item:
-		frappe.throw(_("Serviço do orçamento deve ser um item não estocável."), frappe.ValidationError)
-	if line_type == "part" and not item.is_stock_item:
-		frappe.throw(_("Peça do orçamento deve ser um item de estoque."), frappe.ValidationError)
+	item = None
+	if item_code:
+		item = frappe.db.get_value(
+			"Item", item_code, ["name", "item_name", "is_stock_item", "disabled"], as_dict=True
+		)
+		if not item or item.disabled:
+			frappe.throw(_("Item do orçamento inválido."), frappe.ValidationError)
+		if line_type == "service" and item.is_stock_item:
+			frappe.throw(_("Serviço do orçamento deve ser um item não estocável."), frappe.ValidationError)
+		if line_type == "part" and not item.is_stock_item:
+			frappe.throw(_("Peça do orçamento deve ser um item de estoque."), frappe.ValidationError)
 
 	doc = frappe.get_doc("Service Order", (name or "").strip())
 	doc.check_permission("write")
@@ -1405,21 +1415,35 @@ def add_service_order_budget_line(name: str, payload: str | dict[str, Any] | Non
 			},
 		)
 	else:
-		warehouse = (data.get("warehouse") or "").strip() or _get_default_repair_warehouse()
-		if not warehouse:
-			frappe.throw(_("Informe o estoque da peça."), frappe.ValidationError)
-		if not frappe.db.exists("Warehouse", {"name": warehouse, "is_group": 0, "disabled": 0}):
-			frappe.throw(_("Estoque da peça inválido."), frappe.ValidationError)
+		service_row = (data.get("service_row") or "").strip()
+		if service_row and service_row not in {row.name for row in (doc.get("services") or [])}:
+			frappe.throw(_("Serviço vinculado inválido para esta OS."), frappe.ValidationError)
+		warehouse = None
+		if part_source == "Loja":
+			warehouse = (data.get("warehouse") or "").strip() or _get_default_repair_warehouse()
+			if not warehouse:
+				frappe.throw(_("Informe o estoque da peça."), frappe.ValidationError)
+			if not frappe.db.exists("Warehouse", {"name": warehouse, "is_group": 0, "disabled": 0}):
+				frappe.throw(_("Estoque da peça inválido."), frappe.ValidationError)
+		else:
+			rate = 0
+			if not (data.get("description") or "").strip():
+				frappe.throw(_("Identifique a peça fornecida pelo cliente."), frappe.ValidationError)
 		doc.append(
 			"parts",
 			{
-				"item_code": item.name,
-				"description": (data.get("description") or item.item_name or item.name).strip(),
+				"item_code": item.name if item else None,
+				"description": (data.get("description") or (item.item_name if item else "") or (item.name if item else "")).strip(),
 				"qty": qty,
 				"warehouse": warehouse,
 				"rate": rate,
+				"part_source": part_source,
+				"service_row": service_row or None,
+				"customer_part_note": (data.get("customer_part_note") or "").strip() or None,
 			},
 		)
+		if part_source == "Cliente":
+			doc.customer_supplied_part_term_required = 1
 
 	doc.save(ignore_permissions=True)
 	return get_service_order_detail(doc.name)
@@ -3246,6 +3270,7 @@ def _serialize_service_row(row: Any) -> dict[str, Any]:
 	qty = flt(row.get("qty") or 0)
 	unit_price = flt(row.get("rate") or 0)
 	return {
+		"name": row.get("name"),
 		"item_code": row.get("item_code"),
 		"description": row.get("description"),
 		"qty": qty,
@@ -3275,7 +3300,32 @@ def _serialize_part_row(row: Any) -> dict[str, Any]:
 		"reservation": row.get("reservation"),
 		"stock_entry": row.get("stock_entry"),
 		"used_date": str(row.get("used_date") or ""),
+		"part_source": row.get("part_source") or "Loja",
+		"service_row": row.get("service_row"),
+		"customer_part_note": row.get("customer_part_note"),
 	}
+
+
+def _build_closed_budget_lines(services: list[dict[str, Any]], parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+	"""Customer-facing aggregate; it deliberately contains sale prices only."""
+	parts_by_service: dict[str, float] = {}
+	unlinked_parts: list[dict[str, Any]] = []
+	for part in parts:
+		if part.get("part_source") == "Cliente":
+			continue
+		if part.get("service_row"):
+			parts_by_service[part["service_row"]] = parts_by_service.get(part["service_row"], 0) + flt(part.get("amount"))
+		else:
+			unlinked_parts.append(part)
+	lines = [
+		{
+			"description": service.get("description") or service.get("item_code") or "Serviço",
+			"amount": flt(service.get("amount")) + parts_by_service.get(service.get("name") or "", 0),
+		}
+		for service in services
+	]
+	lines.extend({"description": part.get("description") or part.get("item_code") or "Peça", "amount": flt(part.get("amount"))} for part in unlinked_parts)
+	return lines
 
 
 def _get_customer_detail(customer: str | None, include_fiscal: bool = True) -> dict[str, Any] | None:
