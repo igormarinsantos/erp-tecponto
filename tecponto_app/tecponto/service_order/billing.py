@@ -3,6 +3,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import date_diff, flt, nowdate
 
+from tecponto_app.tecponto.financial import native_financial_posting
 from tecponto_app.tecponto.service_order.advance import ensure_sinal_payment
 from tecponto_app.tecponto.service_order.parts import OUTCOME_USADA
 
@@ -68,8 +69,11 @@ def gerar_nota(doc, method=None):
 
 		frappe.throw("Nao ha itens cobraveis para gerar a nota da OS {0}.".format(doc.name))
 
-	si.insert(ignore_permissions=True)
-	si.submit()
+	# ERPNext resolves the Customer receivable account during insert. The OS
+	# transition has already been authorized; only that native posting is elevated.
+	with native_financial_posting():
+		si.insert(ignore_permissions=True)
+		si.submit()
 	doc.db_set("sales_invoice", si.name, update_modified=False)
 	doc.sales_invoice = si.name
 	return si.name
@@ -242,45 +246,75 @@ def _aplicar_taxa_diagnostico(doc, si, company: str | None = None) -> None:
 
 
 def _alocar_sinal(doc, si, company: str | None = None) -> None:
-	if not doc.get("sinal_enabled") or flt(doc.get("sinal_value")) <= 0:
-		return
-
 	company = company or _get_company(doc)
-	payment_entry = ensure_sinal_payment(doc, company=company)
-	if not payment_entry:
-		return
+	payment_entries: list[str] = []
+	if doc.get("sinal_enabled") and flt(doc.get("sinal_value")) > 0:
+		legacy_entry = ensure_sinal_payment(doc, company=company)
+		if legacy_entry:
+			payment_entries.append(legacy_entry)
 
-	sinal_value = flt(doc.get("sinal_value"))
-	if doc.get("workflow_state") in SIGNAL_RETENTION_STATES:
-		_append_invoice_item(
-			si,
-			item_code=_get_labor_item(),
-			qty=1,
-			rate=sinal_value,
-			description="Retencao de sinal da OS {0}".format(doc.name),
-			company=company,
+	# New OS receipts use their own idempotent operational record but remain
+	# native Payment Entries. Allocate all advances when ERPNext creates the note.
+	from tecponto_app.tecponto.service_order.payments import pending_advance_payment_entries
+
+	payment_entries.extend(pending_advance_payment_entries(doc.name))
+	seen: set[str] = set()
+	for payment_entry in payment_entries:
+		if not payment_entry or payment_entry in seen:
+			continue
+		seen.add(payment_entry)
+		payment_doc = frappe.get_doc("Payment Entry", payment_entry)
+		amount = flt(payment_doc.get("paid_amount"))
+		if amount <= 0:
+			continue
+		if doc.get("workflow_state") in SIGNAL_RETENTION_STATES:
+			_append_invoice_item(
+				si,
+				item_code=_get_labor_item(),
+				qty=1,
+				rate=amount,
+				description="Retencao de sinal da OS {0}".format(doc.name),
+				company=company,
+			)
+		allocated_amount = min(amount, _invoice_total(si))
+		if allocated_amount <= 0:
+			continue
+		si.append(
+			"advances",
+			{
+				"reference_type": "Payment Entry",
+				"reference_name": payment_entry,
+				"remarks": payment_doc.get("remarks"),
+				"advance_amount": amount,
+				"allocated_amount": allocated_amount,
+				"ref_exchange_rate": 1,
+				"difference_posting_date": si.posting_date,
+			},
 		)
-
-	allocated_amount = min(sinal_value, _invoice_total(si))
-	if allocated_amount <= 0:
-		return
-
-	payment_doc = frappe.get_doc("Payment Entry", payment_entry)
-	si.append(
-		"advances",
-		{
-			"reference_type": "Payment Entry",
-			"reference_name": payment_entry,
-			"remarks": payment_doc.get("remarks"),
-			"advance_amount": sinal_value,
-			"allocated_amount": allocated_amount,
-			"ref_exchange_rate": 1,
-			"difference_posting_date": si.posting_date,
-		},
-	)
 
 
 def _aplicar_estadia(doc, si, company: str | None = None) -> None:
+	from tecponto_app.tecponto.operation_config import get_operation_config
+
+	storage = get_operation_config()["storage_fee"]
+	if storage["enabled"] and not doc.get("estadia_enabled"):
+		# Storage is a per-store policy. Persist the server-derived values so the
+		# generated invoice remains auditable even if settings change later.
+		doc.estadia_enabled = 1
+		doc.estadia_start_date = doc.get("pickup_date") or doc.get("entry_date") or nowdate()
+		doc.estadia_daily_value = flt(storage["amount"], 2)
+		doc.estadia_grace_days = int(storage["start_days"])
+		frappe.db.set_value(
+			doc.doctype,
+			doc.name,
+			{
+				"estadia_enabled": 1,
+				"estadia_start_date": doc.estadia_start_date,
+				"estadia_daily_value": doc.estadia_daily_value,
+				"estadia_grace_days": doc.estadia_grace_days,
+			},
+			update_modified=False,
+		)
 	if not doc.get("estadia_enabled"):
 		return
 

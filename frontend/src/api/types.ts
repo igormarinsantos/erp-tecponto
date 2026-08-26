@@ -520,12 +520,54 @@ export interface ServiceOrderDetailResponse {
   finance: {
     sales_invoice: string | null;
     sales_invoice_status: string | null;
+		total_due: number;
+		paid_total: number;
+		remaining_total: number;
+		payments: ServiceOrderPayment[];
+		options: { advance: boolean; installments: boolean; tradein: boolean; diagnostic_fee: boolean; storage_fee: boolean };
   };
   workflow_actions: ServiceOrderWorkflowAction[];
   workflow_transitions: ServiceOrderWorkflowAction[];
 	workflow_blockers: Record<string, string>;
   timeline: ServiceOrderTimelineEvent[];
   print_links: ServiceOrderPrintLink[];
+}
+
+export interface ServiceOrderPayment {
+	name: string;
+	kind: string;
+	direction: "Entrada" | "Saída";
+	amount: number;
+	payment_mode: string | null;
+	affects_drawer: boolean;
+	payment_entry: string | null;
+	cash_movement: string | null;
+	source_doctype: string | null;
+	source_name: string | null;
+	reason: string | null;
+	created_at: string;
+}
+
+export interface ServiceOrderPaymentPayload {
+	kind: "regular" | "advance" | "installment" | "diagnostic_fee" | "storage_fee" | "tradein" | "cancellation_adjustment";
+	amount: number;
+	mode_of_payment?: string;
+	direction?: "Entrada" | "Saída";
+	reason?: string;
+	trade_evaluation?: string;
+	idempotency_key: string;
+}
+
+export interface ServiceOrderPaymentResponse {
+	payment: ServiceOrderPayment & { idempotent_replay: boolean };
+	detail: ServiceOrderDetailResponse;
+}
+
+export interface ServiceOrderTradeinCandidate {
+	name: string;
+	label: string;
+	amount: number;
+	status: string | null;
 }
 
 export interface ServiceOrderBudgetLine {

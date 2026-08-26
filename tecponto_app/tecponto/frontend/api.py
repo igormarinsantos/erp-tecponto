@@ -47,6 +47,7 @@ from tecponto_app.tecponto.cash import (
 )
 from tecponto_app.tecponto.permissions import is_restricted_technician, service_order_scope_filters
 from tecponto_app.tecponto.service_order import stage_clock, stage_sla
+from tecponto_app.tecponto.service_order import payments as service_order_payments
 from tecponto_app.tecponto.service_order.parts import (
 	LOSS_FORNECEDOR,
 	LOSS_LOJA,
@@ -1127,6 +1128,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 	grand_total = flt(doc.get("grand_total") or (service_total + parts_price_total - discount))
 	closed_lines = _build_closed_budget_lines(services, parts)
 
+	finance = _service_order_finance_payload(doc, technical_view=technical_view, fallback_total=grand_total)
 	return {
 		"name": doc.name,
 		"workflow_state": doc.get("workflow_state"),
@@ -1191,14 +1193,50 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"has_signature": bool(doc.get("customer_signature")),
 		},
 		"finance": {
-			"sales_invoice": doc.get("sales_invoice") if not technical_view else None,
-			"sales_invoice_status": _get_sales_invoice_status(doc.get("sales_invoice")) if not technical_view else None,
+			**finance,
 		},
 		"workflow_actions": _get_visible_workflow_actions(doc),
 		"workflow_transitions": _get_service_order_transition_options(doc.get("workflow_state")),
 		"workflow_blockers": _get_workflow_blockers(doc),
 		"timeline": _get_service_order_timeline(doc),
 		"print_links": _get_service_order_print_links(doc.name) if not technical_view else [],
+	}
+
+
+@frappe.whitelist()
+def receive_service_order_payment(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Receive one OS amount through the native payment ledger and active cash session."""
+	_require_attendant_flow_role()
+	order = frappe.get_doc("Service Order", (name or "").strip())
+	order.check_permission("write")
+	result = service_order_payments.collect_service_order_payment(order.name, _parse_payload(payload))
+	return {"payment": result, "detail": get_service_order_detail(order.name)}
+
+
+@frappe.whitelist()
+def list_service_order_tradein_candidates(name: str) -> dict[str, Any]:
+	_require_attendant_flow_role()
+	order = frappe.get_doc("Service Order", (name or "").strip())
+	order.check_permission("read")
+	if not get_operation_config()["payments"]["device_tradein_enabled"]:
+		return {"items": []}
+	items = frappe.get_all(
+		"Device Trade Evaluation",
+		filters={"customer": order.customer, "approved_value": [">", 0]},
+		fields=["name", "evaluated_device_desc", "model", "imei", "approved_value", "workflow_state"],
+		order_by="modified desc",
+		limit_page_length=30,
+	)
+	return {
+		"items": [
+			{
+				"name": item.name,
+				"label": " ".join(part for part in [item.evaluated_device_desc, item.model] if part) or item.name,
+				"amount": flt(item.approved_value, 2),
+				"status": item.workflow_state,
+			}
+			for item in items
+		]
 	}
 
 
@@ -1769,6 +1807,20 @@ def decide_service_order_budget(name: str, payload: str | dict[str, Any] | None 
 		from tecponto_app.tecponto.service_order.deadline import assert_budget_approval_within_deadline
 
 		assert_budget_approval_within_deadline(doc)
+	elif get_operation_config()["diagnostic_fee"]["enabled"]:
+		# The fee is configured by the store, not typed by the attendant. Billing
+		# will add it to the native invoice when the rejection workflow is applied.
+		frappe.db.set_value(
+			doc.doctype,
+			doc.name,
+			{
+				"diagnosis_fee_enabled": 1,
+				"diagnosis_fee_value": flt(get_operation_config()["diagnostic_fee"]["amount"], 2),
+			},
+			update_modified=False,
+		)
+		doc.diagnosis_fee_enabled = 1
+		doc.diagnosis_fee_value = flt(get_operation_config()["diagnostic_fee"]["amount"], 2)
 
 	if decision == "approve":
 		approval_status = APPROVAL_STATUS_APROVADO
@@ -3528,6 +3580,38 @@ def _get_sales_invoice_status(sales_invoice: str | None) -> str | None:
 	if not sales_invoice:
 		return None
 	return frappe.db.get_value("Sales Invoice", sales_invoice, "status")
+
+
+def _service_order_finance_payload(doc, *, technical_view: bool, fallback_total: float) -> dict[str, Any]:
+	if technical_view:
+		return {
+			"sales_invoice": None,
+			"sales_invoice_status": None,
+			"total_due": 0.0,
+			"paid_total": 0.0,
+			"remaining_total": 0.0,
+			"payments": [],
+			"options": {"advance": False, "installments": False, "tradein": False, "diagnostic_fee": False, "storage_fee": False},
+		}
+	invoice = frappe.get_doc("Sales Invoice", doc.sales_invoice) if doc.get("sales_invoice") else None
+	total_due = flt(invoice.grand_total, 2) if invoice else flt(fallback_total, 2)
+	summary = service_order_payments.payment_summary(doc.name, total_due)
+	config = get_operation_config()
+	return {
+		"sales_invoice": doc.get("sales_invoice") or None,
+		"sales_invoice_status": invoice.status if invoice else None,
+		"total_due": total_due,
+		"paid_total": summary["paid_total"],
+		"remaining_total": summary["remaining_total"],
+		"payments": summary["items"],
+		"options": {
+			"advance": bool(config["payments"]["advance_enabled"]),
+			"installments": bool(config["payments"]["installments_enabled"]),
+			"tradein": bool(config["payments"]["device_tradein_enabled"]),
+			"diagnostic_fee": bool(config["diagnostic_fee"]["enabled"]),
+			"storage_fee": bool(config["storage_fee"]["enabled"]),
+		},
+	}
 
 
 def _get_allowed_kanban_action(current_state: str | None, target_state: str) -> str:

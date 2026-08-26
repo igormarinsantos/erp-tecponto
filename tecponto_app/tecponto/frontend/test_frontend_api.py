@@ -18,6 +18,7 @@ from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry impor
 )
 
 from tecponto_app.tecponto.customer import CUSTOMER_NO_CPF_FIELD
+from tecponto_app.tecponto.financial import native_financial_posting
 from tecponto_app.tecponto.company_identity import (
 	get_company_identity,
 	get_public_company_identity,
@@ -62,6 +63,8 @@ from tecponto_app.tecponto.frontend.api import (
 	list_trade_evaluations,
 	create_trade_evaluation,
 	complete_trade_buyback,
+	receive_service_order_payment,
+	list_service_order_tradein_candidates,
 	list_tradein_output_devices,
 	confirm_tradein_operation,
 	move_service_order,
@@ -254,6 +257,7 @@ def run_foundation_checks() -> dict:
 		cash_session_check = run_cash_session_checks()
 		pos_cash_integration_check = run_pos_cash_integration_checks()
 		cash_closing_check = run_cash_closing_checks()
+		service_order_cash_check = run_service_order_cash_checks()
 		technician_part_request_check = run_technician_part_request_checks()
 		part_purchase_cycle_check = run_part_purchase_cycle_checks()
 		part_receipt_check = run_part_receipt_reservation_checks()
@@ -321,6 +325,7 @@ def run_foundation_checks() -> dict:
 			"cash_session": cash_session_check,
 			"pos_cash_integration": pos_cash_integration_check,
 			"cash_closing": cash_closing_check,
+			"service_order_cash": service_order_cash_check,
 			"technician_part_requests": technician_part_request_check,
 			"part_purchase_cycle": part_purchase_cycle_check,
 			"part_receipt_reservation": part_receipt_check,
@@ -5436,6 +5441,188 @@ def _ensure_default_test_cash_session(attendant: str) -> None:
 		idempotency_key="tp-local-test-default-cash-session",
 		opened_by=attendant,
 	)
+
+
+def run_service_order_cash_checks() -> dict:
+	"""Prove OS receipts, conditional fees and non-cash consideration stay atomic."""
+	previous_user = frappe.session.user
+	settings_fields = [
+		"diagnostic_fee_enabled",
+		"diagnostic_fee_amount",
+		"storage_fee_enabled",
+		"storage_fee_amount",
+		"payment_advance_enabled",
+		"payment_installments_enabled",
+		"payment_device_tradein_enabled",
+	]
+	settings_before = {field: frappe.db.get_single_value("Tecponto Settings", field) for field in settings_fields}
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		_ensure_default_test_cash_session(attendant)
+		frappe.db.set_single_value(
+			"Tecponto Settings",
+			{
+				"diagnostic_fee_enabled": 1,
+				"diagnostic_fee_amount": 35,
+				"storage_fee_enabled": 0,
+				"storage_fee_amount": 4.5,
+				"payment_advance_enabled": 1,
+				"payment_installments_enabled": 1,
+				"payment_device_tradein_enabled": 1,
+			},
+			update_modified=False,
+		)
+
+		def make_invoiced_order(slug: str, state: str = "Pronto para retirada"):
+			order_name = _create_action_request_service_order(attendant)
+			frappe.db.set_value(
+				"Service Order",
+				order_name,
+				{"workflow_state": state, "link_acceptance_required": 0, "sales_invoice": None},
+				update_modified=False,
+			)
+			from tecponto_app.tecponto.service_order.billing import gerar_nota
+
+			doc = frappe.get_doc("Service Order", order_name)
+			gerar_nota(doc)
+			return frappe.get_doc("Service Order", order_name)
+
+		frappe.set_user(attendant)
+		cash_before = get_open_cash_session()["drawer_balance"]
+		cash_order = make_invoiced_order("cash")
+		cash_receipt = receive_service_order_payment(
+			cash_order.name,
+			{"kind": "regular", "amount": 50, "mode_of_payment": "Dinheiro", "idempotency_key": f"tp-os-cash-{frappe.generate_hash(length=18)}"},
+		)
+		if get_open_cash_session()["drawer_balance"] != flt(cash_before + 50, 2) or not cash_receipt["payment"]["affects_drawer"]:
+			raise AssertionError("Pagamento de OS em dinheiro não entrou na gaveta.")
+
+		diagnostic_order_name = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order", diagnostic_order_name, {"workflow_state": "Reprovado", "link_acceptance_required": 0, "diagnosis_fee_enabled": 1, "diagnosis_fee_value": 35}, update_modified=False
+		)
+		from tecponto_app.tecponto.service_order.billing import gerar_nota
+
+		gerar_nota(frappe.get_doc("Service Order", diagnostic_order_name))
+		diagnostic_fee = receive_service_order_payment(
+			diagnostic_order_name,
+			{"kind": "diagnostic_fee", "amount": 35, "mode_of_payment": "Pix", "idempotency_key": f"tp-os-diag-{frappe.generate_hash(length=18)}"},
+		)
+		if diagnostic_fee["payment"]["affects_drawer"]:
+			raise AssertionError("Taxa de diagnóstico em Pix alterou a gaveta.")
+		frappe.db.set_single_value("Tecponto Settings", "diagnostic_fee_enabled", 0)
+		fee_disabled = False
+		try:
+			receive_service_order_payment(
+			diagnostic_order_name,
+				{"kind": "diagnostic_fee", "amount": 35, "mode_of_payment": "Pix", "idempotency_key": f"tp-os-diag-off-{frappe.generate_hash(length=18)}"},
+			)
+		except frappe.ValidationError:
+			fee_disabled = True
+		if not fee_disabled:
+			raise AssertionError("Taxa de diagnóstico foi cobrada com o toggle desligado.")
+		frappe.db.set_single_value("Tecponto Settings", "diagnostic_fee_enabled", 1)
+
+		advance_order_name = _create_action_request_service_order(attendant)
+		advance = receive_service_order_payment(
+			advance_order_name,
+			{"kind": "advance", "amount": 20, "mode_of_payment": "Dinheiro", "idempotency_key": f"tp-os-advance-{frappe.generate_hash(length=18)}"},
+		)
+		frappe.db.set_value("Service Order", advance_order_name, {"workflow_state": "Pronto para retirada", "link_acceptance_required": 0}, update_modified=False)
+		gerar_nota(frappe.get_doc("Service Order", advance_order_name))
+		advance_order = frappe.get_doc("Service Order", advance_order_name)
+		advance_invoice = frappe.get_doc("Sales Invoice", advance_order.sales_invoice)
+		if not advance["payment"]["cash_movement"] or flt(advance_invoice.outstanding_amount) >= flt(advance_invoice.grand_total):
+			raise AssertionError("Sinal não foi alocado na nota da OS.")
+		rest = receive_service_order_payment(
+			advance_order.name,
+			{"kind": "regular", "amount": flt(advance_invoice.outstanding_amount), "mode_of_payment": "Pix", "idempotency_key": f"tp-os-rest-{frappe.generate_hash(length=18)}"},
+		)
+		if rest["detail"]["finance"]["remaining_total"] != 0:
+			raise AssertionError("Pagamento do restante não zerou o saldo da OS.")
+
+		installment_order = make_invoiced_order("installment")
+		first_installment = receive_service_order_payment(
+			installment_order.name,
+			{"kind": "installment", "amount": 30, "mode_of_payment": "Dinheiro", "idempotency_key": f"tp-os-installment-1-{frappe.generate_hash(length=18)}"},
+		)
+		second_installment = receive_service_order_payment(
+			installment_order.name,
+			{"kind": "installment", "amount": 30, "mode_of_payment": "Pix", "idempotency_key": f"tp-os-installment-2-{frappe.generate_hash(length=18)}"},
+		)
+		if not first_installment["payment"]["cash_movement"] or second_installment["payment"]["affects_drawer"]:
+			raise AssertionError("Parcelas não registraram cada pagamento pela forma correta.")
+
+		trade_order_name = _create_action_request_service_order(attendant)
+		frappe.set_user("Administrator")
+		trade = frappe.get_doc(
+			{
+				"doctype": "Device Trade Evaluation",
+				"naming_series": "TROCA-.YYYY.-.####",
+				"customer": frappe.db.get_value("Service Order", trade_order_name, "customer"),
+				"evaluated_device_desc": "Aparelho usado como pagamento da OS",
+				"approved_value": 40,
+			}
+		)
+		trade.insert(ignore_permissions=True)
+		frappe.set_user(attendant)
+		trade_candidates = list_service_order_tradein_candidates(trade_order_name)
+		if trade.name not in {item["name"] for item in trade_candidates["items"]}:
+			raise AssertionError("Avaliação elegível não apareceu para abatimento da OS.")
+		drawer_before_trade = get_open_cash_session()["drawer_balance"]
+		trade_payment = receive_service_order_payment(
+			trade_order_name,
+			{"kind": "tradein", "amount": 40, "trade_evaluation": trade.name, "idempotency_key": f"tp-os-trade-{frappe.generate_hash(length=18)}"},
+		)
+		if trade_payment["payment"]["cash_movement"] or get_open_cash_session()["drawer_balance"] != drawer_before_trade:
+			raise AssertionError("Aparelho como pagamento alterou indevidamente a gaveta.")
+
+		cancel_order_name = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", cancel_order_name, "workflow_state", "Cancelado", update_modified=False)
+		cancel_adjustment = receive_service_order_payment(
+			cancel_order_name,
+			{"kind": "cancellation_adjustment", "amount": 10, "mode_of_payment": "Dinheiro", "direction": "Saída", "reason": "Estorno complementar registrado.", "idempotency_key": f"tp-os-cancel-{frappe.generate_hash(length=18)}"},
+		)
+		if cancel_adjustment["payment"]["direction"] != "Saída" or not cancel_adjustment["payment"]["reason"]:
+			raise AssertionError("Ajuste de cancelamento não ficou auditado.")
+
+		atomic_order = make_invoiced_order("atomic")
+		payment_count_before = frappe.db.count("Payment Entry", {"party": atomic_order.customer, "docstatus": 1})
+		movement_count_before = frappe.db.count(CASH_MOVEMENT_DOCTYPE)
+		atomic_failed = False
+		with patch("tecponto_app.tecponto.service_order.payments.record_cash_movement", side_effect=RuntimeError("falha simulada após Payment Entry")):
+			try:
+				receive_service_order_payment(
+					atomic_order.name,
+					{"kind": "regular", "amount": 10, "mode_of_payment": "Dinheiro", "idempotency_key": f"tp-os-atomic-{frappe.generate_hash(length=18)}"},
+				)
+			except RuntimeError:
+				atomic_failed = True
+		if not atomic_failed or frappe.db.count(CASH_MOVEMENT_DOCTYPE) != movement_count_before or frappe.db.count("Payment Entry", {"party": atomic_order.customer, "docstatus": 1}) != payment_count_before:
+			raise AssertionError("Falha na cobrança da OS deixou Payment Entry ou caixa pela metade.")
+		if frappe.session.user != attendant:
+			raise AssertionError("Falha na cobrança da OS não restaurou a sessão do atendente.")
+		posting_failure_restores_session = False
+		try:
+			with native_financial_posting():
+				if frappe.session.user != "Administrator":
+					raise AssertionError("Elevação de postagem não entrou no escopo administrativo.")
+				raise RuntimeError("falha simulada durante a postagem nativa")
+		except RuntimeError:
+			posting_failure_restores_session = frappe.session.user == attendant
+		if not posting_failure_restores_session:
+			raise AssertionError("Falha durante a postagem nativa deixou a sessão elevada.")
+
+		finance = get_service_order_detail(advance_order.name)["finance"]
+		leaks = contains_sensitive_field({"finance": finance, "payments": [cash_receipt, diagnostic_fee, advance, rest, first_installment, second_installment, trade_payment, cancel_adjustment]})
+		if leaks:
+			raise AssertionError(f"Pagamento de OS vazou custo ou margem: {', '.join(leaks)}")
+		return {"status": "ok", "cash_receipt": cash_receipt["payment"]["name"], "diagnostic_toggle": fee_disabled, "advance_and_remainder": True, "installments": True, "tradein_no_drawer": True, "cancellation_adjustment": True, "atomic_rollback": True, "session_restored_after_posting_failure": posting_failure_restores_session, "leaked_fields": leaks}
+	finally:
+		frappe.db.set_single_value("Tecponto Settings", settings_before)
+		frappe.set_user(previous_user)
 
 
 def run_technician_part_request_checks() -> dict:

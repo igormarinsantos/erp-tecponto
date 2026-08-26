@@ -127,7 +127,7 @@ def record_cash_movement(
 		frappe.throw(_("O valor do movimento não pode ser negativo."), frappe.ValidationError)
 	if direction not in {DIRECTION_IN, DIRECTION_OUT}:
 		frappe.throw(_("Direção de movimento de caixa inválida."), frappe.ValidationError)
-	if movement_type not in {MOVEMENT_OPENING, "Recebimento de venda", "Sangria", "Suprimento", "Estorno", "Ajuste"}:
+	if movement_type not in {MOVEMENT_OPENING, "Recebimento de venda", "Recebimento de OS", "Sangria", "Suprimento", "Estorno", "Ajuste"}:
 		frappe.throw(_("Tipo de movimento de caixa inválido."), frappe.ValidationError)
 	key = _validate_idempotency_key(idempotency_key)
 

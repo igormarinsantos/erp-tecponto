@@ -13,6 +13,9 @@ import type {
   ServiceOrderListResponse,
   ServiceOrderStatBarResponse,
   ServiceOrderMoveResponse,
+	ServiceOrderPaymentPayload,
+	ServiceOrderPaymentResponse,
+	ServiceOrderTradeinCandidate,
   TrackingLinkResponse,
 } from "./types";
 
@@ -102,6 +105,12 @@ export const serviceOrders = {
       body: { name, payload },
     });
   },
+	collectPayment(name: string, payload: ServiceOrderPaymentPayload) {
+		return rpc<ServiceOrderPaymentResponse>(`${API}.receive_service_order_payment`, { body: { name, payload } });
+	},
+	tradeinCandidates(name: string) {
+		return rpc<{ items: ServiceOrderTradeinCandidate[] }>(`${API}.list_service_order_tradein_candidates`, { query: { name } });
+	},
   issueTrackingLink(name: string) {
     return rpc<TrackingLinkResponse>(`${TRACKING_API}.issue_service_order_tracking_link`, {
       body: { service_order: name },

@@ -77,6 +77,8 @@ import {
   type RolePanel,
   type ServiceOrderBudgetLine,
   type ServiceOrderDetailResponse,
+	 type ServiceOrderPaymentPayload,
+	 type ServiceOrderTradeinCandidate,
   type ServiceOrderPrintLink,
   type ServiceOrderQueryParams,
   type ServiceOrderTimelineEvent,
@@ -3215,6 +3217,11 @@ function ServiceOrderDetail({
 			onStartNoRepairPickup={() => void startNoRepairPickup()}
           />
           <ServiceOrderAttendanceCard detail={detail} />
+			<ServiceOrderPaymentCard
+				detail={detail}
+				onToast={onToast}
+				onUpdated={(updated) => setState({ status: "ready", detail: updated })}
+			/>
         </aside>
       </div>
       <BudgetDecisionModal
@@ -4150,6 +4157,135 @@ function ServiceOrderAttendanceCard({ detail }: { detail: ServiceOrderDetailResp
       </dl>
     </Card>
   );
+}
+
+function ServiceOrderPaymentCard({
+	detail,
+	onToast,
+	onUpdated,
+}: {
+	detail: ServiceOrderDetailResponse;
+	onToast: (message: string, tone?: ToastState["tone"]) => void;
+	onUpdated: (detail: ServiceOrderDetailResponse) => void;
+}) {
+	type PaymentKind = ServiceOrderPaymentPayload["kind"];
+	const [open, setOpen] = useState(false);
+	const [kind, setKind] = useState<PaymentKind>("regular");
+	const [amount, setAmount] = useState("");
+	const [mode, setMode] = useState("Dinheiro");
+	const [direction, setDirection] = useState<"Entrada" | "Saída">("Saída");
+	const [reason, setReason] = useState("");
+	const [tradeins, setTradeins] = useState<ServiceOrderTradeinCandidate[]>([]);
+	const [tradein, setTradein] = useState("");
+	const [loadingTradeins, setLoadingTradeins] = useState(false);
+	const [submitting, setSubmitting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const options = useMemo(() => {
+		const items: Array<{ value: PaymentKind; label: string }> = [];
+		if (detail.finance.sales_invoice) items.push({ value: "regular", label: "Pagamento da OS" });
+		if (detail.finance.options.advance && !detail.finance.sales_invoice) items.push({ value: "advance", label: "Sinal" });
+		if (detail.finance.options.installments && detail.finance.sales_invoice) items.push({ value: "installment", label: "Parcela" });
+		if (detail.finance.options.diagnostic_fee && detail.finance.sales_invoice && ["Reprovado", "Orçamento expirado"].includes(detail.workflow_state || "")) items.push({ value: "diagnostic_fee", label: "Taxa de diagnóstico" });
+		if (detail.finance.options.storage_fee && detail.finance.sales_invoice) items.push({ value: "storage_fee", label: "Taxa de armazenamento" });
+		if (detail.finance.options.tradein && detail.finance.remaining_total > 0) items.push({ value: "tradein", label: "Aparelho como pagamento" });
+		if (detail.workflow_state === "Cancelado") items.push({ value: "cancellation_adjustment", label: "Ajuste de cancelamento" });
+		return items;
+	}, [detail]);
+
+	useEffect(() => {
+		if (!open) return;
+		const first = options[0]?.value ?? "regular";
+		setKind(first);
+		setAmount(detail.finance.remaining_total > 0 ? detail.finance.remaining_total.toFixed(2) : "");
+		setMode("Dinheiro");
+		setDirection("Saída");
+		setReason("");
+		setTradein("");
+		setTradeins([]);
+		setError(null);
+	}, [detail.name, detail.finance.remaining_total, open, options]);
+
+	useEffect(() => {
+		if (!open || kind !== "tradein") return;
+		let cancelled = false;
+		setLoadingTradeins(true);
+		serviceOrders.tradeinCandidates(detail.name)
+			.then((response) => {
+				if (!cancelled) setTradeins(response.items);
+			})
+			.catch((caught) => {
+				if (!cancelled) setError(caught instanceof Error ? caught.message : "Não foi possível carregar avaliações.");
+			})
+			.finally(() => { if (!cancelled) setLoadingTradeins(false); });
+		return () => { cancelled = true; };
+	}, [detail.name, kind, open]);
+
+	useEffect(() => {
+		if (kind === "diagnostic_fee") {
+			setAmount("");
+		}
+		if (kind === "tradein") {
+			const selected = tradeins.find((item) => item.name === tradein);
+			if (selected) setAmount(selected.amount.toFixed(2));
+		}
+	}, [kind, tradein, tradeins]);
+
+	if (detail.technical_view) return null;
+	const hasOptions = options.length > 0;
+	const isCancellation = kind === "cancellation_adjustment";
+	const requiresReason = isCancellation;
+	const selectedTradein = tradeins.find((item) => item.name === tradein);
+	const effectiveAmount = Number(amount.replace(",", "."));
+	const canSubmit = hasOptions && effectiveAmount > 0 && (!requiresReason || Boolean(reason.trim())) && (kind !== "tradein" || Boolean(selectedTradein));
+
+	async function submit() {
+		if (!canSubmit) return;
+		setSubmitting(true);
+		setError(null);
+		try {
+			const response = await serviceOrders.collectPayment(detail.name, {
+				kind,
+				amount: effectiveAmount,
+				mode_of_payment: kind === "tradein" ? undefined : mode,
+				direction: isCancellation ? direction : "Entrada",
+				reason: reason.trim(),
+				trade_evaluation: kind === "tradein" ? tradein : undefined,
+				idempotency_key: `os-payment-${detail.name}-${crypto.randomUUID()}`,
+			});
+			onUpdated(response.detail);
+			setOpen(false);
+			onToast(response.payment.idempotent_replay ? "Pagamento já estava registrado." : "Pagamento registrado no financeiro e no caixa.");
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Não foi possível registrar o pagamento.");
+		} finally {
+			setSubmitting(false);
+		}
+	}
+
+	return (
+		<Card className="p-5">
+			<div className="flex items-center justify-between gap-3">
+				<div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-control bg-tec-success/10 text-tec-success"><CreditCard size={19} /></span><div><h3 className="text-lg font-bold text-white">Financeiro da OS</h3><p className="text-xs text-tec-muted">Recebimentos sempre exigem caixa aberto.</p></div></div>
+				<Button disabled={!hasOptions} onClick={() => setOpen(true)} variant="secondary">Receber</Button>
+			</div>
+			<dl className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
+				{[["Total", detail.finance.total_due], ["Pago", detail.finance.paid_total], ["Restante", detail.finance.remaining_total]].map(([label, value]) => <div className="rounded-control bg-tec-field/45 px-3 py-2" key={String(label)}><dt className="text-xs font-semibold text-tec-muted">{label}</dt><dd className="mt-1 font-bold text-tec-subtle">{formatCurrency(Number(value))}</dd></div>)}
+			</dl>
+			{detail.finance.payments.length ? <div className="mt-4 space-y-2 border-t border-tec-border/20 pt-3">{detail.finance.payments.slice(-3).reverse().map((payment) => <div className="flex items-center justify-between gap-3 text-xs" key={payment.name}><span className="truncate text-tec-muted">{payment.kind} · {payment.payment_mode || "não monetário"}</span><strong className={payment.direction === "Saída" ? "text-tec-red" : "text-tec-success"}>{payment.direction === "Saída" ? "−" : "+"}{formatCurrency(payment.amount)}</strong></div>)}</div> : null}
+			{!hasOptions ? <p className="mt-4 rounded-control border border-tec-border/20 bg-tec-field/45 p-3 text-xs text-tec-muted">Gere a nota para receber o saldo. As modalidades desligadas pela configuração da loja não aparecem aqui.</p> : null}
+			<Modal className="max-w-lg" onClose={() => setOpen(false)} open={open} title={`Receber ${detail.name}`}>
+				<div className="space-y-4">
+					<label className="block"><span className="mb-1 block text-xs font-bold uppercase text-tec-muted">Natureza</span><select className="tp-input" onChange={(event) => setKind(event.target.value as PaymentKind)} value={kind}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+					{kind === "tradein" ? <label className="block"><span className="mb-1 block text-xs font-bold uppercase text-tec-muted">Avaliação do aparelho</span><select className="tp-input" disabled={loadingTradeins} onChange={(event) => setTradein(event.target.value)} value={tradein}><option value="">{loadingTradeins ? "Carregando..." : "Selecione uma avaliação"}</option>{tradeins.map((item) => <option key={item.name} value={item.name}>{item.label} · {formatCurrency(item.amount)}</option>)}</select><p className="mt-2 text-xs text-tec-muted">Abate o saldo pela avaliação aprovada; não adiciona dinheiro à gaveta.</p></label> : <><label className="block"><span className="mb-1 block text-xs font-bold uppercase text-tec-muted">Forma de pagamento</span><select className="tp-input" onChange={(event) => setMode(event.target.value)} value={mode}>{["Dinheiro", "Pix", "Débito", "Crédito à vista", "Crédito parcelado"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>{isCancellation ? <label className="block"><span className="mb-1 block text-xs font-bold uppercase text-tec-muted">Direção do ajuste</span><select className="tp-input" onChange={(event) => setDirection(event.target.value as "Entrada" | "Saída")} value={direction}><option value="Saída">Devolver ao cliente</option><option value="Entrada">Receber ajuste</option></select></label> : null}</>}
+					<label className="block"><span className="mb-1 block text-xs font-bold uppercase text-tec-muted">Valor</span><input className="tp-input" inputMode="decimal" onChange={(event) => setAmount(event.target.value)} value={amount} /></label>
+					<label className="block"><span className="mb-1 block text-xs font-bold uppercase text-tec-muted">Observação{requiresReason ? " *" : ""}</span><textarea className="tp-input min-h-24" onChange={(event) => setReason(event.target.value)} placeholder={requiresReason ? "Explique o ajuste de cancelamento." : "Opcional"} value={reason} /></label>
+					{error ? <p className="rounded-control border border-tec-red/35 bg-tec-red/10 p-3 text-sm text-tec-red">{error}</p> : null}
+					<Button className="w-full" disabled={!canSubmit || submitting} icon={<CreditCard size={17} />} onClick={() => void submit()} variant="primary">{submitting ? "Registrando..." : "Registrar pagamento"}</Button>
+				</div>
+			</Modal>
+		</Card>
+	);
 }
 
 function IdentityCard({

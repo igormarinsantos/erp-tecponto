@@ -1,0 +1,35 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["naming_series", "service_order", "payment_entry", "cash_movement", "source_doctype", "source_name", "payment_kind", "direction", "amount", "payment_mode", "affects_drawer", "reason", "idempotency_key", "request_hash"],
+ "fields": [
+  {"fieldname":"naming_series","fieldtype":"Select","label":"Série","options":"TPOSPAY-.YYYY.-.#####","default":"TPOSPAY-.YYYY.-.#####","reqd":1,"read_only":1},
+  {"fieldname":"service_order","fieldtype":"Link","label":"Ordem de serviço","options":"Service Order","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"payment_entry","fieldtype":"Link","label":"Payment Entry","options":"Payment Entry","read_only":1},
+  {"fieldname":"cash_movement","fieldtype":"Link","label":"Movimento de caixa","options":"Tecponto Cash Movement","read_only":1},
+  {"fieldname":"source_doctype","fieldtype":"Data","label":"Tipo da origem não monetária","read_only":1},
+  {"fieldname":"source_name","fieldtype":"Dynamic Link","label":"Origem não monetária","options":"source_doctype","read_only":1},
+  {"fieldname":"payment_kind","fieldtype":"Select","label":"Natureza","options":"Pagamento da OS\nSinal\nParcela\nTaxa de diagnóstico\nTaxa de armazenamento\nAparelho como pagamento\nAjuste de cancelamento","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"direction","fieldtype":"Select","label":"Direção","options":"Entrada\nSaída","reqd":1,"read_only":1},
+  {"fieldname":"amount","fieldtype":"Currency","label":"Valor","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"payment_mode","fieldtype":"Data","label":"Forma de pagamento","read_only":1},
+  {"fieldname":"affects_drawer","fieldtype":"Check","label":"Afeta gaveta física","default":"0","read_only":1},
+  {"fieldname":"reason","fieldtype":"Small Text","label":"Observação","read_only":1},
+  {"fieldname":"idempotency_key","fieldtype":"Data","label":"Chave idempotente","reqd":1,"read_only":1,"unique":1},
+  {"fieldname":"request_hash","fieldtype":"Data","label":"Hash da solicitação","reqd":1,"read_only":1}
+ ],
+ "module": "Tecponto",
+ "name": "Tecponto Service Order Payment",
+ "permissions": [
+  {"role":"System Manager","read":1,"report":1,"export":1,"print":1},
+  {"role":"Tecponto Diretor","read":1,"report":1,"export":1,"print":1},
+  {"role":"Tecponto Gestor","read":1,"report":1,"export":1,"print":1},
+  {"role":"Tecponto Atendente","read":1,"report":1,"print":1}
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
