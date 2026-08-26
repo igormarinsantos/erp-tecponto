@@ -1,0 +1,26 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:idempotency_key",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["idempotency_key", "request_hash", "status", "requested_by", "original_invoice", "return_invoice"],
+ "fields": [
+  {"fieldname":"idempotency_key","fieldtype":"Data","label":"Referência idempotente","reqd":1,"read_only":1,"unique":1,"in_list_view":1},
+  {"fieldname":"request_hash","fieldtype":"Data","label":"Hash da solicitação","reqd":1,"read_only":1},
+  {"fieldname":"status","fieldtype":"Select","label":"Status","options":"Processando\nConcluída","default":"Processando","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"requested_by","fieldtype":"Link","label":"Solicitado por","options":"User","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"original_invoice","fieldtype":"Link","label":"Venda original","options":"Sales Invoice","reqd":1,"read_only":1},
+  {"fieldname":"return_invoice","fieldtype":"Link","label":"Nota de retorno","options":"Sales Invoice","read_only":1,"in_list_view":1}
+ ],
+ "module": "Tecponto",
+ "name": "Tecponto Post Sale Request",
+ "permissions": [
+  {"role":"System Manager","read":1,"report":1,"export":1},
+  {"role":"Tecponto Diretor","read":1,"report":1,"export":1},
+  {"role":"Tecponto Gestor","read":1,"report":1,"export":1},
+  {"role":"Tecponto Atendente","read":1,"report":1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

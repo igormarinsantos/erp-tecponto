@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from contextlib import contextmanager
@@ -35,7 +36,12 @@ from tecponto_app.tecponto.lean_operations import operation_shape, technician_co
 from tecponto_app.tecponto.operation_config import get_operation_config
 from tecponto_app.tecponto import user_access
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_DOCTYPE, POS_OPERATOR_ROLES
-from tecponto_app.tecponto.cash import get_open_cash_session, open_cash_session
+from tecponto_app.tecponto.cash import (
+	get_open_cash_session,
+	open_cash_session,
+	record_sales_invoice_cash_movements,
+	require_open_cash_session,
+)
 from tecponto_app.tecponto.permissions import is_restricted_technician, service_order_scope_filters
 from tecponto_app.tecponto.service_order import stage_clock, stage_sla
 from tecponto_app.tecponto.service_order.parts import (
@@ -92,6 +98,7 @@ CHECKIN_ALLOWED_ROLES = {
 ATTENDANT_FLOW_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POS_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POST_SALE_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
+POST_SALE_IDEMPOTENCY_DOCTYPE = "Tecponto Post Sale Request"
 TRADEIN_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES | {"Tecponto Diretor"}
 SERVICE_CATALOG_EDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 STORE_OPERATION_MANAGER_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
@@ -793,11 +800,13 @@ def create_sales_return(payload: str | dict[str, Any] | None = None) -> dict[str
 	"""Submit ERPNext's native Sales Invoice Return for selected, still-returnable lines."""
 	_require_post_sale_role()
 	data = _parse_payload(payload)
-	with _run_post_sale_mutation():
-		return_doc = _build_sales_return(data)
-		return_doc.insert(ignore_permissions=True)
-		return_doc.submit()
-	return {"return_invoice": return_doc.name, "return_against": return_doc.return_against, "grand_total": flt(return_doc.grand_total)}
+	return_doc, replay = _create_sales_return_with_cash(data)
+	return {
+		"return_invoice": return_doc.name,
+		"return_against": return_doc.return_against,
+		"grand_total": flt(return_doc.grand_total),
+		"idempotent_replay": replay,
+	}
 
 
 @frappe.whitelist()
@@ -807,17 +816,16 @@ def exchange_sales_product(payload: str | dict[str, Any] | None = None) -> dict[
 	data = _parse_payload(payload)
 	from tecponto_app.tecponto.frontend.pos import pos_create_sale
 
-	frappe.db.savepoint("frontend_product_exchange")
+	exchange_key = _validate_post_sale_idempotency_key(data.get("idempotency_key"))
+	savepoint = f"frontend_product_exchange_{frappe.generate_hash(length=12)}"
+	frappe.db.savepoint(savepoint)
 	try:
-		with _run_post_sale_mutation():
-			return_doc = _build_sales_return(data)
-			return_doc.insert(ignore_permissions=True)
-			return_doc.submit()
+		return_doc, _return_replay = _create_sales_return_with_cash({**data, "idempotency_key": f"{exchange_key}:return"})
 		new_sale = pos_create_sale(data.get("new_sale"))
 		return_doc.db_set("remarks", f"Troca Tecponto: venda nova {new_sale['sale']}", update_modified=False)
 		frappe.db.set_value("Sales Invoice", new_sale["sale"], "remarks", f"Troca Tecponto: devolucao {return_doc.name}", update_modified=False)
 	except Exception:
-		frappe.db.rollback(save_point="frontend_product_exchange")
+		frappe.db.rollback(save_point=savepoint)
 		raise
 	return {"return_invoice": return_doc.name, "new_sale": new_sale}
 
@@ -2962,6 +2970,85 @@ def _run_post_sale_mutation():
 	finally:
 		if previous_user:
 			frappe.set_user(previous_user)
+
+
+def _create_sales_return_with_cash(data: dict[str, Any]):
+	"""Create one native return and its operational movements as one database unit."""
+	key = _validate_post_sale_idempotency_key(data.get("idempotency_key"))
+	request_hash = _post_sale_request_hash(data)
+	existing = _get_existing_post_sale_request(key, request_hash)
+	if existing:
+		return frappe.get_doc("Sales Invoice", existing.return_invoice), True
+
+	savepoint = f"tp_post_sale_{frappe.generate_hash(length=12)}"
+	frappe.db.savepoint(savepoint)
+	try:
+		original = frappe.get_doc("Sales Invoice", (data.get("invoice") or "").strip())
+		require_open_cash_session(company=original.company)
+		request = frappe.get_doc(
+			{
+				"doctype": POST_SALE_IDEMPOTENCY_DOCTYPE,
+				"idempotency_key": key,
+				"request_hash": request_hash,
+				"status": "Processando",
+				"requested_by": frappe.session.user,
+				"original_invoice": original.name,
+			}
+		)
+		request.insert(ignore_permissions=True)
+		with _run_post_sale_mutation():
+			return_doc = _build_sales_return(data)
+			return_doc.insert(ignore_permissions=True)
+			return_doc.submit()
+		record_sales_invoice_cash_movements(invoice=return_doc, idempotency_prefix=f"return:{key}")
+		request.return_invoice = return_doc.name
+		request.status = "Concluída"
+		request.save(ignore_permissions=True)
+		return return_doc, False
+	except frappe.UniqueValidationError:
+		frappe.db.rollback(save_point=savepoint)
+		existing = _get_existing_post_sale_request(key, request_hash)
+		if existing:
+			return frappe.get_doc("Sales Invoice", existing.return_invoice), True
+		raise
+	except Exception:
+		frappe.db.rollback(save_point=savepoint)
+		raise
+
+
+def _validate_post_sale_idempotency_key(value: Any) -> str:
+	key = str(value or "").strip()
+	if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,95}", key):
+		frappe.throw(_("Referência idempotente da devolução inválida."), frappe.ValidationError)
+	return key
+
+
+def _post_sale_request_hash(data: dict[str, Any]) -> str:
+	items = sorted(
+		[
+			{"item_code": str(row.get("item_code") or "").strip(), "qty": flt(row.get("qty"), 3)}
+			for row in (data.get("items") or [])
+			if isinstance(row, dict)
+		],
+		key=lambda row: row["item_code"],
+	)
+	canonical = json.dumps({"invoice": str(data.get("invoice") or "").strip(), "items": items}, sort_keys=True, separators=(",", ":"))
+	return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _get_existing_post_sale_request(key: str, request_hash: str):
+	if not frappe.db.exists(POST_SALE_IDEMPOTENCY_DOCTYPE, key):
+		return None
+	request = frappe.get_doc(POST_SALE_IDEMPOTENCY_DOCTYPE, key)
+	if request.requested_by != frappe.session.user and frappe.session.user != "Administrator":
+		raise frappe.PermissionError(_("Esta referência de devolução pertence a outra sessão."))
+	if request.request_hash != request_hash:
+		frappe.throw(_("Esta referência de devolução já foi usada com dados diferentes."), frappe.ValidationError)
+	if request.status != "Concluída" or not request.return_invoice:
+		frappe.throw(_("Esta devolução ainda está sendo processada. Aguarde antes de reenviar."), frappe.ValidationError)
+	if frappe.db.get_value("Sales Invoice", request.return_invoice, "docstatus") != 1:
+		frappe.throw(_("A devolução vinculada a esta referência não está válida."), frappe.ValidationError)
+	return request
 
 
 def _build_sales_return(data: dict[str, Any]):

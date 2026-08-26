@@ -39,10 +39,10 @@ export const balcao = {
 	getSalePostSaleDetail(name: string) {
 		return rpc<SalePostSaleDetail>(`${API}.get_sale_post_sale_detail`, { query: { name } });
 	},
-	createSalesReturn(payload: { invoice: string; items: Array<{ item_code: string; qty: number }> }) {
+	createSalesReturn(payload: { invoice: string; items: Array<{ item_code: string; qty: number }>; idempotency_key: string }) {
 		return rpc<SalesReturnResponse>(`${API}.create_sales_return`, { body: { payload } });
 	},
-	exchangeSalesProduct(payload: { invoice: string; items: Array<{ item_code: string; qty: number }>; new_sale: unknown }) {
+	exchangeSalesProduct(payload: { invoice: string; items: Array<{ item_code: string; qty: number }>; idempotency_key: string; new_sale: unknown }) {
 		return rpc<{ return_invoice: string; new_sale: unknown }>(`${API}.exchange_sales_product`, { body: { payload } });
 	},
   getDashboardMetrics() {

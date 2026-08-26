@@ -6700,6 +6700,7 @@ function SalesLookup({ onNavigate }: { onNavigate: (target: NavigationTarget) =>
 }
 
 function SalesReturnModal({ invoiceName, onClose }: { invoiceName: string | null; onClose: () => void }) {
+	const returnRequestKeyRef = useRef<string | null>(null);
 	const [detail, setDetail] = useState<import("./api").SalePostSaleDetail | null>(null);
 	const [quantities, setQuantities] = useState<Record<string, number>>({});
 	const [state, setState] = useState<"loading" | "ready" | "saving" | "done" | "error">("loading");
@@ -6711,7 +6712,7 @@ function SalesReturnModal({ invoiceName, onClose }: { invoiceName: string | null
 	const [paymentMode, setPaymentMode] = useState("Pix");
 	useEffect(() => {
 		if (!invoiceName) return;
-		setState("loading"); setDetail(null); setQuantities({}); setMessage("");
+		setState("loading"); setDetail(null); setQuantities({}); setMessage(""); returnRequestKeyRef.current = null;
 		void balcao.getSalePostSaleDetail(invoiceName).then((result) => {
 			setDetail(result);
 			setQuantities(Object.fromEntries(result.items.filter((item) => item.available_qty > 0).map((item) => [item.item_code, 0])));
@@ -6729,12 +6730,14 @@ function SalesReturnModal({ invoiceName, onClose }: { invoiceName: string | null
 		if (!items.length) { setMessage("Selecione ao menos um item para devolver."); return; }
 		setState("saving");
 		try {
+			const requestKey = returnRequestKeyRef.current ?? `tp-return-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+			returnRequestKeyRef.current = requestKey;
 			if (exchange) {
 				if (!replacement) { setMessage("Selecione o produto que o cliente está levando."); setState("ready"); return; }
-				const result = await balcao.exchangeSalesProduct({ invoice: detail.name, items, new_sale: { customer: detail.customer || "CONSUMIDOR FINAL", items: [{ item_code: replacement.item_code, qty: 1 }], discount_amount: 0, payments: [{ mode_of_payment: paymentMode, amount: replacement.standard_rate, installments: 1 }], idempotency_key: `tp-exchange-${detail.name}-${Date.now()}` } });
+				const result = await balcao.exchangeSalesProduct({ invoice: detail.name, items, idempotency_key: requestKey, new_sale: { customer: detail.customer || "CONSUMIDOR FINAL", items: [{ item_code: replacement.item_code, qty: 1 }], discount_amount: 0, payments: [{ mode_of_payment: paymentMode, amount: replacement.standard_rate, installments: 1 }], idempotency_key: `${requestKey}:sale` } });
 				setMessage(`Troca registrada: devolução ${result.return_invoice} e nova venda concluída.`);
 			} else {
-				const result = await balcao.createSalesReturn({ invoice: detail.name, items });
+				const result = await balcao.createSalesReturn({ invoice: detail.name, items, idempotency_key: requestKey });
 				setMessage(`Devolução ${result.return_invoice} registrada. O ERPNext ajustou estoque e recebíveis pela forma original.`);
 			}
 			setState("done");

@@ -1,7 +1,7 @@
 import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, ExternalLink, Percent, RefreshCw, UserRound } from "lucide-react";
+import { CheckCircle2, ExternalLink, Percent, RefreshCw, UserRound, WalletCards } from "lucide-react";
 
-import { pos, type CashierOperatorIdentity, type CustomerSummary, type PosItemSummary, type PosSalePaymentPayload, type PosSaleResponse } from "./api";
+import { pos, type CashierOperatorIdentity, type CashSessionSummary, type CustomerSummary, type PosItemSummary, type PosSalePaymentPayload, type PosSaleResponse } from "./api";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { Button, Modal } from "./ui";
 import { AddProductPanel } from "./pos/AddProductPanel";
@@ -52,6 +52,11 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+	const [cashSession, setCashSession] = useState<CashSessionSummary | null>(null);
+	const [cashSessionLoading, setCashSessionLoading] = useState(true);
+	const [cashOpenModal, setCashOpenModal] = useState(false);
+	const [openingAmount, setOpeningAmount] = useState(0);
+	const [openingCash, setOpeningCash] = useState(false);
   const [completedSale, setCompletedSale] = useState<PosSaleResponse | null>(null);
   const [saleApproval, setSaleApproval] = useState<{
     payload: Record<string, unknown>;
@@ -76,6 +81,20 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
   useEffect(() => {
     focusScanner(true);
   }, [focusScanner]);
+
+	const refreshCashSession = useCallback(async () => {
+		setCashSessionLoading(true);
+		try {
+			const result = await pos.getCashSession();
+			setCashSession(result.session);
+		} catch (error) {
+			onToast(error instanceof Error ? error.message : "Não foi possível consultar o caixa.", "error");
+		} finally {
+			setCashSessionLoading(false);
+		}
+	}, [onToast]);
+
+	useEffect(() => { void refreshCashSession(); }, [refreshCashSession]);
 
   useEffect(() => {
     const normalized = query.trim();
@@ -290,12 +309,33 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
     if (!cart.length) {
       return;
     }
+		if (!cashSession) {
+			setCashOpenModal(true);
+			onToast("Abra o caixa antes de receber pagamentos.", "error");
+			return;
+		}
 	    if (cashierMode && !operatorIdentificationOptional && !cashierOperator?.token) {
       onToast("Identifique o operador pelo cracha ou PIN antes de finalizar.", "error");
       return;
     }
     setCheckoutOpen(true);
-	}, [cart.length, cashierMode, cashierOperator?.token, onToast, operatorIdentificationOptional]);
+	}, [cart.length, cashierMode, cashierOperator?.token, cashSession, onToast, operatorIdentificationOptional]);
+
+	const openCash = async () => {
+		setOpeningCash(true);
+		try {
+			const key = `tp-cash-open-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+			const opened = await pos.openCashSession(openingAmount, key);
+			setCashSession(opened);
+			setCashOpenModal(false);
+			onToast("Caixa aberto. Você já pode receber pagamentos.", "success");
+			focusScanner(true);
+		} catch (error) {
+			onToast(error instanceof Error ? error.message : "Não foi possível abrir o caixa.", "error");
+		} finally {
+			setOpeningCash(false);
+		}
+	};
 
   const submitSale = async (payments: PosSalePaymentPayload[]) => {
     if (!cart.length || checkoutLoading) {
@@ -375,6 +415,9 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
           <p className="mt-1 text-sm text-tec-subtle">{cashierMode ? "Bipe os produtos e finalize. Ao concluir, o caixa volta pronto para a proxima venda." : "Venda rápida por código de barras ou busca de produto."}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+			<Button icon={<WalletCards size={16} />} onClick={() => setCashOpenModal(true)} variant={cashSession ? "ghost" : "primary"}>
+				{cashSessionLoading ? "Consultando caixa..." : cashSession ? `Caixa aberto · R$ ${cashSession.drawer_balance.toFixed(2).replace(".", ",")}` : "Abrir caixa"}
+			</Button>
           <Button icon={<UserRound size={16} />} onClick={() => setCustomerOpen(true)}><kbd className="rounded-[6px] bg-tec-panel px-1.5 py-0.5 text-[10px]">F2</kbd> Identificar cliente</Button>
           <Button icon={<Percent size={16} />} onClick={() => discountRef.current?.focus()}><kbd className="rounded-[6px] bg-tec-panel px-1.5 py-0.5 text-[10px]">F3</kbd> Desconto</Button>
           <Button icon={<RefreshCw size={17} />} onClick={() => {
@@ -526,6 +569,9 @@ export function PosScreen({ cashierMode = false, cashierOperator = null, initial
           }} variant="danger">Limpar venda</Button>
         </div>
       </Modal>
+		<Modal className="max-w-md" onClose={openingCash ? () => undefined : () => setCashOpenModal(false)} open={cashOpenModal} title={cashSession ? "Caixa aberto" : "Abrir caixa"}>
+			{cashSession ? <div className="space-y-4"><p className="text-sm text-tec-subtle">O caixa está aberto desde {cashSession.opened_at} com saldo físico derivado de R$ {cashSession.drawer_balance.toFixed(2).replace(".", ",")}.</p><div className="flex justify-end"><Button onClick={() => setCashOpenModal(false)} variant="primary">Entendi</Button></div></div> : <div className="space-y-4"><p className="text-sm leading-6 text-tec-subtle">Informe o dinheiro físico inicial. Pix e cartão serão registrados nesta sessão, mas não alteram a gaveta.</p><label className="block text-sm font-semibold text-white">Valor inicial<input className="tp-input mt-2 w-full" disabled={openingCash} inputMode="decimal" min="0" onChange={(event) => setOpeningAmount(Math.max(0, Number(event.target.value) || 0))} step="0.01" type="number" value={openingAmount} /></label><div className="flex justify-end gap-2"><Button disabled={openingCash} onClick={() => setCashOpenModal(false)}>Cancelar</Button><Button disabled={openingCash} onClick={() => void openCash()} variant="primary">{openingCash ? "Abrindo..." : "Abrir caixa"}</Button></div></div>}
+		</Modal>
     </div>
   );
 }

@@ -604,6 +604,18 @@ export interface PosSalePayload {
   payments: PosSalePaymentPayload[];
 }
 
+export interface CashSessionSummary {
+	business_date: string;
+	cash_point: string;
+	drawer_balance: number;
+	movement_count: number;
+	opened_at: string;
+	opened_by: string;
+	opening_amount: number;
+	session: string;
+	status: "Aberto" | "Fechado";
+}
+
 export interface CashierOperatorIdentity {
   operator: string;
   operator_name: string;
@@ -902,6 +914,7 @@ export interface SalesReturnResponse {
 	return_invoice: string;
 	return_against: string;
 	grand_total: number;
+	idempotent_replay: boolean;
 }
 
 export interface SaleListResponse {

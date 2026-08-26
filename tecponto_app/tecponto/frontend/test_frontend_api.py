@@ -5,6 +5,7 @@ import os
 from base64 import b64encode
 from datetime import datetime
 from io import BytesIO
+from unittest.mock import patch
 from pathlib import Path
 
 import frappe
@@ -153,6 +154,7 @@ from tecponto_app.tecponto import notify
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD
 from tecponto_app.tecponto.cash import (
 	CASH_MOVEMENT_DOCTYPE,
+	get_open_cash_session,
 	get_cash_session_summary,
 	open_cash_session,
 	record_cash_movement,
@@ -209,6 +211,7 @@ def run_foundation_checks() -> dict:
 		user_access_checks = run_user_access_control_checks()
 		user_management_checks = run_user_management_api_checks()
 		users = {role: _find_or_create_user(role) for role in FRONTEND_ROLES}
+		_ensure_default_test_cash_session(users["Tecponto Atendente"])
 		company_identity_check = _check_company_identity(users["Tecponto Atendente"])
 		panel_checks = _check_role_panels(users)
 		orders_check = _check_service_order_api(users["Tecponto Gestor"])
@@ -244,6 +247,7 @@ def run_foundation_checks() -> dict:
 		lean_operation_check = run_lean_operation_checks()
 		operation_config_check = run_operation_config_checks()
 		cash_session_check = run_cash_session_checks()
+		pos_cash_integration_check = run_pos_cash_integration_checks()
 		technician_part_request_check = run_technician_part_request_checks()
 		part_purchase_cycle_check = run_part_purchase_cycle_checks()
 		part_receipt_check = run_part_receipt_reservation_checks()
@@ -309,6 +313,7 @@ def run_foundation_checks() -> dict:
 			"lean_operation": lean_operation_check,
 			"operation_config": operation_config_check,
 			"cash_session": cash_session_check,
+			"pos_cash_integration": pos_cash_integration_check,
 			"technician_part_requests": technician_part_request_check,
 			"part_purchase_cycle": part_purchase_cycle_check,
 			"part_receipt_reservation": part_receipt_check,
@@ -4705,7 +4710,7 @@ def run_post_sale_checks() -> dict:
 		sale = pos_create_sale({"idempotency_key": f"tp-return-pix-{frappe.generate_hash(length=16)}", "items": [{"item_code": item, "qty": 3}], "payments": [{"mode_of_payment": "Pix", "amount": 239.70, "installments": 1}]})
 		after_sale = _bin_qty(item, warehouse)
 		detail = get_sale_post_sale_detail(sale["sale"])
-		returned = create_sales_return({"invoice": sale["sale"], "items": [{"item_code": item, "qty": 1}]})
+		returned = create_sales_return({"invoice": sale["sale"], "items": [{"item_code": item, "qty": 1}], "idempotency_key": f"tp-return-pix-request-{frappe.generate_hash(length=16)}"})
 		after_return = _bin_qty(item, warehouse)
 		return_doc = frappe.get_doc("Sales Invoice", returned["return_invoice"])
 		if after_sale != before - 3 or after_return != after_sale + 1:
@@ -4717,7 +4722,7 @@ def run_post_sale_checks() -> dict:
 		if detail["items"][0]["available_qty"] != 3:
 			raise AssertionError("Detalhe de pós-venda não expôs a quantidade ainda devolvível.")
 		card_sale = pos_create_sale({"idempotency_key": f"tp-return-card-{frappe.generate_hash(length=16)}", "items": [{"item_code": POS_NAME_ITEM, "qty": 1}], "payments": [{"mode_of_payment": "Crédito à vista", "amount": 35.50, "installments": 1}]})
-		card_return = create_sales_return({"invoice": card_sale["sale"], "items": [{"item_code": POS_NAME_ITEM, "qty": 1}]})
+		card_return = create_sales_return({"invoice": card_sale["sale"], "items": [{"item_code": POS_NAME_ITEM, "qty": 1}], "idempotency_key": f"tp-return-card-request-{frappe.generate_hash(length=16)}"})
 		card_sale_doc = frappe.get_doc("Sales Invoice", card_sale["sale"])
 		card_return_doc = frappe.get_doc("Sales Invoice", card_return["return_invoice"])
 		original_card = next((row for row in card_sale_doc.payments if row.mode_of_payment != "Pix"), None)
@@ -4726,7 +4731,8 @@ def run_post_sale_checks() -> dict:
 		if not returned_card or not original_card or returned_card.account != original_card.account or returned_card.account == cash_account:
 			raise AssertionError("Estorno de cartao nao preservou a conta de recebiveis do cartao.")
 		exchange_sale = pos_create_sale({"idempotency_key": f"tp-exchange-source-{frappe.generate_hash(length=16)}", "items": [{"item_code": item, "qty": 1}], "payments": [{"mode_of_payment": "Pix", "amount": 79.90, "installments": 1}]})
-		exchange = exchange_sales_product({"invoice": exchange_sale["sale"], "items": [{"item_code": item, "qty": 1}], "new_sale": {"customer": "CONSUMIDOR FINAL", "items": [{"item_code": POS_NAME_ITEM, "qty": 1}], "discount_amount": 0, "payments": [{"mode_of_payment": "Pix", "amount": 35.50, "installments": 1}], "idempotency_key": f"tp-exchange-target-{frappe.generate_hash(length=16)}"}})
+		exchange_key = f"tp-exchange-request-{frappe.generate_hash(length=16)}"
+		exchange = exchange_sales_product({"invoice": exchange_sale["sale"], "items": [{"item_code": item, "qty": 1}], "idempotency_key": exchange_key, "new_sale": {"customer": "CONSUMIDOR FINAL", "items": [{"item_code": POS_NAME_ITEM, "qty": 1}], "discount_amount": 0, "payments": [{"mode_of_payment": "Pix", "amount": 35.50, "installments": 1}], "idempotency_key": f"{exchange_key}:sale"}})
 		new_sale_name = exchange["new_sale"]["sale"]
 		exchange_return = frappe.get_doc("Sales Invoice", exchange["return_invoice"])
 		new_sale_doc = frappe.get_doc("Sales Invoice", new_sale_name)
@@ -5195,6 +5201,149 @@ def run_cash_session_checks() -> dict:
 		}
 	finally:
 		frappe.set_user(previous_user)
+
+
+def run_pos_cash_integration_checks() -> dict:
+	"""Prove POS/returns and the cash ledger are one atomic, payment-aware operation."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		_ensure_default_test_cash_session(attendant)
+		demo = _ensure_pos_demo_records()
+		frappe.set_user(attendant)
+		active_session = get_open_cash_session()
+		frappe.db.set_value("Tecponto Cash Session", active_session["session"], "status", "Fechado", update_modified=False)
+		closed_cash_blocked = False
+		try:
+			pos_create_sale(
+				{
+					"idempotency_key": f"tp-cash-closed-{frappe.generate_hash(length=18)}",
+					"items": [{"item_code": POS_NAME_ITEM, "qty": 1}],
+					"discount_amount": 0,
+					"payments": [{"mode_of_payment": "Pix", "amount": 35.50, "installments": 1}],
+				}
+			)
+		except frappe.ValidationError:
+			closed_cash_blocked = True
+		finally:
+			frappe.db.set_value("Tecponto Cash Session", active_session["session"], "status", "Aberto", update_modified=False)
+		if not closed_cash_blocked:
+			raise AssertionError("PDV aceitou pagamento com caixa fechado.")
+
+		cash_before = get_open_cash_session()["drawer_balance"]
+		cash_sale = pos_create_sale(
+			{
+				"idempotency_key": f"tp-cash-sale-{frappe.generate_hash(length=18)}",
+				"items": [{"item_code": POS_NAME_ITEM, "qty": 1}],
+				"discount_amount": 0,
+				"payments": [{"mode_of_payment": "Dinheiro", "amount": 35.50, "installments": 1}],
+			}
+		)
+		cash_after_sale = get_open_cash_session()["drawer_balance"]
+		if cash_after_sale != flt(cash_before + 35.50, 2):
+			raise AssertionError("Venda em dinheiro não entrou na gaveta.")
+		cash_movement = frappe.db.get_value(
+			CASH_MOVEMENT_DOCTYPE,
+			{"reference_doctype": "Sales Invoice", "reference_name": cash_sale["sale"], "payment_mode": "Dinheiro"},
+			["direction", "affects_drawer"],
+			as_dict=True,
+		)
+		if not cash_movement or cash_movement.direction != "Entrada" or not cash_movement.affects_drawer:
+			raise AssertionError("Venda em dinheiro não criou o movimento de gaveta correto.")
+
+		outside_before = get_open_cash_session()["drawer_balance"]
+		outside_sale = pos_create_sale(
+			{
+				"idempotency_key": f"tp-cash-outside-{frappe.generate_hash(length=18)}",
+				"items": [{"item_code": POS_BARCODE_ITEM, "qty": 1}],
+				"discount_amount": 0,
+				"payments": [
+					{"mode_of_payment": "Pix", "amount": 35.50, "installments": 1},
+					{"mode_of_payment": "Crédito à vista", "amount": 44.40, "installments": 1},
+				],
+			}
+		)
+		outside_after = get_open_cash_session()["drawer_balance"]
+		if outside_after != outside_before:
+			raise AssertionError("Pix ou cartão alteraram indevidamente a gaveta física.")
+		outside_movements = frappe.get_all(
+			CASH_MOVEMENT_DOCTYPE,
+			filters={"reference_doctype": "Sales Invoice", "reference_name": outside_sale["sale"]},
+			fields=["payment_mode", "affects_drawer"],
+		)
+		if {row.payment_mode for row in outside_movements} != {"Pix", "Crédito à vista"} or any(row.affects_drawer for row in outside_movements):
+			raise AssertionError("Pix/cartão não foram registrados fora da gaveta como esperado.")
+
+		return_key = f"tp-cash-return-{frappe.generate_hash(length=18)}"
+		cash_before_return = get_open_cash_session()["drawer_balance"]
+		cash_return = create_sales_return(
+			{"invoice": cash_sale["sale"], "items": [{"item_code": POS_NAME_ITEM, "qty": 1}], "idempotency_key": return_key}
+		)
+		cash_after_return = get_open_cash_session()["drawer_balance"]
+		if cash_after_return != flt(cash_before_return - 35.50, 2):
+			raise AssertionError("Devolução em dinheiro não saiu da gaveta.")
+		if not frappe.db.get_value(CASH_MOVEMENT_DOCTYPE, {"reference_name": cash_return["return_invoice"], "direction": "Saída", "affects_drawer": 1}, "name"):
+			raise AssertionError("Devolução em dinheiro não criou estorno de gaveta.")
+		movement_count = frappe.db.count(CASH_MOVEMENT_DOCTYPE, {"reference_name": cash_return["return_invoice"]})
+		replay = create_sales_return(
+			{"invoice": cash_sale["sale"], "items": [{"item_code": POS_NAME_ITEM, "qty": 1}], "idempotency_key": return_key}
+		)
+		if not replay["idempotent_replay"] or replay["return_invoice"] != cash_return["return_invoice"]:
+			raise AssertionError("Reenvio da devolução não retornou a mesma nota de retorno.")
+		if frappe.db.count(CASH_MOVEMENT_DOCTYPE, {"reference_name": cash_return["return_invoice"]}) != movement_count:
+			raise AssertionError("Reenvio da devolução duplicou movimento de caixa.")
+
+		invoice_count_before = frappe.db.count("Sales Invoice", {"docstatus": 1})
+		cash_count_before = frappe.db.count(CASH_MOVEMENT_DOCTYPE)
+		stock_before_failure = _bin_qty(POS_NAME_ITEM, demo["commercial_warehouse"])
+		failed = False
+		with patch("tecponto_app.tecponto.frontend.pos.record_sales_invoice_cash_movements", side_effect=RuntimeError("falha simulada após nota")):
+			try:
+				pos_create_sale(
+					{
+						"idempotency_key": f"tp-cash-atomic-{frappe.generate_hash(length=18)}",
+						"items": [{"item_code": POS_NAME_ITEM, "qty": 1}],
+						"discount_amount": 0,
+						"payments": [{"mode_of_payment": "Dinheiro", "amount": 35.50, "installments": 1}],
+					}
+				)
+			except RuntimeError:
+				failed = True
+		if not failed or frappe.db.count("Sales Invoice", {"docstatus": 1}) != invoice_count_before:
+			raise AssertionError("Falha após a nota deixou uma Sales Invoice submetida pela metade.")
+		if frappe.db.count(CASH_MOVEMENT_DOCTYPE) != cash_count_before or _bin_qty(POS_NAME_ITEM, demo["commercial_warehouse"]) != stock_before_failure:
+			raise AssertionError("Rollback atômico deixou movimento de caixa ou estoque parcial.")
+
+		leaks = contains_sensitive_field(
+			{"cash_sale": cash_sale, "outside_sale": outside_sale, "cash_return": cash_return, "summary": get_open_cash_session()},
+			forbidden_values=set(demo["valuation_rates"]),
+		)
+		if leaks:
+			raise AssertionError(f"Integração de caixa vazou custo: {', '.join(leaks)}")
+		return {
+			"status": "ok",
+			"cash_sale": cash_sale["sale"],
+			"cash_return": cash_return["return_invoice"],
+			"outside_drawer_unchanged": True,
+			"return_replay": True,
+			"atomic_rollback": True,
+			"closed_cash_blocked": closed_cash_blocked,
+			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def _ensure_default_test_cash_session(attendant: str) -> None:
+	if get_open_cash_session():
+		return
+	open_cash_session(
+		opening_amount=100,
+		idempotency_key="tp-local-test-default-cash-session",
+		opened_by=attendant,
+	)
 
 
 def run_technician_part_request_checks() -> dict:

@@ -112,6 +112,7 @@ def record_cash_movement(
 	idempotency_key: str,
 	registered_by: str | None = None,
 	payment_mode: str = "Dinheiro",
+	affects_drawer: bool = True,
 	reference_doctype: str = "",
 	reference_name: str = "",
 	reason: str = "",
@@ -129,7 +130,7 @@ def record_cash_movement(
 	existing = frappe.db.get_value(
 		CASH_MOVEMENT_DOCTYPE,
 		{"idempotency_key": key},
-		["name", "cash_session", "movement_type", "direction", "amount", "payment_mode", "reference_doctype", "reference_name", "reason"],
+		["name", "cash_session", "movement_type", "direction", "amount", "payment_mode", "affects_drawer", "reference_doctype", "reference_name", "reason"],
 		as_dict=True,
 	)
 	if existing:
@@ -140,6 +141,7 @@ def record_cash_movement(
 			direction=direction,
 			amount=value,
 			payment_mode=payment_mode,
+			affects_drawer=affects_drawer,
 			reference_doctype=reference_doctype,
 			reference_name=reference_name,
 			reason=reason,
@@ -159,6 +161,7 @@ def record_cash_movement(
 			"direction": direction,
 			"amount": value,
 			"payment_mode": payment_mode or "Dinheiro",
+			"affects_drawer": 1 if affects_drawer else 0,
 			"occurred_on": now_datetime(),
 			"registered_by": registered_by or frappe.session.user,
 			"reason": (reason or "").strip() or None,
@@ -173,7 +176,7 @@ def record_cash_movement(
 		existing = frappe.db.get_value(
 			CASH_MOVEMENT_DOCTYPE,
 			{"idempotency_key": key},
-			["name", "cash_session", "movement_type", "direction", "amount", "payment_mode", "reference_doctype", "reference_name", "reason"],
+			["name", "cash_session", "movement_type", "direction", "amount", "payment_mode", "affects_drawer", "reference_doctype", "reference_name", "reason"],
 			as_dict=True,
 		)
 		if existing and _same_movement_request(
@@ -181,8 +184,9 @@ def record_cash_movement(
 			cash_session=cash_session,
 			movement_type=movement_type,
 			direction=direction,
-			amount=value,
-			payment_mode=payment_mode,
+				amount=value,
+				payment_mode=payment_mode,
+				affects_drawer=affects_drawer,
 			reference_doctype=reference_doctype,
 			reference_name=reference_name,
 			reason=reason,
@@ -206,10 +210,14 @@ def get_cash_session_summary(cash_session: str, *, idempotent_replay: bool = Fal
 	movements = frappe.get_all(
 		CASH_MOVEMENT_DOCTYPE,
 		filters={"cash_session": session.name},
-		fields=["name", "movement_type", "direction", "amount", "payment_mode", "occurred_on", "reference_doctype", "reference_name"],
+		fields=["name", "movement_type", "direction", "amount", "payment_mode", "affects_drawer", "occurred_on", "reference_doctype", "reference_name"],
 		order_by="occurred_on asc, creation asc",
 	)
-	balance = sum(flt(row.amount) if row.direction == DIRECTION_IN else -flt(row.amount) for row in movements)
+	balance = sum(
+		flt(row.amount) if row.direction == DIRECTION_IN else -flt(row.amount)
+		for row in movements
+		if row.affects_drawer
+	)
 	return {
 		"session": session.name,
 		"company": session.company,
@@ -221,6 +229,7 @@ def get_cash_session_summary(cash_session: str, *, idempotent_replay: bool = Fal
 		"opening_amount": flt(session.opening_amount, 2),
 		"drawer_balance": flt(balance, 2),
 		"movement_count": len(movements),
+		"drawer_movement_count": sum(1 for row in movements if row.affects_drawer),
 		"idempotent_replay": bool(idempotent_replay),
 	}
 
@@ -232,6 +241,7 @@ def _movement_payload(movement, *, idempotent_replay: bool) -> dict[str, Any]:
 		"movement_type": movement.movement_type,
 		"direction": movement.direction,
 		"amount": flt(movement.amount, 2),
+		"affects_drawer": bool(movement.affects_drawer),
 		"idempotent_replay": bool(idempotent_replay),
 	}
 
@@ -276,7 +286,43 @@ def _same_movement_request(existing, **request: Any) -> bool:
 		and existing.direction == request["direction"]
 		and flt(existing.amount, 2) == flt(request["amount"], 2)
 		and (existing.payment_mode or "") == (request["payment_mode"] or "Dinheiro")
+		and bool(existing.affects_drawer) == bool(request["affects_drawer"])
 		and (existing.reference_doctype or "") == (request["reference_doctype"] or "")
 		and (existing.reference_name or "") == (request["reference_name"] or "")
 		and (existing.reason or "") == (request["reason"] or "").strip()
 	)
+
+
+def require_open_cash_session(*, company: str | None = None, cash_point: str = DEFAULT_CASH_POINT) -> dict[str, Any]:
+	"""All payments need an open operational session, even when not paid in cash."""
+	session = get_open_cash_session(company=company, cash_point=cash_point)
+	if not session:
+		frappe.throw(_("Abra o caixa antes de registrar pagamentos ou devoluções."), frappe.ValidationError)
+	return session
+
+
+def record_sales_invoice_cash_movements(*, invoice, idempotency_prefix: str) -> list[dict[str, Any]]:
+	"""Mirror native POS payment rows without creating another accounting document."""
+	session = require_open_cash_session(company=invoice.company)
+	movements: list[dict[str, Any]] = []
+	for index, payment in enumerate(invoice.get("payments") or [], start=1):
+		amount = abs(flt(payment.amount, 2))
+		if not amount:
+			continue
+		mode = payment.mode_of_payment or ""
+		movements.append(
+			record_cash_movement(
+				cash_session=session["session"],
+				movement_type="Estorno" if invoice.is_return else "Recebimento de venda",
+				direction=DIRECTION_OUT if invoice.is_return else DIRECTION_IN,
+				amount=amount,
+				payment_mode=mode,
+				affects_drawer=mode == "Dinheiro",
+				idempotency_key=f"{idempotency_prefix}:payment:{index}",
+				registered_by=frappe.session.user,
+				reference_doctype="Sales Invoice",
+				reference_name=invoice.name,
+				reason="Estorno de venda" if invoice.is_return else "Recebimento de venda",
+			)
+		)
+	return movements

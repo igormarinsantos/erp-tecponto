@@ -1,6 +1,7 @@
 import { rpc } from "./client";
 import type {
 	CashierOperatorIdentity,
+	CashSessionSummary,
   PosBarcodeLabelResponse,
   PosItemSearchResponse,
   PosSalePayload,
@@ -23,6 +24,14 @@ interface PosItemSearchParams {
 }
 
 export const pos = {
+	getCashSession() {
+		return rpc<{ session: CashSessionSummary | null }>(`${API}.get_store_cash_session`);
+	},
+	openCashSession(openingAmount: number, idempotencyKey: string) {
+		return rpc<CashSessionSummary>(`${API}.open_store_cash_session`, {
+			body: { opening_amount: openingAmount, idempotency_key: idempotencyKey },
+		});
+	},
   barcodeLabelUrl(itemCode: string) {
     return `/api/method/${POS_API}.pos_download_barcode_label?item_code=${encodeURIComponent(itemCode)}`;
   },

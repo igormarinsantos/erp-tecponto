@@ -13,6 +13,7 @@ from frappe.utils import add_days, flt, nowdate
 from frappe.utils.pdf import get_pdf
 
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD, identify_cashier_operator, resolve_cashier_operator
+from tecponto_app.tecponto.cash import record_sales_invoice_cash_movements, require_open_cash_session
 from tecponto_app.tecponto.pos import (
 	BARCODE_SOURCE_FIELD,
 	BARCODE_SOURCE_INTERNAL,
@@ -83,6 +84,9 @@ def pos_create_sale(payload: str | dict[str, Any] | None = None) -> dict[str, An
 		net_total = flt(gross_total - discount_amount, 2)
 		_validate_effective_price_floor(items, gross_total, discount_amount, warehouse)
 		payments, payment_metadata = _resolve_payments(request["payments"], net_total, company)
+		# A payment may be Pix or card, but it still belongs to the active daily
+		# operation. The drawer impact itself is decided per payment mode below.
+		require_open_cash_session(company=company)
 
 		idempotency_doc = frappe.get_doc(
 			{
@@ -111,6 +115,7 @@ def pos_create_sale(payload: str | dict[str, Any] | None = None) -> dict[str, An
 			discount_amount=discount_amount,
 			payments=payments,
 		)
+		record_sales_invoice_cash_movements(invoice=invoice, idempotency_prefix=f"sale:{idempotency_key}")
 
 		idempotency_doc.sales_invoice = invoice.name
 		idempotency_doc.status = "Completed"
