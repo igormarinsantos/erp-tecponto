@@ -231,6 +231,7 @@ def run_foundation_checks() -> dict:
 		technician_part_execution_check = run_technician_part_execution_checks()
 		technician_commission_check = run_technician_commission_checks()
 		lean_operation_check = run_lean_operation_checks()
+		operation_config_check = run_operation_config_checks()
 		technician_part_request_check = run_technician_part_request_checks()
 		part_purchase_cycle_check = run_part_purchase_cycle_checks()
 		part_receipt_check = run_part_receipt_reservation_checks()
@@ -293,6 +294,7 @@ def run_foundation_checks() -> dict:
 			"technician_part_execution": technician_part_execution_check,
 			"technician_commissions": technician_commission_check,
 			"lean_operation": lean_operation_check,
+			"operation_config": operation_config_check,
 			"technician_part_requests": technician_part_request_check,
 			"part_purchase_cycle": part_purchase_cycle_check,
 			"part_receipt_reservation": part_receipt_check,
@@ -4905,6 +4907,83 @@ def run_lean_operation_checks() -> dict:
 		}
 	finally:
 		frappe.db.set_single_value("Tecponto Settings", "use_technician_commission", previous_enabled)
+		frappe.set_user(previous_user)
+
+
+def run_operation_config_checks() -> dict:
+	"""Prove the store operation contract is server-owned and reversible."""
+	previous_user = frappe.session.user
+	fields = (
+		"enable_repair_pillar",
+		"enable_buy_pillar",
+		"enable_tradein_pillar",
+		"use_technician_commission",
+		"diagnostic_fee_enabled",
+		"diagnostic_fee_amount",
+		"storage_fee_enabled",
+		"storage_fee_amount",
+		"storage_fee_start_days",
+		"storage_fee_abandonment_days",
+		"diagnosis_only_enabled",
+		"payment_advance_enabled",
+		"payment_installments_enabled",
+		"payment_device_tradein_enabled",
+		"default_warranty_days",
+	)
+	settings = frappe.get_single("Tecponto Settings")
+	original = {field: settings.get(field) for field in fields}
+	try:
+		settings.update(
+			{
+				"enable_repair_pillar": 1,
+				"enable_buy_pillar": 0,
+				"enable_tradein_pillar": 0,
+				"use_technician_commission": 0,
+				"diagnostic_fee_enabled": 1,
+				"diagnostic_fee_amount": 35,
+				"storage_fee_enabled": 1,
+				"storage_fee_amount": 4.5,
+				"storage_fee_start_days": 30,
+				"storage_fee_abandonment_days": 90,
+				"diagnosis_only_enabled": 1,
+				"payment_advance_enabled": 1,
+				"payment_installments_enabled": 0,
+				"payment_device_tradein_enabled": 0,
+				"default_warranty_days": 90,
+			}
+		)
+		settings.save(ignore_permissions=True)
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(attendant)
+		lean_boot = get_boot()
+		if lean_boot["features"]["pillars"] != {"repair": True, "buy": False, "tradein": False}:
+			raise AssertionError("Contrato do motor não refletiu a loja só-REPARO.")
+		if lean_boot["features"]["technician_commissions_enabled"]:
+			raise AssertionError("Comissão desligada vazou no contrato de operação.")
+		if lean_boot["features"]["diagnostic_fee"] != {"enabled": True, "amount": 35.0}:
+			raise AssertionError("Taxa de diagnóstico não veio do serviço central.")
+		if lean_boot["features"]["storage_fee"] != {"enabled": True, "amount": 4.5, "start_days": 30, "abandonment_days": 90}:
+			raise AssertionError("Taxa de armazenamento não veio do serviço central.")
+		if lean_boot["features"]["payments"] != {"advance_enabled": True, "installments_enabled": False, "device_tradein_enabled": False}:
+			raise AssertionError("Flags de pagamento não vieram do serviço central.")
+
+		frappe.set_user("Administrator")
+		settings.update({"enable_buy_pillar": 1, "enable_tradein_pillar": 1})
+		settings.save(ignore_permissions=True)
+		frappe.set_user(attendant)
+		complete_boot = get_boot()
+		if complete_boot["features"]["pillars"] != {"repair": True, "buy": True, "tradein": True}:
+			raise AssertionError("Contrato do motor não restaurou a loja completa.")
+
+		return {
+			"lean_store": lean_boot["features"],
+			"complete_store_pillars": complete_boot["features"]["pillars"],
+			"cost_guard_contract": "no_cost_fields",
+		}
+	finally:
+		frappe.set_user("Administrator")
+		settings.update(original)
+		settings.save(ignore_permissions=True)
 		frappe.set_user(previous_user)
 
 

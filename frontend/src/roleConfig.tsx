@@ -35,6 +35,15 @@ export interface MetricDefinition {
   tone: "orange" | "green" | "blue" | "purple" | "amber" | "red";
   value: (metrics: DashboardMetrics) => string | number;
   detail: string;
+	pillar?: OperationPillar;
+}
+
+type OperationPillar = "repair" | "buy" | "tradein";
+
+export interface OperationPillars {
+	repair: boolean;
+	buy: boolean;
+	tradein: boolean;
 }
 
 export interface ActionDefinition {
@@ -45,6 +54,7 @@ export interface ActionDefinition {
   externalHref?: string;
   opensCheckin?: boolean;
   pendingLabel?: string;
+	pillar?: OperationPillar;
   target?: NavigationTarget;
 }
 
@@ -62,9 +72,10 @@ const commonActions: ActionDefinition[] = [
     icon: ShoppingCart,
     label: "Lançar venda",
     detail: "Venda no balcão",
+		pillar: "buy",
     target: "pos",
   },
-  { icon: Wrench, label: "Nova OS", detail: "Atendimento", opensCheckin: true },
+  { icon: Wrench, label: "Nova OS", detail: "Atendimento", opensCheckin: true, pillar: "repair" },
   { icon: Search, label: "Buscar cliente", detail: "Nome, telefone ou IMEI", target: "customers" },
 ];
 
@@ -125,15 +136,15 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       },
     ],
     metrics: [
-      { icon: ShoppingCart, label: "Vendas do dia", tone: "green", value: (metrics) => brl.format(metrics.sales_today_total), detail: "PDV Tecponto" },
-      { icon: FileText, label: "OS aguardando aprovação", tone: "orange", value: (metrics) => metrics.service_orders.awaiting_approval, detail: "Orçamentos na fila" },
-      { icon: ClipboardCheck, label: "Prontas para retirada", tone: "green", value: (metrics) => metrics.service_orders.ready_for_pickup, detail: "Entrega no balcão" },
-      { icon: PackageSearch, label: "Aguardando peça", tone: "blue", value: (metrics) => metrics.service_orders.waiting_part, detail: "Reparo pendente" },
+      { icon: ShoppingCart, label: "Vendas do dia", tone: "green", value: (metrics) => brl.format(metrics.sales_today_total), detail: "PDV Tecponto", pillar: "buy" },
+      { icon: FileText, label: "OS aguardando aprovação", tone: "orange", value: (metrics) => metrics.service_orders.awaiting_approval, detail: "Orçamentos na fila", pillar: "repair" },
+      { icon: ClipboardCheck, label: "Prontas para retirada", tone: "green", value: (metrics) => metrics.service_orders.ready_for_pickup, detail: "Entrega no balcão", pillar: "repair" },
+      { icon: PackageSearch, label: "Aguardando peça", tone: "blue", value: (metrics) => metrics.service_orders.waiting_part, detail: "Reparo pendente", pillar: "repair" },
     ],
     actions: [
       ...commonActions,
       { icon: Smartphone, label: "Cadastrar aparelho", detail: "Vincular ao cliente", target: "devices" },
-      { icon: Handshake, label: "Avaliar troca", detail: "TROQUE", target: "trade-ins" },
+      { icon: Handshake, label: "Avaliar troca", detail: "TROQUE", pillar: "tradein", target: "trade-ins" },
       { icon: MessageCircle, label: "Enviar WhatsApp", detail: "Contato rápido", externalHref: "https://web.whatsapp.com/" },
     ],
   },
@@ -429,23 +440,29 @@ function uniqueByLabel<T extends { label: string }>(items: T[]): T[] {
 }
 
 /** Display-only union: authorization remains entirely server-side. */
-export function getUnifiedPanelDefinition(panels: RolePanel[], fullName: string, brandName = "Empresa", commissionsEnabled = true): PanelDefinition {
+export function getUnifiedPanelDefinition(
+	panels: RolePanel[],
+	fullName: string,
+	brandName = "Empresa",
+	commissionsEnabled = true,
+	pillars: OperationPillars = { repair: true, buy: true, tradein: true },
+): PanelDefinition {
 	const resolvedPanels = panelOrder.filter((panel) => panels.includes(panel));
-	if (resolvedPanels.length === 1) return withCommercialIdentity(withLeanOperationNavigation({ ...panelDefinitions[resolvedPanels[0]], nav: withSubmenus(panelDefinitions[resolvedPanels[0]].nav) }, commissionsEnabled), brandName);
+	if (resolvedPanels.length === 1) return withCommercialIdentity(withOperationPillars(withLeanOperationNavigation({ ...panelDefinitions[resolvedPanels[0]], nav: withSubmenus(panelDefinitions[resolvedPanels[0]].nav) }, commissionsEnabled), pillars), brandName);
 	if (!resolvedPanels.length) return withCommercialIdentity(panelDefinitions.sem_papel, brandName);
 
   const definitions = resolvedPanels.map((panel) => panelDefinitions[panel]);
   const labels = resolvedPanels.map((panel) => panelLabels[panel]);
 	const firstName = fullName.trim().split(/\s+/)[0] || brandName;
 
-	return withCommercialIdentity(withLeanOperationNavigation({
+	return withCommercialIdentity(withOperationPillars(withLeanOperationNavigation({
     title: `Ola, ${firstName}!`,
     subtitle: `Visao unificada: ${labels.join(" + ")}.`,
     tableTitle: "Operacao unificada",
     nav: withSubmenus(unifiedNavigation(resolvedPanels)),
     metrics: uniqueByLabel(definitions.flatMap((definition) => definition.metrics)),
     actions: uniqueByLabel(definitions.flatMap((definition) => definition.actions)),
-	}, commissionsEnabled), brandName);
+	}, commissionsEnabled), pillars), brandName);
 }
 
 function withLeanOperationNavigation(definition: PanelDefinition, commissionsEnabled: boolean): PanelDefinition {
@@ -456,6 +473,36 @@ function withLeanOperationNavigation(definition: PanelDefinition, commissionsEna
 			...section,
 			items: section.items.filter((item) => item.id !== "my-earnings"),
 		})),
+	};
+}
+
+function withOperationPillars(definition: PanelDefinition, pillars: OperationPillars): PanelDefinition {
+	const isEnabled = (pillar: OperationPillar | undefined) => !pillar || pillars[pillar];
+	const targetPillar = (target?: NavigationTarget): OperationPillar | undefined => {
+		const section = target ? pillarForTarget[target] : undefined;
+		if (section === "Reparo") return "repair";
+		if (section === "Venda") return "buy";
+		if (section === "Troca") return "tradein";
+		return undefined;
+	};
+	const filterItems = (items: NavItem[]): NavItem[] => items.flatMap((item) => {
+		const children = item.children ? filterItems(item.children) : undefined;
+		if (!isEnabled(targetPillar(item.id))) return [];
+		if (item.children && !children?.length) return [];
+		return [{ ...item, ...(children ? { children } : {}) }];
+	});
+	const metricPillar = (metric: MetricDefinition): OperationPillar | undefined => {
+		if (metric.pillar) return metric.pillar;
+		if (/^Vendas/.test(metric.label)) return "buy";
+		if (/OS|diagnóstico|peça|teste|atrasada/i.test(metric.label)) return "repair";
+		return undefined;
+	};
+
+	return {
+		...definition,
+		nav: definition.nav.map((section) => ({ ...section, items: filterItems(section.items) })).filter((section) => section.items.length > 0),
+		metrics: definition.metrics.filter((metric) => isEnabled(metricPillar(metric))),
+		actions: definition.actions.filter((action) => isEnabled(action.pillar ?? targetPillar(action.target))),
 	};
 }
 

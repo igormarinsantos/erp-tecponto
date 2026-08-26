@@ -32,6 +32,7 @@ from tecponto_app.tecponto import service_catalog
 from tecponto_app.tecponto import defect_service_mapping
 from tecponto_app.tecponto import part_requests
 from tecponto_app.tecponto.lean_operations import operation_shape, technician_commissions_enabled
+from tecponto_app.tecponto.operation_config import get_operation_config
 from tecponto_app.tecponto import user_access
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_DOCTYPE, POS_OPERATOR_ROLES
 from tecponto_app.tecponto.permissions import is_restricted_technician, service_order_scope_filters
@@ -361,6 +362,7 @@ def get_boot() -> dict[str, Any]:
 	from tecponto_app.tecponto.company_identity import get_company_identity
 
 	identity = get_company_identity()
+	operation = get_operation_config()
 	return {
 		"user": get_logged_user(),
 		"app": {
@@ -370,7 +372,7 @@ def get_boot() -> dict[str, Any]:
 		},
 		"identity": identity,
 		"features": {
-			"technician_commissions_enabled": technician_commissions_enabled(),
+			**operation,
 			**operation_shape(),
 		},
 		"panels": [

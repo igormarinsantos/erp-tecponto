@@ -114,7 +114,7 @@ import { NotificationHistoryScreen } from "./NotificationHistoryScreen";
 import { MyEarningsScreen } from "./MyEarningsScreen";
 import { PartRequestModal, PartRequestsScreen } from "./PartRequestsScreen";
 import { UserManagementScreen } from "./UserManagementScreen";
-import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition } from "./roleConfig";
+import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition, type OperationPillars } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
 import { ServiceCategoriesScreen } from "./ServiceCategoriesScreen";
@@ -537,6 +537,10 @@ export function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), 3200);
   }, []);
 
+	const operationPillars = (state.status === "ready" || state.status === "no_role")
+		? state.boot.features.pillars
+		: { repair: true, buy: true, tradein: true };
+
   useEffect(() => {
     if (state.status !== "ready") {
       return;
@@ -569,6 +573,9 @@ export function App() {
         if (!isScannerSequence) {
           return;
         }
+        if (!operationPillars.buy) {
+          return;
+        }
         event.preventDefault();
         setPendingPosBarcode({ code: scanned, id: Date.now() });
         setActiveView("pos");
@@ -597,7 +604,7 @@ export function App() {
       reset();
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [state.status]);
+  }, [operationPillars.buy, state.status]);
 
   const copyToClipboard = useCallback(
     async (value: string, label: string) => {
@@ -643,13 +650,17 @@ export function App() {
   }, []);
 
   const startCheckin = useCallback(() => {
+		if (!operationPillars.repair) {
+			showToast("O pilar REPARO está desativado nesta loja.", "error");
+			return;
+		}
     try {
       window.sessionStorage.setItem(CHECKIN_RETURN_TO_KEY, `${window.location.pathname}${window.location.search}${window.location.hash}`);
     } catch {
       // Direct access to the page has a deterministic fallback.
     }
     window.location.assign(CHECKIN_ROUTE);
-  }, []);
+  }, [operationPillars.repair, showToast]);
 
   const closeCheckinPage = useCallback(() => {
     let returnTo = "/tecponto";
@@ -912,7 +923,7 @@ export function App() {
 					onSelect: () => void copyToClipboard(itemCode, "Código do item"),
 				},
 			];
-			if (contextMenu.target.barcode) {
+			if (contextMenu.target.barcode && operationPillars.buy) {
 				actions.push({
 					detail: "Adiciona o item ao carrinho",
 					icon: <ShoppingCart size={17} />,
@@ -928,24 +939,24 @@ export function App() {
 		}
 
     return [
-      {
+      ...(operationPillars.repair ? [{
         detail: "Fluxo completo de check-in",
         icon: <Plus size={17} />,
         label: "Nova OS",
         onSelect: startCheckin,
-      },
+      }] : []),
       {
         detail: "Cliente, aparelho, OS ou venda",
         icon: <SearchIcon size={17} />,
         label: "Busca global",
         onSelect: () => setGlobalSearchOpen(true),
       },
-      {
+      ...(operationPillars.repair ? [{
         detail: "Lista e Kanban",
         icon: <Wrench size={17} />,
         label: "Ordens de servico",
         onSelect: () => setActiveView("service-orders"),
-      },
+      }] : []),
       {
         detail: "Cadastro e historico",
         icon: <UserRound size={17} />,
@@ -958,19 +969,19 @@ export function App() {
         label: "Aparelhos",
         onSelect: () => setActiveView("devices"),
       },
-      {
+      ...(operationPillars.repair ? [{
         detail: "Disponibilidade por deposito",
         icon: <Package size={17} />,
         label: "Pecas e estoque",
         onSelect: () => setActiveView("parts-stock"),
-      },
-      {
+      }] : []),
+      ...(operationPillars.buy ? [{
         detail: "Leitor USB ou busca por nome",
         icon: <ShoppingCart size={17} />,
         label: "Lancar venda",
         onSelect: () => setActiveView("pos"),
         separatorBefore: true,
-      },
+      }] : []),
       {
         detail: "Recarrega numeros e filas",
         icon: <RefreshCw size={17} />,
@@ -978,7 +989,7 @@ export function App() {
         onSelect: () => void load({ quiet: true }),
       },
     ];
-  }, [contextMenu, copyToClipboard, load, openServiceOrder, startCheckin]);
+  }, [contextMenu, copyToClipboard, load, openServiceOrder, operationPillars.buy, operationPillars.repair, startCheckin]);
 
   const handleCheckinCreated = useCallback((response: CheckinResponse) => {
     void load({ quiet: true });
@@ -1032,6 +1043,7 @@ export function App() {
     state.boot.user.full_name,
     brandName,
     state.boot.features.technician_commissions_enabled,
+		state.boot.features.pillars,
   );
   const panel = state.boot.user.can_manage_users
     ? {
@@ -1151,7 +1163,8 @@ export function App() {
               showSales={state.metrics.sales_visible}
               metrics={state.metrics}
               canViewDirectorFinancial={state.boot.user.roles.includes("Tecponto Diretor")}
-			  singleOperator={state.boot.features.single_operator}
+              singleOperator={state.boot.features.single_operator}
+              pillars={operationPillars}
             />
           ) : (
             <NavigationContent
@@ -1744,6 +1757,7 @@ function OverviewContent({
   metrics,
   canViewDirectorFinancial,
   singleOperator,
+	 pillars,
 }: {
   actions: ActionDefinition[];
   onNavigate: (target: NavigationTarget) => void;
@@ -1759,7 +1773,8 @@ function OverviewContent({
   showSales: boolean;
   metrics: DashboardMetrics;
   canViewDirectorFinancial: boolean;
-	 singleOperator: boolean;
+  singleOperator: boolean;
+	 pillars: OperationPillars;
 }) {
   const [serviceOrderStats, setServiceOrderStats] = useState<ServiceOrderStatBarResponse["items"]>([]);
   const [salesStats, setSalesStats] = useState<Array<{ key: string; label: string; value: number; amount?: number }>>([]);
@@ -1771,8 +1786,8 @@ function OverviewContent({
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
-      serviceOrders.statBar(),
-      showSales ? balcao.getListStatBar("sales") : Promise.resolve({ items: [] }),
+      pillars.repair ? serviceOrders.statBar() : Promise.resolve({ items: [] }),
+      showSales && pillars.buy ? balcao.getListStatBar("sales") : Promise.resolve({ items: [] }),
     ])
       .then(([serviceOrdersResponse, salesResponse]) => {
         if (!cancelled) {
@@ -1789,7 +1804,7 @@ function OverviewContent({
     return () => {
       cancelled = true;
     };
-  }, [showSales]);
+  }, [pillars.buy, pillars.repair, showSales]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1825,7 +1840,7 @@ function OverviewContent({
 
   const isManagerHome = homePanel === "gestor" || homePanel === "diretor" || (homePanel === "unified" && canApprove);
   const managerTicketItems = isManagerHome ? [
-    {
+    ...(pillars.buy ? [{
       key: "retail-ticket",
       label: "Ticket balcão",
       value: metrics.sales_tickets.retail.average ?? 0,
@@ -1833,8 +1848,8 @@ function OverviewContent({
       detail: `${metrics.sales_tickets.retail.count} venda(s) no dia`,
       icon: <Ticket size={19} />,
       tone: "blue" as const,
-    },
-    {
+    }] : []),
+    ...(pillars.repair ? [{
       key: "service-ticket",
       label: "Ticket de OS",
       value: metrics.sales_tickets.service_order.average ?? 0,
@@ -1842,7 +1857,7 @@ function OverviewContent({
       detail: `${metrics.sales_tickets.service_order.count} OS faturada(s) no dia`,
       icon: <Wrench size={19} />,
       tone: "orange" as const,
-    },
+    }] : []),
     {
       key: "daily-goal",
       label: "Meta diária",
@@ -1881,8 +1896,10 @@ function OverviewContent({
             <h2 className="text-xl font-bold text-white">{isManagerHome ? "Operação da loja" : "Operação agora"}</h2>
             <p className="mt-1 text-sm text-tec-muted">
               {isManagerHome
-                ? "OS por etapa e vendas do dia. Custo, margem, lucro e comissões de terceiros não aparecem aqui."
-                : showSales
+                ? pillars.buy
+                  ? "OS por etapa e vendas do dia. Custo, margem, lucro e comissões de terceiros não aparecem aqui."
+                  : "OS por etapa. Custo, margem, lucro e comissões de terceiros não aparecem aqui."
+                : showSales && pillars.buy
                   ? "OS por etapa e vendas do dia. Sem custo, margem ou lucro."
                   : "Suas OS por etapa. Sem dados de vendas, custo ou margem."}
             </p>

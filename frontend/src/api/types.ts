@@ -261,7 +261,17 @@ export interface BootResponse {
   user: LoggedUser;
   identity: CompanyIdentity;
   features: {
+		pillars: {
+			repair: boolean;
+			buy: boolean;
+			tradein: boolean;
+		};
     technician_commissions_enabled: boolean;
+		diagnostic_fee: { enabled: boolean; amount: number };
+		storage_fee: { enabled: boolean; amount: number; start_days: number; abandonment_days: number };
+		diagnosis_only_enabled: boolean;
+		payments: { advance_enabled: boolean; installments_enabled: boolean; device_tradein_enabled: boolean };
+		default_warranty_days: number;
     active_operational_users: number;
     active_technicians: number;
     single_operator: boolean;

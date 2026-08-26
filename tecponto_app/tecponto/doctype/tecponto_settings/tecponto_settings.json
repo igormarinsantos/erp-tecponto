@@ -22,6 +22,23 @@
   "fiscal_provider",
   "fiscal_certificate",
   "operations_section",
+  "operation_pillars_section",
+  "enable_repair_pillar",
+  "enable_buy_pillar",
+  "enable_tradein_pillar",
+  "operation_policies_section",
+  "diagnostic_fee_enabled",
+  "diagnostic_fee_amount",
+  "storage_fee_enabled",
+  "storage_fee_amount",
+  "storage_fee_start_days",
+  "storage_fee_abandonment_days",
+  "diagnosis_only_enabled",
+  "operation_payments_section",
+  "payment_advance_enabled",
+  "payment_installments_enabled",
+  "payment_device_tradein_enabled",
+  "default_warranty_days",
   "repair_warehouse",
   "commercial_warehouse",
   "used_devices_warehouse",
@@ -123,6 +140,105 @@
    "fieldname": "operations_section",
    "fieldtype": "Section Break",
    "label": "Opera\u00e7\u00e3o"
+  },
+  {
+   "fieldname": "operation_pillars_section",
+   "fieldtype": "Section Break",
+   "label": "Pilares ativos"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_repair_pillar",
+   "fieldtype": "Check",
+   "label": "Ativar pilar REPARO"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_buy_pillar",
+   "fieldtype": "Check",
+   "label": "Ativar pilar COMPRE"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_tradein_pillar",
+   "fieldtype": "Check",
+   "label": "Ativar pilar TROQUE"
+  },
+  {
+   "fieldname": "operation_policies_section",
+   "fieldtype": "Section Break",
+   "label": "Regras da opera\u00e7\u00e3o"
+  },
+  {
+   "default": "0",
+   "fieldname": "diagnostic_fee_enabled",
+   "fieldtype": "Check",
+   "label": "Usar taxa de diagn\u00f3stico"
+  },
+  {
+   "default": "0",
+   "fieldname": "diagnostic_fee_amount",
+   "fieldtype": "Currency",
+   "label": "Valor da taxa de diagn\u00f3stico"
+  },
+  {
+   "default": "0",
+   "fieldname": "storage_fee_enabled",
+   "fieldtype": "Check",
+   "label": "Usar taxa de armazenamento"
+  },
+  {
+   "default": "0",
+   "fieldname": "storage_fee_amount",
+   "fieldtype": "Currency",
+   "label": "Valor di\u00e1rio de armazenamento"
+  },
+  {
+   "default": "30",
+   "fieldname": "storage_fee_start_days",
+   "fieldtype": "Int",
+   "label": "Iniciar cobran\u00e7a ap\u00f3s (dias)"
+  },
+  {
+   "default": "90",
+   "fieldname": "storage_fee_abandonment_days",
+   "fieldtype": "Int",
+   "label": "Prazo de abandono (dias)"
+  },
+  {
+   "default": "0",
+   "fieldname": "diagnosis_only_enabled",
+   "fieldtype": "Check",
+   "label": "Permitir fluxo s\u00f3 diagn\u00f3stico"
+  },
+  {
+   "fieldname": "operation_payments_section",
+   "fieldtype": "Section Break",
+   "label": "Formas de pagamento aceitas"
+  },
+  {
+   "default": "1",
+   "fieldname": "payment_advance_enabled",
+   "fieldtype": "Check",
+   "label": "Pagamento antecipado"
+  },
+  {
+   "default": "1",
+   "fieldname": "payment_installments_enabled",
+   "fieldtype": "Check",
+   "label": "Pagamento parcelado"
+  },
+  {
+   "default": "1",
+   "fieldname": "payment_device_tradein_enabled",
+   "fieldtype": "Check",
+   "label": "Aparelho como pagamento"
+  },
+  {
+   "default": "90",
+   "fieldname": "default_warranty_days",
+   "fieldtype": "Int",
+   "label": "Prazo padr\u00e3o de garantia (dias)"
   },
   {
    "fieldname": "repair_warehouse",

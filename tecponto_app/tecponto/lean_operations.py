@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import frappe
-from frappe.utils import cint
+
+from tecponto_app.tecponto.operation_config import get_operation_config
 
 
 OPERATIONAL_ROLES = {
@@ -17,9 +18,7 @@ TECHNICIAN_ROLE = "Tecponto Tecnico"
 
 def technician_commissions_enabled() -> bool:
 	"""Commission is opt-in for new, single-owner installations."""
-	if not frappe.db.exists("DocType", "Tecponto Settings"):
-		return False
-	return bool(cint(frappe.db.get_single_value("Tecponto Settings", "use_technician_commission")))
+	return bool(get_operation_config()["technician_commissions_enabled"])
 
 
 def active_users_with_role(role: str) -> set[str]:
