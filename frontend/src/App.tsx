@@ -1141,6 +1141,7 @@ export function App() {
           {checkinPage ? (
             <CheckinWizard
 			  brandName={brandName}
+			  diagnosisOnlyEnabled={state.boot.features.diagnosis_only_enabled}
               onClose={closeCheckinPage}
               onCreated={handleCheckinCreated}
 				onDirtyChange={setCheckinDirty}

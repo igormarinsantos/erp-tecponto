@@ -157,6 +157,8 @@ from tecponto_app.tecponto.service_order.parts import processar_pecas
 from tecponto_app.tecponto.service_order.aceites import validate_aceites
 from tecponto_app.tecponto.service_order.inoperative_device import (
 	INOPERATIVE_DEVICE_TERM_VERSION,
+	ENTRY_OPERATING_CONDITION_OK,
+	ENTRY_OPERATING_CONDITION_PARTIAL,
 	ENTRY_OPERATING_CONDITION_INOPERATIVE,
 )
 from tecponto_app.tecponto.service_order.print_formats import (
@@ -2109,6 +2111,55 @@ def run_inoperative_entry_term_checks() -> dict:
 		):
 			raise AssertionError("Termo de Entrada não imprimiu a condição e a cláusula adicional aceita.")
 
+		# The entry form must preserve one free operational note in every path. The
+		# extra term is conditional, but opening the OS is never conditional.
+		suffix = frappe.generate_hash(length=8).upper()
+		conditions = (
+			(ENTRY_OPERATING_CONDITION_OK, False),
+			(ENTRY_OPERATING_CONDITION_PARTIAL, True),
+			(ENTRY_OPERATING_CONDITION_INOPERATIVE, True),
+		)
+		conditional_paths: dict[str, dict] = {}
+		for index, (condition, expects_term) in enumerate(conditions, start=1):
+			checkin = create_service_order_checkin(
+				{
+					"customer": {
+						"customer_name": f"Cliente condição {suffix}-{index}",
+						"mobile_no": "11999998888",
+						"custom_whatsapp": "11999998888",
+						"custom_nao_possui_cpf": 1,
+						"custom_rg": f"RG-COND-{suffix}-{index}",
+					},
+					"device": {
+						"brand": "Apple",
+						"model": "iPhone condição",
+						"imei_serial": f"35{int(suffix, 16) % 10**12:012d}{index}",
+					},
+					"service_order": {
+						"reported_defect": "Falha relatada durante a entrada.",
+						"physical_state": "Sem danos aparentes.",
+						"attendance_notes": f"Observação livre {condition}.",
+						"entry_operating_condition": condition,
+					},
+					"entry_photo": {"data_url": camera_selfie, "filename": f"condition-{suffix}-{index}.jpg"},
+				}
+			)
+			created_order = frappe.get_doc("Service Order", checkin["service_order"]["name"])
+			if (
+				created_order.entry_operating_condition != condition
+				or created_order.attendance_notes != f"Observação livre {condition}."
+			):
+				raise AssertionError("Check-in não persistiu condição e observação livre.")
+			issued_condition = issue_os_acceptance(created_order.name, "Entrada")
+			condition_acceptance = frappe.get_doc("OS Acceptance", issued_condition["acceptance"])
+			if bool(condition_acceptance.inoperative_device_term_version) != expects_term:
+				raise AssertionError("Termo de aparelho inoperante foi aplicado fora da condição correta.")
+			conditional_paths[condition] = {
+				"opens": True,
+				"observation_saved": True,
+				"inoperative_term_required": expects_term,
+			}
+
 		return {
 			"status": "ok",
 			"service_order": service_order,
@@ -2120,6 +2171,7 @@ def run_inoperative_entry_term_checks() -> dict:
 			"term_consent_required": missing_term_consent_blocked,
 			"accepted_on": str(acceptance.inoperative_device_term_accepted_on),
 			"entry_print_rendered": True,
+			"conditional_entry_paths": conditional_paths,
 		}
 	finally:
 		frappe.set_user(previous_user)

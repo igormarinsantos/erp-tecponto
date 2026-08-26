@@ -1597,6 +1597,7 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.priority = "Normal"
 	order.reported_defect = data["service_order"]["reported_defect"].strip()
 	order.physical_state = data["service_order"]["physical_state"].strip()
+	order.attendance_notes = (data["service_order"].get("attendance_notes") or "").strip()
 	order.entry_operating_condition = (data["service_order"].get("entry_operating_condition") or ENTRY_OPERATING_CONDITION_OK).strip()
 	order.accessories_received = (data["service_order"].get("accessories_received") or "").strip()
 	order.is_warranty = cint(data["service_order"].get("is_warranty"))

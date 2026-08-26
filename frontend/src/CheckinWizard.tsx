@@ -245,6 +245,7 @@ const damageMarkers = ["trincada", "arranh", "amassado", "oxidação", "molhado"
 
 interface CheckinWizardProps {
 	brandName: string;
+  diagnosisOnlyEnabled?: boolean;
   onClose: () => void;
   onCreated: (response: CheckinResponse) => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -252,7 +253,7 @@ interface CheckinWizardProps {
   presentation?: "page";
 }
 
-export function CheckinWizard({ brandName, onClose, onCreated, onDirtyChange, onOpenOrder, presentation }: CheckinWizardProps) {
+export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose, onCreated, onDirtyChange, onOpenOrder, presentation }: CheckinWizardProps) {
   const [step, setStep] = useState(0);
   const [created, setCreated] = useState<CheckinResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -275,6 +276,7 @@ export function CheckinWizard({ brandName, onClose, onCreated, onDirtyChange, on
   const [serviceOrder, setServiceOrder] = useState({
     reported_defect: "",
     physical_state: "",
+    attendance_notes: "",
     entry_operating_condition: "Liga e permite teste",
     accessories_received: "",
     estimated_deadline: "",
@@ -400,7 +402,7 @@ export function CheckinWizard({ brandName, onClose, onCreated, onDirtyChange, on
     !created && (
       selectedCustomer || customerQuery.trim() || newCustomer.customer_name.trim() || newCustomer.mobile_no.trim() || newCustomer.custom_cpf.trim() || newCustomer.custom_rg.trim()
       || selectedDevice || deviceQuery.trim() || newDevice.brand.trim() || newDevice.model.trim() || newDevice.imei_serial.trim()
-      || serviceOrder.reported_defect.trim() || serviceOrder.physical_state.trim() || serviceOrder.accessories_received.trim() || photo
+      || serviceOrder.reported_defect.trim() || serviceOrder.physical_state.trim() || serviceOrder.attendance_notes.trim() || serviceOrder.accessories_received.trim() || photo
     ),
   );
 
@@ -472,6 +474,7 @@ export function CheckinWizard({ brandName, onClose, onCreated, onDirtyChange, on
       service_order: {
         reported_defect: serviceOrder.reported_defect.trim(),
         physical_state: serviceOrder.physical_state.trim(),
+        attendance_notes: serviceOrder.attendance_notes.trim(),
         entry_operating_condition: serviceOrder.entry_operating_condition as CheckinPayload["service_order"]["entry_operating_condition"],
         accessories_received: serviceOrder.accessories_received.trim(),
         is_warranty: Boolean(originalServiceOrder),
@@ -571,6 +574,7 @@ export function CheckinWizard({ brandName, onClose, onCreated, onDirtyChange, on
                 ) : null}
                 {step === 2 ? (
                   <ServiceDataStep
+                    diagnosisOnlyEnabled={diagnosisOnlyEnabled}
                     deliverySuggestion={deliverySuggestion}
                     generatedSummary={generatedSummary}
                     originalServiceOrder={originalServiceOrder}
@@ -1525,6 +1529,7 @@ function DeviceStep({
 
 function ServiceDataStep({
   deliverySuggestion,
+  diagnosisOnlyEnabled,
   generatedSummary,
   originalServiceOrder,
   selections,
@@ -1536,23 +1541,27 @@ function ServiceDataStep({
   warrantyLoading,
 }: {
   deliverySuggestion: DeliverySuggestion | null;
+  diagnosisOnlyEnabled: boolean;
   generatedSummary: string;
   originalServiceOrder: string;
   selections: ServiceSelections;
   serviceOrder: {
     reported_defect: string;
     physical_state: string;
+    attendance_notes: string;
     entry_operating_condition: string;
     accessories_received: string;
     estimated_deadline: string;
     lead_time_business_hours: string;
   };
   setOriginalServiceOrder: (value: string) => void;
-  setServiceOrder: (value: { reported_defect: string; physical_state: string; entry_operating_condition: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string } | ((current: { reported_defect: string; physical_state: string; entry_operating_condition: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string }) => { reported_defect: string; physical_state: string; entry_operating_condition: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string })) => void;
+  setServiceOrder: (value: { reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string } | ((current: { reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string }) => { reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string })) => void;
   setSelections: (value: ServiceSelections | ((current: ServiceSelections) => ServiceSelections)) => void;
   warrantyCandidates: WarrantyCandidate[];
   warrantyLoading: boolean;
 }) {
+  const isFullyOperational = serviceOrder.entry_operating_condition === "Liga e permite teste";
+  const isPartiallyOperational = serviceOrder.entry_operating_condition === "Liga parcialmente";
   const toggle = (key: keyof Omit<ServiceSelections, "observations">, value: string) => {
     setSelections((current) => {
       const exists = current[key].includes(value);
@@ -1661,16 +1670,35 @@ function ServiceDataStep({
         <p className="mt-3 text-sm text-tec-muted">
           {operatingConditionOptions.find((condition) => condition.label === serviceOrder.entry_operating_condition)?.helper}
         </p>
-        {serviceOrder.entry_operating_condition !== "Liga e permite teste" ? (
-          <p className="mt-3 rounded-control border border-tec-orange/30 bg-tec-orange/10 px-3 py-2 text-sm text-tec-subtle">
-            A OS pode ser criada normalmente. Antes do avanço técnico, o cliente precisará aceitar o termo adicional de aparelho sem funcionamento pelo link seguro.
+        {isFullyOperational ? (
+          <p className="mt-3 rounded-control border border-tec-success/25 bg-tec-success/10 px-3 py-2 text-sm text-tec-subtle">
+            Registre abaixo o relato do cliente, o que foi possível testar e o estado físico encontrado na entrada.
+          </p>
+        ) : (
+          <div className="mt-3 rounded-control border border-tec-orange/30 bg-tec-orange/10 px-3 py-3 text-sm text-tec-subtle">
+            <p className="font-semibold text-tec-orange">
+              {isPartiallyOperational ? "Testes funcionais limitados" : "Diagnóstico visual na entrada"}
+            </p>
+            <p className="mt-1 leading-6">
+              {isPartiallyOperational
+                ? "Registre apenas o que foi possível observar ou testar. Falhas adicionais podem ser identificadas depois que o aparelho voltar a funcionar plenamente."
+                : "O aparelho será recebido para análise visual e física. Não registre como testada uma função que não pôde ser verificada."}
+            </p>
+            <p className="mt-2 font-semibold text-white">
+              A OS pode ser criada normalmente. Antes do avanço técnico, o cliente aceitará pelo link seguro o termo adicional de aparelho sem funcionamento.
+            </p>
+          </div>
+        )}
+        {diagnosisOnlyEnabled ? (
+          <p className="mt-3 rounded-control border border-tec-border/20 bg-tec-field/60 px-3 py-2 text-sm text-tec-muted">
+            O fluxo “Só diagnóstico” está ativo nesta loja. Depois da avaliação, a OS pode ser concluída como sem conserto e seguir para retirada sem reparo.
           </p>
         ) : null}
       </WizardCard>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <WizardCard clean>
-          <ChipGroup compact label="Defeito relatado" multiple>
+          <ChipGroup compact label="Relato do cliente" multiple>
             {defectOptions.map((defect) => (
               <OptionChip
                 active={selections.defects.includes(defect)}
@@ -1681,6 +1709,11 @@ function ServiceDataStep({
               />
             ))}
           </ChipGroup>
+          <p className="mt-3 text-xs leading-5 text-tec-muted">
+            {isFullyOperational
+              ? "Selecione os sintomas informados ou confirmados durante a entrada."
+              : "Registre os sintomas relatados pelo cliente, mesmo que ainda não seja possível confirmá-los."}
+          </p>
           <div className="mt-4">
             <ChipGroup compact label="Acessórios recebidos" multiple>
               {accessoryOptions.map((accessory) => (
@@ -1697,19 +1730,29 @@ function ServiceDataStep({
         </WizardCard>
 
         <div className="space-y-4">
-          <WizardCard clean>
-            <ChipGroup compact label="Local do problema" multiple>
-              {locationOptions.map((location) => (
-                <OptionChip
-                  active={selections.problemLocations.includes(location)}
-                  icon={locationIcon(location)}
-                  key={location}
-                  label={location}
-                  onClick={() => toggle("problemLocations", location)}
-                />
-              ))}
-            </ChipGroup>
-          </WizardCard>
+          {isFullyOperational || isPartiallyOperational ? (
+            <WizardCard clean>
+              <ChipGroup compact label={isPartiallyOperational ? "Funções com teste limitado" : "Local do problema"} multiple>
+                {locationOptions.map((location) => (
+                  <OptionChip
+                    active={selections.problemLocations.includes(location)}
+                    icon={locationIcon(location)}
+                    key={location}
+                    label={location}
+                    onClick={() => toggle("problemLocations", location)}
+                  />
+                ))}
+              </ChipGroup>
+              {isPartiallyOperational ? <p className="mt-3 text-xs leading-5 text-tec-muted">Marque somente os pontos que puderam ser observados ou testados nesta entrada.</p> : null}
+            </WizardCard>
+          ) : (
+            <WizardCard clean>
+              <SectionTitle icon={<Info size={21} />} title="Funções sem teste" />
+              <p className="mt-3 text-sm leading-6 text-tec-muted">
+                Como o aparelho não liga, a avaliação funcional fica para depois do restabelecimento básico. O relato e o estado físico continuam registrados nesta OS.
+              </p>
+            </WizardCard>
+          )}
 
           <WizardCard clean>
             <CheckboxGrid compact label="Estado físico declarado" required>
@@ -1734,12 +1777,16 @@ function ServiceDataStep({
       </div>
 
       <TextArea
-        label="Observações adicionais"
+        label="Observações da entrada"
         maxLength={500}
-        onChange={(value) => setSelections((current) => ({ ...current, observations: value }))}
-        placeholder="Descreva detalhes adicionais informados pelo cliente ou observações relevantes..."
-        value={selections.observations}
+        onChange={(value) => {
+          setSelections((current) => ({ ...current, observations: value }));
+          setServiceOrder((current) => ({ ...current, attendance_notes: value }));
+        }}
+        placeholder="Descreva detalhes adicionais informados pelo cliente, limites de teste ou observações relevantes..."
+        value={serviceOrder.attendance_notes}
       />
+      <p className="-mt-2 text-xs leading-5 text-tec-muted">Este registro livre fica disponível em qualquer condição de funcionamento e acompanha a OS.</p>
     </div>
   );
 }
@@ -1872,7 +1919,7 @@ function SignatureStep({
   device: CustomerDeviceSummary | null;
   deviceForm: NewDeviceForm;
   photo: { dataUrl: string; filename: string } | null;
-  serviceOrder: { reported_defect: string; physical_state: string; entry_operating_condition: string; accessories_received: string };
+  serviceOrder: { reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string };
 }) {
   const customerName = customer?.customer_name ?? customerForm.customer_name;
   const customerPhone = customer?.mobile_no ?? customerForm.mobile_no;
@@ -1904,6 +1951,7 @@ function SignatureStep({
             <ReviewRow label="Relato automático" value={serviceOrder.reported_defect || "Não informado"} />
             <ReviewRow label="Estado físico declarado" value={serviceOrder.physical_state || "Não informado"} />
             <ReviewRow label="Condição de funcionamento" value={serviceOrder.entry_operating_condition} />
+            <ReviewRow label="Observações da entrada" value={serviceOrder.attendance_notes || "Nenhuma observação adicional"} />
             <ReviewRow label="Acessórios recebidos" value={serviceOrder.accessories_received || "Sem acessórios informados"} />
             <ReviewRow label="Fotos anexadas" value={photo ? "1 foto de entrada" : "Nenhuma foto anexada"} />
           </div>

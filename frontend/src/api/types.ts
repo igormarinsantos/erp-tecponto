@@ -732,6 +732,7 @@ export interface CheckinPayload {
     reported_defect: string;
     defects?: string[];
     physical_state: string;
+    attendance_notes?: string;
     entry_operating_condition?: "Liga e permite teste" | "Liga parcialmente" | "Não liga / sem condições de teste";
     accessories_received?: string;
     is_warranty?: boolean;
