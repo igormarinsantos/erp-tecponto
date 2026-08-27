@@ -155,7 +155,11 @@ from tecponto_app.tecponto.pos import (
 	BARCODE_SYMBOLOGY_FIELD,
 	POS_BARCODE_LABEL_PRINT_FORMAT,
 	POS_RECEIPT_PRINT_FORMAT,
+	POS_RECEIPT_58_PRINT_FORMAT,
+	_receipt_css,
 	ensure_item_barcode_source_field,
+	ensure_pos_barcode_label_print_format,
+	ensure_pos_receipt_print_format,
 )
 from tecponto_app.tecponto import notify
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD
@@ -183,9 +187,28 @@ from tecponto_app.tecponto.service_order.inoperative_device import (
 	ENTRY_OPERATING_CONDITION_INOPERATIVE,
 )
 from tecponto_app.tecponto.service_order.print_formats import (
+	PF_ETIQUETA_INTERNA,
+	PF_ETIQUETA_QR,
+	PF_LAUDO_TECNICO,
+	PF_OS_ORCAMENTO,
+	PF_OS_ORCAMENTO_DISCRIMINADO,
+	PF_TERMO_APARELHO_PAGAMENTO,
+	PF_TERMO_ENTRADA,
+	PF_TERMO_GARANTIA,
+	PF_TERMO_PECA_CLIENTE,
+	PF_TERMO_RETIRADA,
+	_etiqueta_interna_html,
+	_etiqueta_qr_html,
+	_laudo_tecnico_html,
 	_os_orcamento_html,
+	_os_orcamento_discriminado_html,
+	_termo_aparelho_pagamento_html,
 	_termo_entrada_html,
+	_termo_garantia_html,
+	_termo_peca_cliente_html,
 	_termo_retirada_html,
+	ensure_service_order_print_formats,
+	get_service_order_payment_print_context,
 	get_service_order_print_context,
 )
 from tecponto_app.tecponto.pos import _receipt_html
@@ -215,6 +238,9 @@ def run_foundation_checks() -> dict:
 	previous_in_test = frappe.flags.in_test
 	try:
 		frappe.flags.in_test = True
+		# Foundation provisions native ERPNext records; keep this independent from
+		# whatever role a preceding integration scenario left in the session.
+		frappe.set_user("Administrator")
 		ensure_frontend_foundation()
 		# Access control must initialize after the Tecponto roles themselves exist.
 		# Running this first also makes later fixture users subject to the same
@@ -273,6 +299,7 @@ def run_foundation_checks() -> dict:
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
 		warranty_delivery_check = run_warranty_delivery_checks()
 		budget_presentation_check = run_budget_presentation_checks()
+		print_document_checks = run_print_document_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
 			users["Tecponto Atendente"],
@@ -340,6 +367,7 @@ def run_foundation_checks() -> dict:
 			"used_device_warranty_lookup": used_device_warranty_lookup,
 			"warranty_delivery": warranty_delivery_check,
 			"budget_presentation": budget_presentation_check,
+			"print_documents": print_document_checks,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
 			"cashier_mode_checks": cashier_mode_checks,
@@ -412,6 +440,188 @@ def run_budget_presentation_checks() -> dict:
 			raise AssertionError("Diretor não recebeu a visão financeira exclusiva de custo e lucro bruto.")
 		return {"closed_total": 500, "customer_part_stock": False, "attendant_leaked_fields": [], "director_financial": True}
 	finally:
+		frappe.set_user(previous_user)
+
+
+def run_print_document_checks() -> dict:
+	"""Exercise every customer/internal print projection without exposing internal cost."""
+	previous_user = frappe.session.user
+	settings = frappe.get_single("Tecponto Settings")
+	original_trade_name = settings.get("trade_name")
+	original_public_logo = settings.get("public_logo")
+	try:
+		ensure_frontend_foundation()
+		ensure_service_order_print_formats()
+		ensure_pos_receipt_print_format()
+		ensure_pos_barcode_label_print_format()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		order_name = _create_action_request_service_order(attendant)
+		order = frappe.get_doc("Service Order", order_name)
+		brand_name = f"Oficina Impressão {frappe.generate_hash(length=6)}"
+		settings.trade_name = brand_name
+		settings.public_logo = "/assets/tecponto_app/branding/logo-dark.svg"
+		settings.save(ignore_permissions=True)
+
+		frappe.db.set_value(
+			"Customer Device",
+			order.customer_device,
+			"device_password",
+			"SENHA-INTERNA-NAO-IMPRIMIR-CLIENTE",
+			update_modified=False,
+		)
+		frappe.db.set_value(
+			"Service Order",
+			order.name,
+			{
+				"problem_found": "Falha confirmada no conjunto de tela.",
+				"probable_cause": "Impacto físico anterior.",
+				"recommended_solution": "Substituir o conjunto de tela.",
+				"diagnosis_notes": "Teste funcional documentado.",
+				"pickup_date": add_days(now_datetime(), -2),
+				"warranty_expiry": add_days(nowdate(), 88),
+			},
+			update_modified=False,
+		)
+		order.reload()
+
+		frappe.set_user("Administrator")
+		repair_warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+		part_item = _ensure_part_request_repair_item()
+		_ensure_pos_demo_stock(part_item, repair_warehouse, valuation_rate=BUDGET_COST_GUARD_VALUATION)
+		frappe.set_user(attendant)
+		add_service_order_budget_line(
+			order.name,
+			{
+				"type": "part",
+				"item_code": part_item,
+				"description": "Componente comercial discriminado",
+				"warehouse": repair_warehouse,
+				"qty": 1,
+				"rate": 320,
+			},
+		)
+		add_service_order_budget_line(
+			order.name,
+			{
+				"type": "part",
+				"part_source": "Cliente",
+				"description": "Componente fornecido pelo cliente",
+				"customer_part_note": "Cliente confirmou a origem da peça.",
+				"qty": 1,
+				"rate": 999,
+			},
+		)
+		order.reload()
+		frappe.db.set_value(
+			"Service Order Part",
+			next(row.name for row in order.parts if row.part_source != "Cliente"),
+			"valuation_rate",
+			BUDGET_COST_GUARD_VALUATION,
+			update_modified=False,
+		)
+		order.reload()
+
+		from tecponto_app.tecponto.service_order.customer_supplied_part import build_customer_supplied_part_term
+
+		term = build_customer_supplied_part_term(order)
+		frappe.get_doc(
+			{
+				"doctype": "OS Acceptance",
+				"service_order": order.name,
+				"acceptance_type": "Orçamento",
+				"signer_role": "Dono",
+				"status": "Concluído",
+				"token_hash": frappe.generate_hash(length=32),
+				"expires_on": add_days(now_datetime(), 1),
+				"issued_by": attendant,
+				"customer_part_term_version": term["version"],
+				"customer_part_term_text": term["text"],
+				"customer_part_term_accepted_on": now_datetime(),
+			}
+		).insert(ignore_permissions=True)
+
+		payment = frappe.get_doc(
+			{
+				"doctype": "Tecponto Service Order Payment",
+				"service_order": order.name,
+				"payment_kind": "Aparelho como pagamento",
+				"direction": "Entrada",
+				"amount": 350,
+				"payment_mode": "Aparelho como pagamento",
+				"affects_drawer": 0,
+				"reason": "Compensação por aparelho usado.",
+				"idempotency_key": f"print-payment-{frappe.generate_hash(length=16)}",
+				"request_hash": frappe.generate_hash(length=32),
+			}
+		)
+		payment.insert(ignore_permissions=True)
+
+		service_templates = {
+			PF_TERMO_ENTRADA: _termo_entrada_html(),
+			PF_TERMO_RETIRADA: _termo_retirada_html(),
+			PF_OS_ORCAMENTO: _os_orcamento_html(),
+			PF_OS_ORCAMENTO_DISCRIMINADO: _os_orcamento_discriminado_html(),
+			PF_LAUDO_TECNICO: _laudo_tecnico_html(),
+			PF_TERMO_GARANTIA: _termo_garantia_html(),
+			PF_TERMO_PECA_CLIENTE: _termo_peca_cliente_html(),
+			PF_ETIQUETA_QR: _etiqueta_qr_html(),
+			PF_ETIQUETA_INTERNA: _etiqueta_interna_html(),
+		}
+		rendered = {name: frappe.render_template(template, {"doc": order}) for name, template in service_templates.items()}
+		rendered[PF_TERMO_APARELHO_PAGAMENTO] = frappe.render_template(
+			_termo_aparelho_pagamento_html(), {"doc": payment}
+		)
+
+		internal_password = "SENHA-INTERNA-NAO-IMPRIMIR-CLIENTE"
+		a4_documents = set(rendered) - {PF_ETIQUETA_QR, PF_ETIQUETA_INTERNA}
+		for name, html in rendered.items():
+			if brand_name not in html:
+				raise AssertionError(f"{name} não refletiu a identidade comercial configurada.")
+			if name in a4_documents and settings.public_logo not in html:
+				raise AssertionError(f"{name} não refletiu o logo comercial configurado.")
+			if name != PF_ETIQUETA_INTERNA and internal_password in html:
+				raise AssertionError(f"{name} imprimiu senha de aparelho em documento não interno.")
+			if any(marker in html for marker in ("valuation_rate", str(BUDGET_COST_GUARD_VALUATION), "gross_margin")):
+				raise AssertionError(f"{name} expôs custo, margem ou valuation interno.")
+		if internal_password not in rendered[PF_ETIQUETA_INTERNA] or "USO INTERNO" not in rendered[PF_ETIQUETA_INTERNA]:
+			raise AssertionError("Etiqueta interna não restringiu claramente a senha ao uso interno.")
+
+		closed = rendered[PF_OS_ORCAMENTO]
+		itemized = rendered[PF_OS_ORCAMENTO_DISCRIMINADO]
+		store_part = "Componente comercial discriminado"
+		if store_part in closed or store_part not in itemized:
+			raise AssertionError("Orçamento fechado/discriminado não separou corretamente a composição de venda.")
+		if "Componente fornecido pelo cliente" not in rendered[PF_TERMO_PECA_CLIENTE]:
+			raise AssertionError("Termo de peça do cliente não imprimiu a identificação registrada.")
+
+		context = get_service_order_print_context(order)
+		if context["pickup_date"] not in rendered[PF_TERMO_GARANTIA] or context["warranty_expiry"] not in rendered[PF_TERMO_GARANTIA]:
+			raise AssertionError("Termo de garantia não imprimiu retirada real e validade configurada.")
+		payment_context = get_service_order_payment_print_context(payment)
+		if payment_context["payment"]["amount_fmt"] not in rendered[PF_TERMO_APARELHO_PAGAMENTO]:
+			raise AssertionError("Termo de aparelho como pagamento não imprimiu o abatimento registrado.")
+
+		for name in (PF_TERMO_ENTRADA, PF_TERMO_RETIRADA, PF_OS_ORCAMENTO, PF_OS_ORCAMENTO_DISCRIMINADO, PF_LAUDO_TECNICO, PF_TERMO_GARANTIA, PF_TERMO_PECA_CLIENTE, PF_ETIQUETA_QR, PF_ETIQUETA_INTERNA, PF_TERMO_APARELHO_PAGAMENTO):
+			if not frappe.db.exists("Print Format", name):
+				raise AssertionError(f"Formato de impressão {name} não foi provisionado.")
+		for name in (POS_RECEIPT_PRINT_FORMAT, POS_RECEIPT_58_PRINT_FORMAT, POS_BARCODE_LABEL_PRINT_FORMAT):
+			if not frappe.db.exists("Print Format", name):
+				raise AssertionError(f"Formato de etiqueta/cupom {name} não foi provisionado.")
+		if "size: 58mm" not in _receipt_css(58) or "size: 80mm" not in _receipt_css(80):
+			raise AssertionError("CSS térmico não aplicou as larguras 58mm e 80mm.")
+		return {
+			"identity_reflected": True,
+			"customer_documents_without_password": True,
+			"internal_password_label_only": True,
+			"closed_quote": True,
+			"itemized_quote_sale_prices_only": True,
+			"warranty_from_pickup": True,
+			"formats_provisioned": len(rendered) + 3,
+		}
+	finally:
+		settings.trade_name = original_trade_name
+		settings.public_logo = original_public_logo
+		settings.save(ignore_permissions=True)
 		frappe.set_user(previous_user)
 
 
@@ -6107,6 +6317,9 @@ def run_part_receipt_reservation_checks() -> dict:
 	previous_in_test = frappe.flags.in_test
 	try:
 		frappe.flags.in_test = True
+		# Foundation provisions native ERPNext records; keep this independent from
+		# whatever role a preceding integration scenario left in the session.
+		frappe.set_user("Administrator")
 		ensure_frontend_foundation()
 		technician = _find_or_create_user("Tecponto Tecnico")
 		buyer = _find_or_create_user("Tecponto Gestor")

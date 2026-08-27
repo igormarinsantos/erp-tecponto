@@ -16,6 +16,8 @@ jinja = {
 	"methods": [
 		"tecponto_app.tecponto.company_identity.get_company_identity",
 		"tecponto_app.tecponto.service_order.print_formats.get_service_order_print_context",
+		"tecponto_app.tecponto.service_order.print_formats.get_internal_service_order_print_context",
+		"tecponto_app.tecponto.service_order.print_formats.get_service_order_payment_print_context",
 		"tecponto_app.tecponto.pos.get_item_barcode_label_context",
 	],
 }

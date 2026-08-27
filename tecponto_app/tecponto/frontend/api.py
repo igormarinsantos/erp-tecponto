@@ -23,9 +23,15 @@ from tecponto_app.tecponto import pending
 from tecponto_app.tecponto.pending import action_for_service_order_state
 from tecponto_app.tecponto.stock import normalize_barcode
 from tecponto_app.tecponto.service_order.print_formats import (
+	PF_ETIQUETA_INTERNA,
 	PF_ETIQUETA_QR,
+	PF_LAUDO_TECNICO,
 	PF_OS_ORCAMENTO,
+	PF_OS_ORCAMENTO_DISCRIMINADO,
+	PF_TERMO_APARELHO_PAGAMENTO,
 	PF_TERMO_ENTRADA,
+	PF_TERMO_GARANTIA,
+	PF_TERMO_PECA_CLIENTE,
 	PF_TERMO_RETIRADA,
 )
 from tecponto_app.tecponto.workflow import _get_service_order_transitions, get_service_order_workflow_state_names
@@ -3793,21 +3799,44 @@ def _quote_send_timeline_detail(communication: Any) -> str:
 
 
 def _get_service_order_print_links(name: str) -> list[dict[str, str]]:
-	return [
+	order = frappe.get_doc("Service Order", name)
+	links = [
 		_print_link(name, "Termo de entrada", PF_TERMO_ENTRADA),
-		_print_link(name, "Orçamento", PF_OS_ORCAMENTO),
+		_print_link(name, "Orçamento fechado", PF_OS_ORCAMENTO),
+		_print_link(name, "Orçamento discriminado", PF_OS_ORCAMENTO_DISCRIMINADO),
+		_print_link(name, "Laudo técnico", PF_LAUDO_TECNICO),
+		_print_link(name, "Termo de garantia", PF_TERMO_GARANTIA),
 		_print_link(name, "Etiqueta QR", PF_ETIQUETA_QR),
+		_print_link(name, "Etiqueta interna (senha)", PF_ETIQUETA_INTERNA),
 		_print_link(name, "Termo de retirada", PF_TERMO_RETIRADA),
 	]
+	if order.get("customer_supplied_part_term_required"):
+		links.append(_print_link(name, "Termo de peça do cliente", PF_TERMO_PECA_CLIENTE))
+	trade_payment = frappe.db.get_value(
+		"Tecponto Service Order Payment",
+		{"service_order": name, "payment_kind": "Aparelho como pagamento"},
+		"name",
+		order_by="creation desc",
+	)
+	if trade_payment:
+		links.append(
+			_print_link(
+				trade_payment,
+				"Termo aparelho como pagamento",
+				PF_TERMO_APARELHO_PAGAMENTO,
+				doctype="Tecponto Service Order Payment",
+			)
+		)
+	return links
 
 
-def _print_link(name: str, label: str, print_format: str) -> dict[str, str]:
+def _print_link(name: str, label: str, print_format: str, *, doctype: str = "Service Order") -> dict[str, str]:
 	return {
 		"label": label,
 		"format": print_format,
 		"url": (
 			"/printview?"
-			"doctype=Service%20Order"
+			f"doctype={quote(doctype)}"
 			f"&name={quote(name)}"
 			f"&format={quote(print_format)}"
 			"&no_letterhead=0"

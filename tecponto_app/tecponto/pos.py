@@ -14,6 +14,7 @@ CARD_PAYMENT_MODES = ("Débito", "Crédito à vista", "Crédito parcelado")
 COMMERCIAL_ITEM_GROUP_ROOTS = ("Produtos de Varejo", "Aparelhos Usados")
 RETAIL_ITEM_GROUP_ROOT = "Produtos de Varejo"
 POS_RECEIPT_PRINT_FORMAT = "Tecponto Cupom PDV"
+POS_RECEIPT_58_PRINT_FORMAT = "Tecponto Cupom PDV 58mm"
 POS_BARCODE_LABEL_PRINT_FORMAT = "Tecponto Etiqueta Barcode"
 BARCODE_SOURCE_FIELD = "custom_tecponto_barcode_source"
 BARCODE_SYMBOLOGY_FIELD = "custom_tecponto_barcode_symbology"
@@ -142,28 +143,28 @@ def _descendant_item_groups(roots: tuple[str, ...]) -> list[str]:
 def ensure_pos_receipt_print_format() -> None:
 	if not frappe.db.exists("DocType", "Print Format"):
 		return
+	for name, width in ((POS_RECEIPT_PRINT_FORMAT, 80), (POS_RECEIPT_58_PRINT_FORMAT, 58)):
+		if frappe.db.exists("Print Format", name):
+			print_format = frappe.get_doc("Print Format", name)
+		else:
+			print_format = frappe.new_doc("Print Format")
+			print_format.name = name
 
-	if frappe.db.exists("Print Format", POS_RECEIPT_PRINT_FORMAT):
-		print_format = frappe.get_doc("Print Format", POS_RECEIPT_PRINT_FORMAT)
-	else:
-		print_format = frappe.new_doc("Print Format")
-		print_format.name = POS_RECEIPT_PRINT_FORMAT
-
-	print_format.update(
-		{
-			"doc_type": "Sales Invoice",
-			"module": "Tecponto",
-			"standard": "No",
-			"custom_format": 1,
-			"print_format_for": "DocType",
-			"print_format_type": "Jinja",
-			"disabled": 0,
-			"raw_printing": 0,
-			"html": _receipt_html(),
-			"css": _receipt_css(),
-		}
-	)
-	print_format.save(ignore_permissions=True)
+		print_format.update(
+			{
+				"doc_type": "Sales Invoice",
+				"module": "Tecponto",
+				"standard": "No",
+				"custom_format": 1,
+				"print_format_for": "DocType",
+				"print_format_type": "Jinja",
+				"disabled": 0,
+				"raw_printing": 0,
+				"html": _receipt_html(),
+				"css": _receipt_css(width),
+			}
+		)
+		print_format.save(ignore_permissions=True)
 
 
 def ensure_pos_barcode_label_print_format() -> None:
@@ -305,9 +306,10 @@ def _barcode_label_css() -> str:
 
 def _receipt_html() -> str:
 	return """
-{% set tp_company = frappe.get_attr('tecponto_app.tecponto.company_identity.get_company_identity')(doc.company) %}
+{% set tp_company = get_company_identity(doc.company) %}
 <div class="tp-receipt">
   <header>
+	{% if tp_company.logo_url %}<img class="tp-receipt-logo" src="{{ tp_company.logo_url }}" alt="{{ tp_company.display_name }}">{% endif %}
 	<h1>{{ tp_company.display_name }}</h1>
 	{% if tp_company.cnpj %}<p>CNPJ {{ tp_company.cnpj }}</p>{% endif %}
     <p>Cupom de venda {{ doc.name }}</p>
@@ -346,11 +348,13 @@ def _receipt_html() -> str:
 """.strip()
 
 
-def _receipt_css() -> str:
+def _receipt_css(width_mm: int = 80) -> str:
 	return """
+@page { size: __WIDTH__mm auto; margin: 2mm; }
 .print-format { font-family: Arial, sans-serif; font-size: 10px; color: #111; }
-.tp-receipt { max-width: 78mm; margin: 0 auto; }
+.tp-receipt { max-width: __CONTENT_WIDTH__mm; margin: 0 auto; }
 .tp-receipt header { text-align: center; border-bottom: 1px dashed #555; padding-bottom: 8px; }
+.tp-receipt-logo { display: block; max-height: 22px; max-width: 46mm; margin: 0 auto 4px; object-fit: contain; }
 .tp-receipt h1 { font-size: 20px; margin: 0; }
 .tp-meta, .tp-payments { padding: 8px 0; border-bottom: 1px dashed #555; }
 .tp-receipt p { margin: 3px 0; }
@@ -360,7 +364,7 @@ def _receipt_css() -> str:
 .tp-totals p, .tp-payments p { display: flex; justify-content: space-between; gap: 8px; }
 .tp-grand { font-size: 14px; }
 .tp-receipt footer { text-align: center; padding-top: 10px; }
-""".strip()
+""".strip().replace("__WIDTH__", str(width_mm)).replace("__CONTENT_WIDTH__", str(width_mm - 4))
 
 
 def validate_pos_warehouse(doc, method=None) -> None:

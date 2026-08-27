@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "item_code",
+  "description",
   "qty",
   "part_source",
   "service_row",
@@ -31,6 +32,12 @@
    "in_list_view": 1,
    "label": "Item",
    "options": "Item"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Descrição"
   },
   {
    "default": "1",
