@@ -138,6 +138,52 @@ def issue_budget_acceptance_from_tracking(tracking, identity_document: str) -> d
 	}
 
 
+def issue_portal_acceptance(tracking, acceptance_type: str, identity_document: str) -> dict:
+	"""Issue a one-time entry/pickup acceptance from an already validated portal.
+
+	The portal link remains the customer's durable URL. This short token is only
+	used to capture the selfie and signature for one legally relevant action.
+	"""
+	if acceptance_type not in {"Entrada", "Retirada"}:
+		frappe.throw(_("Tipo de aceite público inválido."), frappe.ValidationError)
+	order = frappe.get_doc("Service Order", tracking.service_order)
+	state = order.get("workflow_state") or "Entrada criada"
+	if acceptance_type == "Entrada" and state != "Entrada criada":
+		frappe.throw(_("O aceite de entrada não está mais disponível."), frappe.ValidationError)
+	if acceptance_type == "Retirada" and state != "Pronto para retirada":
+		frappe.throw(_("O aceite de retirada não está mais disponível."), frappe.ValidationError)
+
+	document_type = _validate_customer_identity(order.customer, identity_document)
+	frappe.db.set_value(
+		"OS Acceptance",
+		{"service_order": order.name, "acceptance_type": acceptance_type, "status": PENDING_STATUS},
+		"status",
+		"Invalidado",
+		update_modified=False,
+	)
+	token = secrets.token_urlsafe(32)
+	term = build_inoperative_device_term(order) if acceptance_type == "Entrada" and requires_inoperative_device_term(order) else None
+	doc = frappe.get_doc(
+		{
+			"doctype": "OS Acceptance",
+			"service_order": order.name,
+			"acceptance_type": acceptance_type,
+			"signer_role": "Dono",
+			"status": PENDING_STATUS,
+			"token_hash": _token_hash(token),
+			"expires_on": add_to_date(now_datetime(), hours=TOKEN_TTL_HOURS),
+			"issued_by": tracking.issued_by,
+			"tracking_link": tracking.name,
+			"identity_document_type": document_type,
+			"identity_verified_on": now_datetime(),
+			"inoperative_device_term_version": term["version"] if term else "",
+			"inoperative_device_term_text": term["text"] if term else "",
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	return {"acceptance": doc.name, "acceptance_type": acceptance_type, "expires_on": str(doc.expires_on), "link": f"{get_url()}/tecponto/aceite/{token}"}
+
+
 @frappe.whitelist(allow_guest=True)
 def get_public_acceptance(token: str) -> dict:
 	"""Return the small read-only public projection for a valid acceptance link."""

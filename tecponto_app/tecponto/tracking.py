@@ -15,7 +15,10 @@ from frappe.utils import add_days, flt, get_url, now_datetime
 
 TRACKING_DOCTYPE = "Service Order Tracking"
 ACTIVE_STATUS = "Ativo"
+REPLACED_STATUS = "Substituído"
 TRACKING_RETENTION_DAYS = 90
+PORTAL_LOOKUP_TTL_SECONDS = 15 * 60
+PORTAL_LOOKUP_MAX_ATTEMPTS = 5
 TRACKING_OPERATOR_ROLES = {"Tecponto Atendente", "Tecponto Gestor", "System Manager"}
 TRACKING_MANAGER_ROLES = {"Tecponto Gestor", "System Manager"}
 INVALID_LINK_MESSAGE = "Este link de rastreio não está disponível. Peça um novo link à empresa responsável."
@@ -40,7 +43,7 @@ def issue_tracking_link(service_order: str) -> dict[str, str]:
 		TRACKING_DOCTYPE,
 		{"service_order": order.name, "status": ACTIVE_STATUS},
 		"status",
-		"Revogado",
+		REPLACED_STATUS,
 		update_modified=False,
 	)
 	token = secrets.token_urlsafe(32)
@@ -55,7 +58,7 @@ def issue_tracking_link(service_order: str) -> dict[str, str]:
 		}
 	)
 	doc.insert(ignore_permissions=True)
-	link = f"{get_url()}/tecponto/rastreio/{token}"
+	link = f"{get_url()}/tecponto/portal/{token}"
 	qr_svg = get_qr_svg_code(link).decode()
 	return {
 		"tracking": doc.name,
@@ -116,8 +119,14 @@ def ensure_tracking_lifecycle() -> None:
 
 @frappe.whitelist(allow_guest=True)
 def get_public_tracking(token: str) -> dict[str, Any]:
-	"""Return only customer-safe tracking information for a valid opaque token."""
-	doc = _get_valid_tracking(token)
+	"""Compatibility alias for tracking links issued before the unified portal."""
+	return get_public_portal(token)
+
+
+@frappe.whitelist(allow_guest=True)
+def get_public_portal(token: str) -> dict[str, Any]:
+	"""Return the customer-safe portal projection for a permanent or lookup token."""
+	doc = _get_tracking_for_portal_token(token)
 	if not doc:
 		return {"valid": False, "message": INVALID_LINK_MESSAGE}
 
@@ -125,7 +134,7 @@ def get_public_tracking(token: str) -> dict[str, Any]:
 	from tecponto_app.tecponto.company_identity import get_company_identity
 	device = _get_device(order.customer_device)
 	awaiting_approval = order.get("workflow_state") == "Aguardando aprovação"
-	return {
+	payload = {
 		"valid": True,
 		"tracking": {
 			"expires_on": str(doc.expires_on),
@@ -149,12 +158,53 @@ def get_public_tracking(token: str) -> dict[str, Any]:
 		"timeline": _build_timeline(order),
 		"whatsapp_url": "https://wa.me/?text=" + quote(f"Olá, preciso de ajuda com a OS {order.name}."),
 	}
+	payload["portal_actions"] = _public_portal_actions(order)
+	payload["acceptance_history"] = _public_acceptance_history(order)
+	return payload
+
+
+@frappe.whitelist(allow_guest=True)
+def lookup_public_portal(service_order: str, identity: str) -> dict[str, Any]:
+	"""Find a portal with OS number plus CPF/RG or phone, without confirming existence on failure."""
+	_enforce_lookup_rate_limit()
+	order = frappe.db.get_value("Service Order", (service_order or "").strip(), ["name", "customer"], as_dict=True)
+	if not order or not _matches_public_identity(order.customer, identity):
+		return {"valid": False, "message": "Não foi possível localizar um atendimento com esses dados."}
+
+	tracking = _active_tracking_for_order(order.name)
+	if not tracking:
+		return {"valid": False, "message": "Não foi possível localizar um atendimento com esses dados."}
+
+	token = secrets.token_urlsafe(32)
+	cache = frappe.cache()
+	cache.set_value(_portal_lookup_cache_key(token), order.name, expires_in_sec=PORTAL_LOOKUP_TTL_SECONDS)
+	return {"valid": True, "portal_url": f"{get_url()}/tecponto/portal/{token}", "expires_in_seconds": PORTAL_LOOKUP_TTL_SECONDS}
+
+
+@frappe.whitelist(allow_guest=True)
+def start_public_portal_action(token: str, action: str, identity_document: str) -> dict[str, Any]:
+	"""Issue a short, one-use biometric acceptance only after portal identity proof."""
+	tracking = _get_tracking_for_portal_token(token)
+	if not tracking:
+		frappe.throw(_(INVALID_LINK_MESSAGE), frappe.PermissionError)
+	action = (action or "").strip()
+	order = frappe.get_doc("Service Order", tracking.service_order)
+	allowed = {entry["key"] for entry in _public_portal_actions(order)}
+	if action not in allowed:
+		frappe.throw(_("Esta ação não está mais disponível."), frappe.ValidationError)
+
+	if action == "budget":
+		return start_public_tracking_budget_acceptance(token, identity_document)
+
+	from tecponto_app.tecponto.acceptance import issue_portal_acceptance
+
+	return issue_portal_acceptance(tracking, "Entrada" if action == "entry" else "Retirada", identity_document)
 
 
 @frappe.whitelist(allow_guest=True)
 def decide_public_tracking_budget(token: str, decision: str, notes: str = "") -> dict[str, Any]:
 	"""Re-execute the existing budget decision flow for the holder of a valid tracking link."""
-	tracking = _get_valid_tracking(token)
+	tracking = _get_tracking_for_portal_token(token)
 	if not tracking:
 		frappe.throw(_(INVALID_LINK_MESSAGE), frappe.PermissionError)
 
@@ -181,7 +231,7 @@ def decide_public_tracking_budget(token: str, decision: str, notes: str = "") ->
 @frappe.whitelist(allow_guest=True)
 def start_public_tracking_budget_acceptance(token: str, identity_document: str) -> dict[str, Any]:
 	"""Validate the holder's CPF/RG and issue the selfie/signature budget link."""
-	tracking = _get_valid_tracking(token)
+	tracking = _get_tracking_for_portal_token(token)
 	if not tracking:
 		frappe.throw(_(INVALID_LINK_MESSAGE), frappe.PermissionError)
 	from tecponto_app.tecponto.acceptance import issue_budget_acceptance_from_tracking
@@ -246,6 +296,113 @@ def _get_valid_tracking(token: str):
 		doc.db_set("status", "Expirado", update_modified=False)
 		return None
 	return doc
+
+
+def _get_tracking_for_portal_token(token: str):
+	tracking = _get_valid_tracking(token)
+	if tracking:
+		return tracking
+	# A regenerated link is replaced, not revoked. The former opaque token can
+	# keep opening the current portal, while an explicitly revoked link remains
+	# permanently dead.
+	replaced_name = frappe.db.get_value(
+		TRACKING_DOCTYPE,
+		{"token_hash": _token_hash((token or "").strip()), "status": REPLACED_STATUS},
+		"service_order",
+	)
+	if replaced_name:
+		return _active_tracking_for_order(replaced_name)
+	order_name = frappe.cache().get_value(_portal_lookup_cache_key(token))
+	return _active_tracking_for_order(order_name) if order_name else None
+
+
+def _active_tracking_for_order(service_order: str | None):
+	if not service_order:
+		return None
+	name = frappe.db.get_value(TRACKING_DOCTYPE, {"service_order": service_order, "status": ACTIVE_STATUS}, "name", order_by="creation desc")
+	if not name:
+		return None
+	doc = frappe.get_doc(TRACKING_DOCTYPE, name)
+	if doc.expires_on and doc.expires_on <= now_datetime():
+		doc.db_set("status", "Expirado", update_modified=False)
+		return None
+	return doc
+
+
+def _portal_lookup_cache_key(token: str) -> str:
+	return f"tecponto:portal-lookup:{_token_hash((token or '').strip())}"
+
+
+def _enforce_lookup_rate_limit() -> None:
+	try:
+		ip = getattr(frappe.local.request, "remote_addr", "") or "unknown"
+	except (AttributeError, RuntimeError):
+		ip = "test"
+	key = f"tecponto:portal-lookup-attempts:{ip}"
+	cache = frappe.cache()
+	attempts = int(cache.get_value(key) or 0) + 1
+	if attempts > PORTAL_LOOKUP_MAX_ATTEMPTS:
+		frappe.throw(_("Tente novamente em alguns minutos."), frappe.PermissionError)
+	cache.set_value(key, attempts, expires_in_sec=15 * 60)
+
+
+def _matches_public_identity(customer: str, identity: str) -> bool:
+	value = "".join(character for character in (identity or "") if character.isalnum()).casefold()
+	if len(value) < 8:
+		return False
+	data = frappe.db.get_value("Customer", customer, ["custom_cpf", "custom_rg", "mobile_no", "custom_whatsapp"], as_dict=True) or {}
+	for candidate in data.values():
+		normalized = "".join(character for character in str(candidate or "") if character.isalnum()).casefold()
+		if normalized and secrets.compare_digest(normalized, value):
+			return True
+	return False
+
+
+def _public_portal_actions(order) -> list[dict[str, str]]:
+	from tecponto_app.tecponto.acceptance import assert_completed_acceptance_evidence
+
+	state = order.get("workflow_state") or "Entrada criada"
+	actions = []
+	if state == "Entrada criada" and order.get("link_acceptance_required"):
+		try:
+			assert_completed_acceptance_evidence(order.name, "Entrada", required=True)
+		except frappe.ValidationError:
+			actions.append({"key": "entry", "label": "Confirmar entrada", "description": "Leia e aceite o termo de entrada."})
+	if state == "Aguardando aprovação":
+		actions.append({"key": "budget", "label": "Decidir orçamento", "description": "Confira e aprove ou recuse o orçamento."})
+	if state == "Pronto para retirada" and order.get("link_acceptance_required"):
+		try:
+			assert_completed_acceptance_evidence(order.name, "Retirada", required=True)
+		except frappe.ValidationError:
+			actions.append({"key": "pickup", "label": "Confirmar retirada", "description": "Confirme a retirada com selfie e assinatura."})
+	return actions
+
+
+def _public_acceptance_history(order) -> list[dict[str, Any]]:
+	from tecponto_app.tecponto.acceptance import _assert_acceptance_evidence
+
+	rows = frappe.get_all(
+		"OS Acceptance",
+		filters={"service_order": order.name, "status": "Concluído"},
+		fields=["name", "acceptance_type", "signer_role", "signer_name", "consent_version", "used_on", "inoperative_device_term_version", "customer_part_term_version"],
+		order_by="used_on asc",
+	)
+	history = []
+	for row in rows:
+		try:
+			_assert_acceptance_evidence(frappe.get_doc("OS Acceptance", row.name))
+			integrity = "Íntegra"
+		except frappe.ValidationError:
+			integrity = "Indisponível"
+		history.append({
+			"type": row.acceptance_type,
+			"signer": row.signer_name or row.signer_role,
+			"accepted_on": str(row.used_on or ""),
+			"consent_version": row.consent_version or "",
+			"term_versions": [value for value in (row.inoperative_device_term_version, row.customer_part_term_version) if value],
+			"evidence": integrity,
+		})
+	return history
 
 
 def _get_device(device_name: str | None) -> dict[str, Any]:

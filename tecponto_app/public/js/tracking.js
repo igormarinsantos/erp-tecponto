@@ -3,6 +3,10 @@
   if (!root) return;
 
   const token = root.dataset.token || window.location.pathname.split("/").pop();
+  if (window.location.pathname.includes("/tecponto/rastreio/")) {
+    window.location.replace(`/tecponto/portal/${encodeURIComponent(token)}`);
+    return;
+  }
   const card = root.querySelector(".tp-tracking-card");
   const escape = (value) => String(value || "").replace(/[&<>\"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character]);
   let companyName = "Empresa responsável";
@@ -56,6 +60,15 @@
     return payload.message;
   };
 
+  const startPortalAction = async (action, identityDocument) => {
+    const response = await fetch("/api/method/tecponto_app.tecponto.tracking.start_public_portal_action", {
+      method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action, identity_document: identityDocument }),
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.exc || !payload.message?.link) throw new Error("Não foi possível validar o documento informado. Confira e tente novamente.");
+    return payload.message;
+  };
+
   const bindCopy = () => {
     const copyButton = card.querySelector("[data-copy-os]");
     copyButton?.addEventListener("click", async () => {
@@ -86,12 +99,15 @@
         <h3>Peças</h3><ul>${budgetLines(data.budget.parts)}</ul>
         <div class="tp-tracking-decision" data-decision><p>Você aprova este orçamento?</p><div><button class="tp-tracking-secondary" type="button" data-reject>Reprovar</button><button class="tp-tracking-primary" type="button" data-approve>Aprovar orçamento</button></div></div>
       </section>` : data.approval ? `<section class="tp-tracking-decision-result"><b>Orçamento ${escape(data.approval.status.toLowerCase())}</b>${data.approval.date ? `<span>${escape(formatDate(data.approval.date))}</span>` : ""}</section>` : "";
+    const portalActions = (data.portal_actions || []).filter((action) => action.key !== "budget").map((action) => `<article class="tp-portal-action"><div><p class="tp-section-kicker">AÇÃO NECESSÁRIA</p><h2>${escape(action.label)}</h2><p>${escape(action.description)}</p></div><label>CPF ou RG do titular<input data-portal-identity="${escape(action.key)}" autocomplete="off" placeholder="Digite CPF ou RG"></label><button class="tp-tracking-primary" data-portal-action="${escape(action.key)}" type="button">Continuar para o aceite</button><p class="tp-tracking-decision-error" hidden data-portal-action-error="${escape(action.key)}"></p></article>`).join("");
+    const history = (data.acceptance_history || []).length ? `<section class="tp-portal-history"><p class="tp-section-kicker">ACEITES REGISTRADOS</p><h2>Histórico de confirmações</h2><ul>${data.acceptance_history.map((item) => `<li><b>${escape(item.type)}</b><span>${escape(item.signer)} · ${escape(formatDate(item.accepted_on))}</span><small>Selfie e assinatura: ${escape(item.evidence)}${item.term_versions?.length ? ` · Termo ${escape(item.term_versions.join(", "))}` : ""}</small></li>`).join("")}</ul></section>` : "";
 
     card.innerHTML = `
       <section class="tp-tracking-status-banner tp-status--${statusTone}">
         <div class="tp-status-copy"><p class="tp-tracking-brand">RASTREIO SEGURO</p><h1>${escape(meta.label)}</h1><p>Acompanhe cada etapa do seu atendimento. Esta página é somente para consulta.</p><div class="tp-next-stage"><span aria-hidden="true">○</span>${escape(meta.next)}</div></div>
         <div class="tp-status-actions"><span class="tp-status-badge">${escape(order.workflow_state)}</span><small>Última atualização: ${escape(formatDate(order.last_updated))}</small><div class="tp-status-buttons"><a class="tp-tracking-whatsapp" href="${escape(data.whatsapp_url)}" target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>${data.budget ? '<a class="tp-tracking-secondary tp-budget-link" href="#tracking-budget">Ver detalhes do orçamento</a>' : ""}</div></div>
       </section>
+      ${portalActions}
       <section class="tp-tracking-info-grid" aria-label="Dados do atendimento">
         <article><span class="tp-info-icon">▯</span><div><small>Aparelho</small><b>${escape(order.device)}</b></div></article>
         <article><span class="tp-info-icon">#</span><div><small>IMEI / serial</small><b>${escape(order.imei_suffix)}</b></div></article>
@@ -109,9 +125,19 @@
         </aside>
       </div>
       ${budget}
+      ${history}
       <footer class="tp-tracking-footer"><span>Atendimento ${escape(order.number)}</span><span>▣ Página segura para acompanhamento do serviço</span></footer>`;
 
     bindCopy();
+    card.querySelectorAll("[data-portal-action]").forEach((button) => button.addEventListener("click", async () => {
+      const action = button.dataset.portalAction;
+      const input = card.querySelector(`[data-portal-identity="${action}"]`);
+      const error = card.querySelector(`[data-portal-action-error="${action}"]`);
+      if (!input?.value.trim()) { error.textContent = "Informe o CPF ou RG do titular."; error.hidden = false; return; }
+      button.disabled = true; button.textContent = "Validando...";
+      try { const acceptance = await startPortalAction(action, input.value.trim()); window.location.assign(acceptance.link); }
+      catch (requestError) { error.textContent = requestError instanceof Error ? requestError.message : "Não foi possível iniciar o aceite."; error.hidden = false; button.disabled = false; button.textContent = "Continuar para o aceite"; }
+    }));
     const approvalButton = card.querySelector("[data-approve]");
     const rejectionButton = card.querySelector("[data-reject]");
     const decisionArea = card.querySelector("[data-decision]");
@@ -158,7 +184,7 @@
   };
 
   try {
-    const response = await fetch(`/api/method/tecponto_app.tecponto.tracking.get_public_tracking?token=${encodeURIComponent(token)}`, { credentials: "omit" });
+    const response = await fetch(`/api/method/tecponto_app.tecponto.tracking.get_public_portal?token=${encodeURIComponent(token)}`, { credentials: "omit" });
     const payload = await response.json();
     const data = payload.message;
     if (!data || !data.valid) throw new Error(data?.message || "Este link de rastreio não está disponível.");

@@ -114,11 +114,14 @@ from tecponto_app.tecponto.tracking import (
 	TRACKING_STAGES,
 	decide_public_tracking_budget,
 	get_public_tracking,
+	get_public_portal,
 	issue_tracking_link,
 	issue_service_order_tracking_link,
 	on_service_order_updated,
 	revoke_service_order_tracking_link,
 	start_public_tracking_budget_acceptance,
+	lookup_public_portal,
+	start_public_portal_action,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
 from tecponto_app.tecponto.hr import ensure_hr_foundation
@@ -300,6 +303,7 @@ def run_foundation_checks() -> dict:
 		no_repair_pickup_checks = run_no_repair_pickup_checks()
 		inoperative_entry_term_checks = run_inoperative_entry_term_checks()
 		tracking_checks = run_public_tracking_checks()
+		unified_portal_checks = run_unified_portal_checks()
 		tracking_budget_checks = run_public_tracking_budget_checks()
 		tracking_lifecycle_checks = run_tracking_lifecycle_checks()
 		return {
@@ -359,6 +363,7 @@ def run_foundation_checks() -> dict:
 			"link_acceptance_gate_checks": link_acceptance_gate_checks,
 			"no_repair_pickup_checks": no_repair_pickup_checks,
 			"tracking_checks": tracking_checks,
+			"unified_portal_checks": unified_portal_checks,
 			"tracking_budget_checks": tracking_budget_checks,
 			"tracking_lifecycle_checks": tracking_lifecycle_checks,
 			"user_access_checks": user_access_checks,
@@ -538,6 +543,81 @@ def run_public_tracking_checks() -> dict:
 			"sensitive_guard": {"leaked_fields": leaks},
 		}
 	finally:
+		frappe.set_user(previous_user)
+
+
+def run_unified_portal_checks() -> dict:
+	"""Prove one evolving portal link, secure lookup and non-public evidence history."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(attendant)
+		service_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", service_order, "link_acceptance_required", 1, update_modified=False)
+		order = frappe.get_doc("Service Order", service_order)
+		frappe.db.set_value("Customer", order.customer, {"custom_cpf": "12345678909", "mobile_no": "11999998888", "custom_whatsapp": "11999998888"}, update_modified=False)
+		legacy_tracking = issue_tracking_link(service_order)
+		token = legacy_tracking["link"].rstrip("/").rsplit("/", 1)[-1]
+		tracking = issue_tracking_link(service_order)
+		if frappe.db.get_value("Service Order Tracking", legacy_tracking["tracking"], "status") != "Substituído":
+			raise AssertionError("Reemissão do portal não preservou o link anterior como substituído.")
+
+		frappe.set_user("Guest")
+		entry_portal = get_public_portal(token)
+		if not entry_portal.get("valid") or [action["key"] for action in entry_portal["portal_actions"]] != ["entry"]:
+			raise AssertionError("Portal não exibiu a ação de aceite de entrada no estado real da OS.")
+		entry_acceptance = start_public_portal_action(token, "entry", "123.456.789-09")
+		acceptance_token = entry_acceptance["link"].rstrip("/").rsplit("/", 1)[-1]
+		camera = BytesIO(); Image.new("RGB", (24, 24), color=(10, 20, 30)).save(camera, format="JPEG")
+		signature = BytesIO()
+		signature_canvas = Image.new("RGB", (640, 180), color=(250, 250, 250))
+		ImageDraw.Draw(signature_canvas).line([(40, 120), (180, 50), (300, 135), (430, 45), (580, 110)], fill=(20, 30, 40), width=5)
+		signature_canvas.save(signature, format="PNG")
+		save_public_acceptance_selfie(acceptance_token, "data:image/jpeg;base64," + b64encode(camera.getvalue()).decode())
+		complete_public_acceptance(acceptance_token, "data:image/png;base64," + b64encode(signature.getvalue()).decode(), 1)
+		entry_after = get_public_portal(token)
+		if any(action["key"] == "entry" for action in entry_after["portal_actions"]):
+			raise AssertionError("Ação de entrada permaneceu no portal após aceite concluído.")
+		if not entry_after["acceptance_history"] or "selfie_file" in frappe.as_json(entry_after) or "signature_file" in frappe.as_json(entry_after):
+			raise AssertionError("Histórico público expôs evidência privada ou não registrou o aceite.")
+
+		frappe.db.set_value("Service Order", service_order, "workflow_state", "Aguardando aprovação", update_modified=True)
+		budget_portal = get_public_portal(token)
+		if not any(action["key"] == "budget" for action in budget_portal["portal_actions"]):
+			raise AssertionError("Portal não evoluiu para a ação de orçamento.")
+
+		lookup = lookup_public_portal(service_order, "11999998888")
+		if not lookup.get("valid") or token in frappe.as_json(lookup):
+			raise AssertionError("Busca pública não criou sessão opaca ou vazou o token permanente.")
+		lookup_token = lookup["portal_url"].rstrip("/").rsplit("/", 1)[-1]
+		lookup_portal = get_public_portal(lookup_token)
+		if not lookup_portal.get("valid") or lookup_portal["service_order"]["number"] != service_order:
+			raise AssertionError("Sessão opaca da busca não abriu o mesmo portal.")
+		wrong = lookup_public_portal(service_order, "00000000000")
+		if wrong.get("valid") or wrong.get("message") != "Não foi possível localizar um atendimento com esses dados." or "service_order" in wrong:
+			raise AssertionError("Busca com identidade errada vazou a existência da OS.")
+		# The public lookup must remain neutral while rate limiting repeated probes.
+		lookup_rate_key = "tecponto:portal-lookup-attempts:test"
+		frappe.cache().delete_value(lookup_rate_key)
+		for _ in range(5):
+			attempt = lookup_public_portal(service_order, "00000000000")
+			if attempt.get("valid") or attempt.get("message") != "Não foi possível localizar um atendimento com esses dados.":
+				raise AssertionError("Tentativa pública inválida deixou de retornar erro neutro.")
+		rate_limited = False
+		try:
+			lookup_public_portal(service_order, "00000000000")
+		except frappe.PermissionError:
+			rate_limited = True
+		if not rate_limited:
+			raise AssertionError("Busca pública não limitou tentativas repetidas do mesmo IP.")
+		frappe.cache().delete_value(lookup_rate_key)
+		leaks = contains_sensitive_field({"portal": lookup_portal, "lookup": lookup})
+		if leaks:
+			raise AssertionError(f"Portal público vazou dado sensível: {', '.join(leaks)}")
+		return {"status": "ok", "single_link_evolves": True, "legacy_link_redirects": True, "entry_action_clears": True, "history_private": True, "lookup_session_opaque": True, "lookup_mismatch_neutral": True, "lookup_rate_limited": True, "leaked_fields": leaks}
+	finally:
+		frappe.cache().delete_value("tecponto:portal-lookup-attempts:test")
 		frappe.set_user(previous_user)
 
 

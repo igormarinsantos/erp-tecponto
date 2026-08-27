@@ -13,7 +13,7 @@ def cleanup_orphan_tracking_links(dry_run: bool = True) -> dict[str, Any]:
 		select name, service_order, status
 		from `tabService Order Tracking` t
 		where t.service_order is not null and t.service_order != ''
-			and t.status in ('Revogado', 'Expirado')
+			and t.status in ('Substituído', 'Revogado', 'Expirado')
 			and not exists (
 				select 1 from `tabService Order` so where so.name = t.service_order
 			)

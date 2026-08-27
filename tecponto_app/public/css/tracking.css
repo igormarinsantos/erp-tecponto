@@ -88,6 +88,17 @@ body { margin: 0; }
 .tp-tracking-decision-result b { color: #25d366; text-transform: capitalize; }
 .tp-tracking-decision-result span { color: #adb4ba; font-size: 13px; }
 .tp-tracking-footer { color: #adb4ba; display: flex; flex-direction: column; font-size: 11px; gap: 5px; justify-content: space-between; margin-top: 12px; padding: 13px 15px; }
+.tp-portal-action, .tp-portal-history, .tp-lookup-card { background: #1d2125; border: 1px solid rgba(254,80,0,.35); border-radius: 14px; margin: 12px 0; padding: 20px; }
+.tp-portal-action { display: grid; gap: 12px; }
+.tp-portal-action h2, .tp-portal-history h2, .tp-lookup-card h1 { font-size: 20px; margin: 0; }
+.tp-portal-action p:not(.tp-section-kicker), .tp-lookup-card > p { color: #adb4ba; font-size: 14px; line-height: 1.5; margin: 8px 0 0; }
+.tp-portal-action label, .tp-lookup-card label { display: grid; font-size: 13px; font-weight: 700; gap: 7px; }
+.tp-portal-action input, .tp-lookup-card input { background: #15181b; border: 1px solid rgba(245,246,247,.2); border-radius: 8px; color: #f5f6f7; font: inherit; min-height: 46px; padding: 10px; width: 100%; }
+.tp-portal-history ul { list-style: none; margin: 14px 0 0; padding: 0; }
+.tp-portal-history li { border-top: 1px solid rgba(245,246,247,.1); display: grid; gap: 3px; padding: 12px 0; }
+.tp-portal-history li span, .tp-portal-history li small { color: #adb4ba; font-size: 12px; }
+.tp-lookup-card { margin-top: 7vh; max-width: 560px; }
+.tp-lookup-card form { display: grid; gap: 14px; margin-top: 22px; }
 .tp-tracking-error { border-color: rgba(239,68,68,.6); padding: 24px; }
 @media (min-width: 620px) { .tp-tracking { padding: 28px 24px 36px; } .tp-tracking-status-banner { grid-template-columns: minmax(0,1.25fr) minmax(280px,.75fr); padding: 28px; } .tp-status-actions { justify-content: center; } .tp-status-buttons { grid-template-columns: 1fr 1fr; } .tp-tracking-info-grid { grid-template-columns: repeat(3, minmax(0,1fr)); } .tp-tracking-footer { flex-direction: row; } .tp-tracking-decision > div { grid-template-columns: 1fr 1fr; } }
 @media (min-width: 920px) { .tp-tracking-layout { grid-template-columns: minmax(0,1.45fr) minmax(300px,.75fr); } .tp-tracking-aside { grid-template-rows: min-content min-content 1fr; } }

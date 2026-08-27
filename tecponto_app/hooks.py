@@ -393,6 +393,8 @@ website_route_rules = [
 	{"from_route": "/tecponto", "to_route": "tecponto"},
 	{"from_route": "/tecponto/nova-os", "to_route": "tecponto"},
 	{"from_route": "/tecponto/caixa", "to_route": "tecponto"},
+	{"from_route": "/tecponto/portal/<token>", "to_route": "portal"},
+	{"from_route": "/tecponto/acompanhar", "to_route": "acompanhar"},
 	{"from_route": "/tecponto/aceite/<token>", "to_route": "aceite"},
 	{"from_route": "/tecponto/rastreio/<token>", "to_route": "rastreio"},
 ]
