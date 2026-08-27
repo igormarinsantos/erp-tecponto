@@ -42,6 +42,9 @@ fi
 until docker exec "$DB_NAME" mariadb-admin ping -h 127.0.0.1 -uroot -plocal-test-password --silent; do sleep 1; done
 DB_PORT="$(docker port "$DB_NAME" 3306/tcp | sed 's/.*://')"
 REDIS_PORT="$(docker port "$REDIS_NAME" 6379/tcp | sed 's/.*://')"
+
+# The persistent runner has no worker. Clear jobs left by Frappe hooks before migrate so queue backpressure cannot make tests nondeterministic.
+docker exec "$REDIS_NAME" redis-cli FLUSHDB >/dev/null
 SITE_EXISTS="$(docker run --rm --entrypoint test -v "$SITE_VOLUME:/home/frappe/frappe-bench/sites" "$IMAGE" -f "/home/frappe/frappe-bench/sites/$SITE_NAME/site_config.json" && echo 1 || true)"
 
 docker run --rm --network host \
@@ -56,6 +59,7 @@ bench set-config -g db_port "$DB_PORT"
 bench set-config -g redis_cache "redis://127.0.0.1:$REDIS_PORT"
 bench set-config -g redis_queue "redis://127.0.0.1:$REDIS_PORT"
 bench set-config -g redis_socketio "redis://127.0.0.1:$REDIS_PORT"
+bench set-config -g -p throttle_user_limit 1000000
 if [[ "$SITE_EXISTS" != "1" ]]; then
   bench new-site local-ci.local --mariadb-root-password local-test-password --db-root-username root --admin-password local-admin-password --mariadb-user-host-login-scope "%" --install-app erpnext --set-default
   bench --site local-ci.local install-app hrms
