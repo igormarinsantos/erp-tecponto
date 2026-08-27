@@ -2759,7 +2759,18 @@ function OperationsTable({
         label: "",
         render: (row) => (
           <div className="flex justify-end gap-2">
-			<WorkflowMoveMenu actions={row.workflow_transitions} blockedTransitions={row.workflow_blockers} busy={movingOrder === row.name} onSelect={(action) => void handleQuickMove(row, action)} />
+			<WorkflowMoveMenu
+				actions={row.workflow_transitions}
+				blockedTransitions={row.workflow_blockers}
+				busy={movingOrder === row.name}
+				onRequestApproval={(action) => setMoveApproval({
+					name: row.name,
+					targetState: action.next_state,
+					requestType: action.next_state === "Cancelado" && row.has_sales_invoice ? "billed_service_order_cancel" : "service_order_move",
+				})}
+				onSelect={(action) => void handleQuickMove(row, action)}
+				requestableTransitions={row.workflow_requestable_transitions}
+			/>
             <button className="inline-flex min-h-8 items-center gap-2 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-bold text-tec-text transition hover:border-tec-orange/50 hover:bg-tec-orange/10" onClick={(event) => { event.stopPropagation(); onOpenOrder(row.name); }} title={`Abrir ${row.name}`} type="button">Abrir <ArrowRight size={14} /></button>
           </div>
         ),
@@ -3111,6 +3122,7 @@ function ServiceOrderDetail({
 				detail={detail}
 				onBack={onBack}
 				onMove={handleSimpleWorkflowMove}
+				onToast={onToast}
 				onRefresh={refreshServiceOrder}
 				onSaveDiagnosis={async (problemFound) => {
 					try {
@@ -3207,16 +3219,21 @@ function ServiceOrderDetail({
         <aside className="space-y-4">
           <NextActionCard
             actions={detail.workflow_transitions}
-			blockedTransitions={detail.workflow_blockers}
+            blockedTransitions={detail.workflow_blockers}
             detail={detail}
             onOpenFlow={setActiveFlow}
             onOpenHistory={() => setHistoryOpen(true)}
             onOpenQuoteSend={() => setQuoteSendOpen(true)}
             onRefresh={() => void refreshServiceOrder()}
             onSimpleMove={handleSimpleWorkflowMove}
-			onStartNoRepairPickup={() => void startNoRepairPickup()}
+            onStartNoRepairPickup={() => void startNoRepairPickup()}
+			onRequestApproval={(targetState) => setMoveApproval({
+				targetState,
+				requestType: targetState === "Cancelado" && Boolean(detail.finance.sales_invoice) ? "billed_service_order_cancel" : "service_order_move",
+			})}
           />
           <ServiceOrderAttendanceCard detail={detail} />
+		  <WorkflowSideStepper detail={detail} />
 			<ServiceOrderPaymentCard
 				detail={detail}
 				onToast={onToast}
@@ -3536,6 +3553,7 @@ function TechnicalServiceOrderDetail({
   detail,
   onBack,
   onMove,
+	onToast,
   onRefresh,
   onSaveDiagnosis,
 	 onSetPartOutcome,
@@ -3543,6 +3561,7 @@ function TechnicalServiceOrderDetail({
   detail: ServiceOrderDetailResponse;
   onBack: () => void;
   onMove: (nextState: string) => Promise<void>;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
   onRefresh: (message?: string) => Promise<void>;
   onSaveDiagnosis: (problemFound: string) => Promise<void>;
 	 onSetPartOutcome: (partName: string, outcome: "Usada no reparo" | "Perdida", lossReason?: string) => Promise<void>;
@@ -3550,6 +3569,7 @@ function TechnicalServiceOrderDetail({
   const [diagnosis, setDiagnosis] = useState(detail.diagnosis.problem_found ?? "");
   const [savingDiagnosis, setSavingDiagnosis] = useState(false);
   const [moving, setMoving] = useState(false);
+	const [moveApproval, setMoveApproval] = useState<{ targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
   const [partRequestOpen, setPartRequestOpen] = useState(false);
 	const [partOutcomeTarget, setPartOutcomeTarget] = useState<ServiceOrderBudgetLine | null>(null);
   const deviceLabel =
@@ -3657,7 +3677,12 @@ function TechnicalServiceOrderDetail({
                 actions={detail.workflow_transitions}
 				blockedTransitions={detail.workflow_blockers}
                 busy={moving}
+				onRequestApproval={(action) => setMoveApproval({
+					targetState: action.next_state,
+					requestType: action.next_state === "Cancelado" && Boolean(detail.finance.sales_invoice) ? "billed_service_order_cancel" : "service_order_move",
+				})}
                 onSelect={(action) => void move(action)}
+				requestableTransitions={detail.workflow_requestable_transitions}
                 status={detail.workflow_state}
                 variant="status"
               />
@@ -3671,6 +3696,7 @@ function TechnicalServiceOrderDetail({
             <Button className="mt-4 w-full" icon={<PackagePlus size={17} />} onClick={() => setPartRequestOpen(true)} variant="primary">Solicitar peça</Button>
           </Card>
           <ServiceOrderAttendanceCard detail={detail} />
+		  <WorkflowSideStepper detail={detail} />
         </aside>
       </div>
       <PartRequestModal onClose={() => setPartRequestOpen(false)} onCreated={() => void onRefresh("Solicitação de peça registrada. OS movida para Aguardando peça.")} open={partRequestOpen} serviceOrder={detail.name} />
@@ -3682,6 +3708,21 @@ function TechnicalServiceOrderDetail({
 				setPartOutcomeTarget(null);
 			}}
 			part={partOutcomeTarget}
+		/>
+		<ApprovalRequestModal
+			onClose={() => setMoveApproval(null)}
+			onCreated={(request) => {
+				setMoveApproval(null);
+				if (request?.executed_directly) void onRefresh("OS atualizada.");
+			}}
+			onToast={onToast}
+			open={Boolean(moveApproval)}
+			payload={moveApproval?.requestType === "service_order_move" ? { target_state: moveApproval.targetState } : {}}
+			referenceName={detail.name}
+			requestType={moveApproval?.requestType ?? "service_order_move"}
+			title={moveApproval?.requestType === "billed_service_order_cancel"
+				? "Esta OS possui nota fiscal vinculada. Ao aprovar, o Gestor cancelará/estornará a nota fiscal e só então concluirá o cancelamento da OS. Deseja solicitar essa ação?"
+				: `Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
 		/>
     </div>
   );
@@ -3925,6 +3966,39 @@ function WorkflowStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
   );
 }
 
+function WorkflowSideStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
+  const activeIndex = serviceOrderStepIndex(detail.workflow_state);
+  const subtitles = serviceOrderStepSubtitles(detail, activeIndex);
+
+  return (
+    <Card className="p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-tec-muted">Etapas do reparo</p>
+      <ol className="mt-4 space-y-0">
+        {SERVICE_ORDER_STEPS.map((step, index) => {
+          const done = index < activeIndex;
+          const active = index === activeIndex;
+          const StepIcon = workflowStepIcon(index);
+          return (
+            <li className="relative flex min-h-12 gap-3 pb-3 last:pb-0" key={step}>
+              {index < SERVICE_ORDER_STEPS.length - 1 ? <span className={cx("absolute left-3.5 top-7 h-[calc(100%-16px)] w-px", done ? "bg-tec-success/50" : "bg-tec-border/30")} /> : null}
+              <span className={cx(
+                "relative z-10 grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold",
+                active ? "bg-tec-orange text-tec-ink shadow-glow" : done ? "bg-tec-success/20 text-tec-success" : "bg-tec-field text-tec-muted",
+              )}>
+                {done ? <CheckCircle2 size={15} /> : active ? index + 1 : <StepIcon size={14} />}
+              </span>
+              <span className="min-w-0 pt-0.5">
+                <span className={cx("block text-sm font-bold", active ? "text-tec-orange" : done ? "text-tec-success" : "text-tec-subtle")}>{step}</span>
+                <span className="mt-0.5 block text-xs text-tec-muted">{active ? "Etapa atual" : subtitles[index]}</span>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </Card>
+  );
+}
+
 function workflowStepIcon(index: number) {
   return [ClipboardCheck, SearchIcon, FileText, Send, Wrench, Package][index] ?? FileText;
 }
@@ -3965,24 +4039,26 @@ function serviceOrderStepSubtitles(detail: ServiceOrderDetailResponse, activeInd
 
 function NextActionCard({
   actions,
-	blockedTransitions,
+  blockedTransitions,
   detail,
   onOpenFlow,
   onOpenHistory,
   onOpenQuoteSend,
   onRefresh,
   onSimpleMove,
-	onStartNoRepairPickup,
+  onStartNoRepairPickup,
+	onRequestApproval,
 }: {
   actions: ServiceOrderWorkflowAction[];
-	blockedTransitions: Record<string, string>;
+  blockedTransitions: Record<string, string>;
   detail: ServiceOrderDetailResponse;
   onOpenFlow: (flow: "approve" | "reject" | "pickup") => void;
   onOpenHistory: () => void;
   onOpenQuoteSend: () => void;
   onRefresh: () => void;
   onSimpleMove: (nextState: string) => Promise<void>;
-	onStartNoRepairPickup: () => void;
+  onStartNoRepairPickup: () => void;
+  onRequestApproval: (targetState: string) => void;
 }) {
   const action = nextRecommendedAction(detail.workflow_state);
   const isQuoteSendAction = action.kind === "quote-send";
@@ -4049,16 +4125,23 @@ function NextActionCard({
         <div className="mt-2 space-y-2">
           {actions.length ? actions.map((workflowAction) => (
             <button
-				className="group flex w-full items-center justify-between gap-3 rounded-control border border-tec-border/15 bg-tec-field/60 px-3 py-2.5 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-tec-field/60"
-				disabled={Boolean(movingTo) || Boolean(blockedTransitions[workflowAction.next_state])}
+              className="group flex w-full items-center justify-between gap-3 rounded-control border border-tec-border/15 bg-tec-field/60 px-3 py-2.5 text-left transition hover:border-tec-orange/45 hover:bg-tec-orange/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-tec-field/60"
+              disabled={Boolean(movingTo) || (Boolean(blockedTransitions[workflowAction.next_state]) && !detail.workflow_requestable_transitions.includes(workflowAction.next_state))}
               key={`${workflowAction.action}-${workflowAction.next_state}`}
-              onClick={() => void handleWorkflowAction(workflowAction)}
-			  title={blockedTransitions[workflowAction.next_state] || workflowActionTitle(workflowAction)}
+              onClick={() => {
+                if (blockedTransitions[workflowAction.next_state]) {
+                  onRequestApproval(workflowAction.next_state);
+                  return;
+                }
+                void handleWorkflowAction(workflowAction);
+              }}
+              title={blockedTransitions[workflowAction.next_state] || workflowActionTitle(workflowAction)}
               type="button"
             >
               <span className="min-w-0">
                 <span className="block text-sm font-bold text-white">{movingTo === workflowAction.next_state ? "Atualizando..." : workflowActionLabel(workflowAction)}</span>
-				<span className={cx("mt-0.5 block text-xs", blockedTransitions[workflowAction.next_state] ? "text-tec-amber" : "text-tec-muted")}>{blockedTransitions[workflowAction.next_state] || workflowActionDescription(workflowAction)}</span>
+                <span className={cx("mt-0.5 block text-xs", blockedTransitions[workflowAction.next_state] ? "text-tec-amber" : "text-tec-muted")}>{blockedTransitions[workflowAction.next_state] || workflowActionDescription(workflowAction)}</span>
+				{blockedTransitions[workflowAction.next_state] && detail.workflow_requestable_transitions.includes(workflowAction.next_state) ? <span className="mt-1 block text-xs font-bold text-tec-orange">Solicitar aprovação</span> : null}
               </span>
               <ArrowRight className="shrink-0 text-tec-orange transition group-hover:translate-x-0.5" size={16} />
             </button>

@@ -144,6 +144,7 @@ SAFE_SERVICE_ORDER_FIELDS = (
 	"reported_defect",
 	"approval_status",
 	"approval_deadline",
+	"sales_invoice",
 	"modified",
 )
 SAFE_CUSTOMER_FIELDS = (
@@ -1198,6 +1199,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"workflow_actions": _get_visible_workflow_actions(doc),
 		"workflow_transitions": _get_service_order_transition_options(doc.get("workflow_state")),
 		"workflow_blockers": _get_workflow_blockers(doc),
+		"workflow_requestable_transitions": _get_workflow_requestable_transitions(doc),
 		"timeline": _get_service_order_timeline(doc),
 		"print_links": _get_service_order_print_links(doc.name) if not technical_view else [],
 	}
@@ -2954,6 +2956,8 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 		"stage_clock": clock,
 		"workflow_transitions": _get_service_order_transition_options(item.get("workflow_state")),
 		"workflow_blockers": _get_workflow_blockers(item),
+		"workflow_requestable_transitions": _get_workflow_requestable_transitions(item),
+		"has_sales_invoice": bool(item.get("sales_invoice")),
 		"next_action": action_for_service_order_state(item.get("workflow_state")),
 		"reported_defect": item.get("reported_defect"),
 		"approval_status": item.get("approval_status"),
@@ -2964,8 +2968,9 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 
 def _get_workflow_blockers(order: Any) -> dict[str, str]:
 	"""Expose safe, actionable preflight guidance for workflow controls."""
+	blockers = _get_workflow_role_blockers(order)
 	if order.get("workflow_state") != STATE_EM_DIAGNOSTICO:
-		return {}
+		return blockers
 
 	name = order.get("name")
 	values = order
@@ -2979,13 +2984,39 @@ def _get_workflow_blockers(order: Any) -> dict[str, str]:
 	diagnosis = (values.get("problem_found") or "").strip()
 	diagnosis_date = values.get("diagnosis_date")
 	if not diagnosis or not diagnosis_date:
-		return {STATE_AGUARDANDO_APROVACAO: "Registre e salve o diagnóstico técnico antes de enviar o orçamento."}
+		blockers[STATE_AGUARDANDO_APROVACAO] = "Registre e salve o diagnóstico técnico antes de enviar o orçamento."
+		return blockers
 	if not (
 		frappe.db.count("Service Order Service", {"parent": name})
 		or frappe.db.count("Service Order Part", {"parent": name})
 	):
-		return {STATE_AGUARDANDO_APROVACAO: "Inclua ao menos um serviço ou peça no orçamento antes de enviar ao cliente."}
-	return {}
+		blockers[STATE_AGUARDANDO_APROVACAO] = "Inclua ao menos um serviço ou peça no orçamento antes de enviar ao cliente."
+	return blockers
+
+
+def _get_workflow_role_blockers(order: Any) -> dict[str, str]:
+	"""Describe role-only workflow gates without granting any front-end authority."""
+	user_roles = set(frappe.get_roles(frappe.session.user))
+	blockers: dict[str, str] = {}
+	for transition in _get_service_order_transitions():
+		state, _action, next_state, allowed, *rest = transition
+		condition = rest[0] if rest else None
+		if state != order.get("workflow_state") or condition == "False":
+			continue
+		if allowed in user_roles or "System Manager" in user_roles:
+			continue
+		blockers.setdefault(
+			next_state,
+			_("Seu papel não permite mover esta OS para {0}. Solicite aprovação do Gestor.").format(next_state),
+		)
+	return blockers
+
+
+def _get_workflow_requestable_transitions(order: Any) -> list[str]:
+	"""Only role gates are requestable; data-completeness gates must be resolved first."""
+	role_blockers = _get_workflow_role_blockers(order)
+	hard_blockers = _get_workflow_blockers(order)
+	return [target for target in role_blockers if hard_blockers.get(target) == role_blockers[target]]
 
 
 def _serialize_customer(item: dict[str, Any], include_fiscal: bool = True) -> dict[str, Any]:

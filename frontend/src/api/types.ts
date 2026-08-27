@@ -407,7 +407,9 @@ export interface ServiceOrderSummary {
     urgency: "overdue" | "normal";
   };
   workflow_transitions: ServiceOrderWorkflowAction[];
-	workflow_blockers: Record<string, string>;
+  workflow_blockers: Record<string, string>;
+  workflow_requestable_transitions: string[];
+  has_sales_invoice: boolean;
   next_action?: { label: string; tone: "orange" | "amber" | "blue" | "green" | "muted" };
   reported_defect: string | null;
   approval_status: string | null;
@@ -528,7 +530,8 @@ export interface ServiceOrderDetailResponse {
   };
   workflow_actions: ServiceOrderWorkflowAction[];
   workflow_transitions: ServiceOrderWorkflowAction[];
-	workflow_blockers: Record<string, string>;
+  workflow_blockers: Record<string, string>;
+  workflow_requestable_transitions: string[];
   timeline: ServiceOrderTimelineEvent[];
   print_links: ServiceOrderPrintLink[];
 }

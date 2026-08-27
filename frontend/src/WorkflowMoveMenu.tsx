@@ -1,4 +1,4 @@
-import { ChevronDown, LoaderCircle, MoveRight } from "lucide-react";
+import { ChevronDown, LoaderCircle, MoveRight, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { ServiceOrderWorkflowAction } from "./api";
@@ -7,17 +7,21 @@ import { cx } from "./ui/utils";
 
 export function WorkflowMoveMenu({
   actions,
-	blockedTransitions = {},
+  blockedTransitions = {},
   busy = false,
   className,
+	requestableTransitions = [],
+	onRequestApproval,
   onSelect,
   status,
   variant = "default",
 }: {
   actions: ServiceOrderWorkflowAction[];
-	blockedTransitions?: Record<string, string>;
+  blockedTransitions?: Record<string, string>;
   busy?: boolean;
   className?: string;
+  requestableTransitions?: string[];
+  onRequestApproval?: (action: ServiceOrderWorkflowAction, reason: string) => void;
   onSelect: (action: ServiceOrderWorkflowAction) => void;
   status?: string | null;
   variant?: "default" | "status";
@@ -55,19 +59,35 @@ export function WorkflowMoveMenu({
       </button>
       {open ? (
         <div className={cx("absolute z-30 mt-2 w-56 rounded-card border border-tec-border/25 bg-tec-panel p-1.5 shadow-xl", variant === "status" ? "left-0" : "right-0")}>
-          {actions.map((action) => (
-            <button
-				className="flex min-h-10 w-full items-center justify-between gap-3 rounded-control px-3 text-left text-sm font-semibold text-tec-subtle transition hover:bg-tec-field hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-				disabled={Boolean(blockedTransitions[action.next_state])}
+          {actions.map((action) => {
+            const reason = blockedTransitions[action.next_state];
+            const requestable = Boolean(reason) && requestableTransitions.includes(action.next_state) && Boolean(onRequestApproval);
+            return (
+              <button
+                className="flex min-h-10 w-full items-center justify-between gap-3 rounded-control px-3 text-left text-sm font-semibold text-tec-subtle transition hover:bg-tec-field hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                disabled={Boolean(reason) && !requestable}
               key={`${action.action}-${action.next_state}-${action.role}`}
-              onClick={(event) => { event.stopPropagation(); setOpen(false); onSelect(action); }}
-				title={blockedTransitions[action.next_state]}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setOpen(false);
+                  if (reason && requestable) {
+                    onRequestApproval?.(action, reason);
+                    return;
+                  }
+                  onSelect(action);
+                }}
+                title={reason}
               type="button"
             >
-				<span><span className="block">{action.next_state}</span>{blockedTransitions[action.next_state] ? <span className="mt-0.5 block text-[11px] font-medium text-tec-amber">{blockedTransitions[action.next_state]}</span> : null}</span>
-              <MoveRight className="shrink-0 text-tec-orange" size={15} />
+                <span>
+                  <span className="block">{action.next_state}</span>
+                  {reason ? <span className="mt-0.5 block text-[11px] font-medium text-tec-amber">{reason}</span> : null}
+                  {requestable ? <span className="mt-1 block text-[11px] font-bold text-tec-orange">Solicitar aprovação</span> : null}
+                </span>
+                {requestable ? <Send className="shrink-0 text-tec-orange" size={15} /> : <MoveRight className="shrink-0 text-tec-orange" size={15} />}
             </button>
-          ))}
+            );
+          })}
         </div>
       ) : null}
     </div>

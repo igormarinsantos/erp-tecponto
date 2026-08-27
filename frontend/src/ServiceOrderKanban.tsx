@@ -131,6 +131,25 @@ export function ServiceOrderKanban({
         return;
       }
 
+      const draggedItem = state.data.columns
+        .flatMap((column) => column.items)
+        .find((item) => item.name === dragged.name);
+      const blocker = draggedItem?.workflow_blockers[targetState];
+      if (blocker) {
+        if (draggedItem?.workflow_requestable_transitions.includes(targetState)) {
+          setMoveApproval({
+            name: dragged.name,
+            targetState,
+            requestType: targetState === "Cancelado" && draggedItem.has_sales_invoice ? "billed_service_order_cancel" : "service_order_move",
+          });
+        } else {
+          onToast(blocker, "error");
+        }
+        setDragged(null);
+        setDropTarget(null);
+        return;
+      }
+
       const specialFlow = flowForTargetState(targetState);
       if (specialFlow) {
         const orderName = dragged.name;
@@ -172,7 +191,24 @@ export function ServiceOrderKanban({
     [dragged, loadKanban, onChanged, onOpenWorkflowFlow, onToast, state],
   );
 
+  const openMoveApproval = useCallback((item: ServiceOrderSummary, targetState: string) => {
+    setMoveApproval({
+      name: item.name,
+      targetState,
+      requestType: targetState === "Cancelado" && item.has_sales_invoice ? "billed_service_order_cancel" : "service_order_move",
+    });
+  }, []);
+
   const quickMoveCard = useCallback(async (item: ServiceOrderSummary, targetState: string) => {
+    const blocker = item.workflow_blockers[targetState];
+    if (blocker) {
+      if (item.workflow_requestable_transitions.includes(targetState)) {
+        openMoveApproval(item, targetState);
+      } else {
+        onToast(blocker, "error");
+      }
+      return;
+    }
     const specialFlow = flowForTargetState(targetState);
     if (specialFlow) {
       onOpenWorkflowFlow(item.name, specialFlow);
@@ -196,7 +232,7 @@ export function ServiceOrderKanban({
     } finally {
       setMoving(null);
     }
-  }, [loadKanban, onChanged, onOpenWorkflowFlow, onToast]);
+  }, [loadKanban, onChanged, onOpenWorkflowFlow, onToast, openMoveApproval]);
 
   if (state.status === "loading") {
     return (
@@ -266,8 +302,9 @@ export function ServiceOrderKanban({
             }}
             onDragStart={(item) => setDragged({ name: item.name, sourceState: column.state })}
             onDrop={() => void moveCard(column.state)}
-            onOpenOrder={onOpenOrder}
-            onQuickMove={(item, targetState) => void quickMoveCard(item, targetState)}
+              onOpenOrder={onOpenOrder}
+              onQuickMove={(item, targetState) => void quickMoveCard(item, targetState)}
+			  onRequestMove={(item, targetState) => openMoveApproval(item, targetState)}
             onShowList={onShowList}
             onSetDropTarget={setDropTarget}
           />
@@ -310,6 +347,7 @@ function KanbanColumn({
   onToggle,
   onOpenOrder,
   onQuickMove,
+	onRequestMove,
   onShowList,
   onSetDropTarget,
 }: {
@@ -325,6 +363,7 @@ function KanbanColumn({
   onDrop: () => void;
   onOpenOrder: (name: string) => void;
   onQuickMove: (item: ServiceOrderSummary, targetState: string) => void;
+  onRequestMove: (item: ServiceOrderSummary, targetState: string) => void;
   onShowList: () => void;
   onSetDropTarget: (state: string | null) => void;
 }) {
@@ -431,6 +470,7 @@ function KanbanColumn({
               onDragStart={() => onDragStart(item)}
               onOpenOrder={onOpenOrder}
               onQuickMove={onQuickMove}
+			  onRequestMove={onRequestMove}
             />
           ))
         ) : (
@@ -462,6 +502,7 @@ function KanbanCard({
   onDragStart,
   onOpenOrder,
   onQuickMove,
+	onRequestMove,
 }: {
   item: ServiceOrderSummary;
   moving: boolean;
@@ -469,6 +510,7 @@ function KanbanCard({
   onDragStart: () => void;
   onOpenOrder: (name: string) => void;
   onQuickMove: (item: ServiceOrderSummary, targetState: string) => void;
+  onRequestMove: (item: ServiceOrderSummary, targetState: string) => void;
 }) {
   return (
     <article
@@ -505,7 +547,16 @@ function KanbanCard({
       </div>
 
 		<div className="mt-3 flex min-w-0 items-center justify-between gap-2">
-		  <WorkflowMoveMenu actions={item.workflow_transitions} blockedTransitions={item.workflow_blockers} busy={moving} onSelect={(action) => onQuickMove(item, action.next_state)} status={item.workflow_state} variant="status" />
+		  <WorkflowMoveMenu
+			actions={item.workflow_transitions}
+			blockedTransitions={item.workflow_blockers}
+			busy={moving}
+			onRequestApproval={(action) => onRequestMove(item, action.next_state)}
+			onSelect={(action) => onQuickMove(item, action.next_state)}
+			requestableTransitions={item.workflow_requestable_transitions}
+			status={item.workflow_state}
+			variant="status"
+		  />
 		  {item.stage_clock?.is_overdue ? <span className="shrink-0 text-xs font-bold text-red-400">Atrasada</span> : null}
 		</div>
     </article>

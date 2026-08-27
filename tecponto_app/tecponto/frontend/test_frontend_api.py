@@ -1903,6 +1903,10 @@ def run_quick_stage_move_checks() -> dict:
 		expected = {"Em diagnóstico", "Sem conserto", "Cancelado"}
 		if destinations != expected:
 			raise AssertionError(f"Opções rápidas não batem com o workflow: {destinations}")
+		if "Em diagnóstico" not in detail["workflow_blockers"]:
+			raise AssertionError("A interface não recebeu o motivo para a transição fora do papel.")
+		if "Em diagnóstico" not in detail["workflow_requestable_transitions"]:
+			raise AssertionError("A interface não recebeu a indicação de solicitar aprovação para a transição fora do papel.")
 		listed = next((row for row in list_service_orders(limit=100)["items"] if row["name"] == request_order), None)
 		kanban = get_service_order_kanban(limit_per_column=40)
 		kanban_item = next((row for column in kanban["columns"] for row in column["items"] if row["name"] == request_order), None)
@@ -1918,9 +1922,15 @@ def run_quick_stage_move_checks() -> dict:
 			raise AssertionError("Atendente moveu OS técnica sem passar pela autorização do motor.")
 		request = create_request("service_order_move", request_order, "Encaminhar para diagnóstico técnico.", {"target_state": "Em diagnóstico"})
 		workflow_approver = _find_or_create_user(request["approver_role"])
+		# A technical approver can re-execute only inside the assigned OS scope.
+		# Mirror that production prerequisite before proving the approved request.
+		frappe.db.set_value("Service Order", request_order, "technician", workflow_approver, update_modified=False)
 		frappe.set_user(workflow_approver)
 		if request["name"] not in {row["name"] for row in list_pending_approvals()}:
 			raise AssertionError("A role exigida pelo workflow não recebeu a solicitação do controle rápido.")
+		approved_request = approve_request(request["name"])
+		if approved_request["status"] != "Aprovada" or frappe.db.get_value("Service Order", request_order, "workflow_state") != "Em diagnóstico":
+			raise AssertionError("A aprovação da mudança não reexecutou a transição no motor.")
 
 		direct_order = _create_action_request_service_order(attendant)
 		frappe.set_user(manager)
@@ -1933,6 +1943,7 @@ def run_quick_stage_move_checks() -> dict:
 			"destinations": sorted(destinations),
 			"three_surfaces": ["detail", "list", "kanban"],
 			"permission_request": request["name"],
+			"approval_reexecution": approved_request["status"],
 			"direct_move": moved["item"]["name"],
 		}
 	finally:
@@ -2975,8 +2986,12 @@ def run_workflow_metadata_gate_checks() -> dict:
 			},
 		)
 		submission_doc.save(ignore_permissions=True)
-		if get_service_order_detail(submission_order)["workflow_blockers"]:
-			raise AssertionError("A interface manteve uma trava após diagnóstico e orçamento completos.")
+		completed_submission_frontend = get_service_order_detail(submission_order)
+		if (
+			"Aguardando aprovação" in completed_submission_frontend["workflow_blockers"]
+			and "Aguardando aprovação" not in completed_submission_frontend["workflow_requestable_transitions"]
+		):
+			raise AssertionError("A interface manteve a trava de completude após diagnóstico e orçamento completos.")
 		apply_workflow(
 			frappe.as_json({"doctype": "Service Order", "name": submission_order}),
 			"Aguardando aprovação",
