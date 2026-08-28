@@ -1,6 +1,7 @@
 export type RolePanel = "atendente" | "tecnico" | "gestor" | "diretor" | "sem_papel";
 export type NavigationTarget =
   | "overview"
+  | "mesa-flow"
   | "service-orders"
   | "service-order-detail"
   | "customers"

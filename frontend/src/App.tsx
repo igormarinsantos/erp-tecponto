@@ -334,6 +334,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
     title: "Visão geral",
     subtitle: "Atendimentos, pendências e atalhos do balcão.",
   },
+  "mesa-flow": {
+    title: "Mesa / Fluxo",
+    subtitle: "Filas de trabalho organizadas pelo próximo passo.",
+  },
   "service-orders": {
     title: "Ordens de serviço",
     subtitle: "Fila de OS com status e responsáveis.",
@@ -2441,6 +2445,17 @@ function NavigationContent({
     );
   }
 
+  if (activeView === "mesa-flow") {
+    return (
+      <MesaFlowBoard
+        canViewStoreOperations={canViewStoreOperations}
+        isRestrictedTechnician={isRestrictedTechnician}
+        onOpenOrder={onOpenServiceOrder}
+        onToast={onToast}
+      />
+    );
+  }
+
   if (activeView === "service-orders") {
     const serviceOrderFilterBar = (
       <ServiceOrderFilterBar
@@ -2576,6 +2591,150 @@ function NavigationContent({
   }
 
   return <SalesLookup onNavigate={onNavigate} />;
+}
+
+const MESA_FLOW_QUEUES = [
+  { detail: "Entradas que precisam de conferência e encaminhamento.", states: ["Entrada criada"], title: "Receber e conferir" },
+  { detail: "Aparelhos na bancada aguardando avaliação técnica.", states: ["Em diagnóstico", "Em diagnostico"], title: "Diagnosticar" },
+  { detail: "Orçamentos que precisam de envio, retorno ou decisão.", states: ["Aguardando aprovação", "Aprovado"], title: "Orçamento" },
+  { detail: "OS paradas por disponibilidade de componente.", states: ["Aguardando peça", "Aguardando peca"], title: "Peças" },
+  { detail: "Execução, baixa de peça e teste final.", states: ["Em reparo", "Teste final"], title: "Executar e testar" },
+  { detail: "Aparelhos para devolver ao cliente, com ou sem reparo.", states: ["Pronto para retirada", "Reprovado", "Orçamento expirado", "Sem conserto"], title: "Retirada" },
+] as const;
+
+function MesaFlowBoard({
+  canViewStoreOperations,
+  isRestrictedTechnician,
+  onOpenOrder,
+  onToast,
+}: {
+  canViewStoreOperations: boolean;
+  isRestrictedTechnician: boolean;
+  onOpenOrder: (name: string) => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+}) {
+  const [state, setState] = useState<
+    | { status: "loading" }
+    | { status: "ready"; items: ServiceOrderSummary[] }
+    | { status: "error"; message: string }
+  >({ status: "loading" });
+
+  const load = useCallback(async () => {
+    setState((current) => current.status === "ready" ? current : { status: "loading" });
+    try {
+      // The endpoint scopes the response to the logged-in role; the Mesa never broadens that query in React.
+      const response = await serviceOrders.list({ limit: 100 });
+      setState({ status: "ready", items: response.items });
+    } catch (caught) {
+      setState({ status: "error", message: caught instanceof Error ? caught.message : "Não foi possível carregar a Mesa." });
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const queues = useMemo(() => {
+    const items = state.status === "ready" ? state.items : [];
+    return MESA_FLOW_QUEUES.map((queue) => ({
+      ...queue,
+      items: items.filter((item) => queue.states.includes((item.workflow_state ?? "") as never)),
+    }));
+  }, [state]);
+
+  const total = queues.reduce((count, queue) => count + queue.items.length, 0);
+  const overdue = queues.flatMap((queue) => queue.items).filter((item) => item.stage_clock?.is_overdue).length;
+
+  return (
+    <div className="space-y-5">
+      <section className="flex flex-col gap-4 rounded-card border border-tec-border/15 bg-tec-panel-strong/55 p-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-tec-orange">Mesa / Fluxo</p>
+          <h1 className="tp-display mt-1 text-3xl font-bold text-white">{isRestrictedTechnician ? "Sua bancada, por próximo passo" : "A operação, organizada por próxima ação"}</h1>
+          <p className="mt-2 max-w-3xl text-sm text-tec-subtle">
+            {isRestrictedTechnician
+              ? "Somente as OS atribuídas a você. Abra uma tarefa para executar a etapa técnica e avançar pelo workflow."
+              : "Cada fila mostra o que a loja precisa fazer agora. As permissões e aprovações continuam sendo decididas pelo motor."}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="rounded-control border border-tec-border/15 bg-tec-field px-3 py-2 text-right">
+            <span className="block text-xs font-bold text-tec-muted">Na Mesa</span>
+            <span className="text-lg font-bold text-white">{total} OS</span>
+          </div>
+          {overdue ? <div className="rounded-control border border-tec-red/30 bg-tec-red/10 px-3 py-2 text-right"><span className="block text-xs font-bold text-tec-red">Atrasadas</span><span className="text-lg font-bold text-tec-red">{overdue}</span></div> : null}
+          <Button icon={<RefreshCw size={17} />} onClick={() => void load()} variant="secondary">Atualizar</Button>
+        </div>
+      </section>
+
+      {!canViewStoreOperations && !isRestrictedTechnician ? <Card className="border-tec-amber/30 bg-tec-amber/5 p-4 text-sm text-tec-amber">A Mesa respeita o escopo do seu papel. Algumas filas podem não estar disponíveis para este acesso.</Card> : null}
+      {state.status === "error" ? <Card className="border-tec-red/30 p-5 text-sm font-semibold text-tec-red">{state.message}</Card> : null}
+      {state.status === "loading" ? <Card className="p-6"><div className="h-9 w-9 animate-spin rounded-full border-2 border-tec-orange border-t-transparent" /><p className="mt-3 text-sm font-semibold text-tec-subtle">Organizando a Mesa...</p></Card> : null}
+
+      {state.status === "ready" ? <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+        {queues.map((queue) => <MesaFlowQueue key={queue.title} onOpenOrder={onOpenOrder} onToast={onToast} queue={queue} />)}
+      </div> : null}
+    </div>
+  );
+}
+
+function MesaFlowQueue({
+  onOpenOrder,
+  onToast,
+  queue,
+}: {
+  onOpenOrder: (name: string) => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+  queue: (typeof MESA_FLOW_QUEUES)[number] & { items: ServiceOrderSummary[] };
+}) {
+  const visibleItems = queue.items.slice(0, 8);
+  return (
+    <Card className="flex min-h-64 flex-col overflow-hidden p-0">
+      <header className="border-b border-tec-border/15 bg-tec-field/35 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-white">{queue.title}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-tec-muted">{queue.detail}</p>
+          </div>
+          <span className="rounded-full bg-tec-orange/15 px-2.5 py-1 text-xs font-bold text-tec-orange">{queue.items.length}</span>
+        </div>
+      </header>
+      <div className="flex-1 space-y-2 p-3">
+        {visibleItems.map((order) => <MesaFlowOrderCard key={order.name} onOpenOrder={onOpenOrder} onToast={onToast} order={order} />)}
+        {!visibleItems.length ? <div className="grid min-h-28 place-items-center rounded-control border border-dashed border-tec-border/20 px-4 text-center text-sm text-tec-muted">Nenhuma OS nesta etapa.</div> : null}
+      </div>
+      {queue.items.length > visibleItems.length ? <footer className="border-t border-tec-border/15 p-3 text-center text-xs font-bold text-tec-muted">+{queue.items.length - visibleItems.length} OS nesta fila</footer> : null}
+    </Card>
+  );
+}
+
+function MesaFlowOrderCard({ onOpenOrder, onToast, order }: { onOpenOrder: (name: string) => void; onToast: (message: string, tone?: ToastState["tone"]) => void; order: ServiceOrderSummary }) {
+  const next = nextActionForOrder(order);
+  const blockerEntry = Object.entries(order.workflow_blockers).find(([target]) => order.workflow_transitions.some((action) => action.next_state === target));
+  const requestable = blockerEntry && order.workflow_requestable_transitions.includes(blockerEntry[0]);
+  const buttonLabel = requestable ? "Abrir para solicitar aprovação" : `Abrir · ${next.label}`;
+
+  return (
+    <article className={cx("rounded-control border border-tec-border/15 bg-tec-field/45 p-3 transition hover:border-tec-orange/45", order.stage_clock?.is_overdue && "border-tec-red/45 bg-tec-red/5")}>
+      <div className="flex items-start justify-between gap-3">
+        <button className="min-w-0 text-left" onClick={() => onOpenOrder(order.name)} type="button">
+          <span className="block truncate text-sm font-bold text-white">{order.name}</span>
+          <span className="mt-0.5 block truncate text-xs text-tec-subtle">{order.customer ?? "Cliente não informado"}</span>
+        </button>
+        {order.stage_clock?.is_overdue ? <span className="shrink-0 text-[11px] font-bold text-tec-red">Atrasada</span> : null}
+      </div>
+      <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-tec-muted">{compactServiceOrderDescription(order.reported_defect)}</p>
+      <div className="mt-3 rounded-control bg-tec-panel px-3 py-2">
+        <span className="block text-[10px] font-bold uppercase tracking-wide text-tec-muted">Próximo passo</span>
+        <span className="mt-0.5 block text-sm font-bold text-tec-text">{next.label}</span>
+        {blockerEntry ? <span className={cx("mt-1 block text-xs", requestable ? "text-tec-amber" : "text-tec-muted")}>{blockerEntry[1]}</span> : null}
+      </div>
+      <Button className="mt-3 w-full" icon={<ArrowRight size={16} />} onClick={() => {
+        if (blockerEntry && !requestable) onToast(blockerEntry[1], "error");
+        onOpenOrder(order.name);
+      }} variant={requestable ? "secondary" : "primary"}>{buttonLabel}</Button>
+    </article>
+  );
 }
 
 function ServiceOrderFilterBar({
@@ -3199,7 +3358,9 @@ function ServiceOrderDetail({
         detail={detail}
         onBack={onBack}
         onOpenActions={() => setActionsOpen(true)}
+        onOpenAcceptance={setAcceptanceType}
         onOpenBudgetEditor={setBudgetLineType}
+        onOpenQuoteSend={() => setQuoteSendOpen(true)}
       />
 
       <ServiceOrderStageTabs active={activeStageScreen} detail={detail} onChange={setActiveStageScreen} />
@@ -3882,14 +4043,18 @@ function ServiceOrderHero({
   detail,
   onBack,
   onOpenActions,
+  onOpenAcceptance,
   onOpenBudgetEditor,
+	onOpenQuoteSend,
 	showBudgetAction = true,
 	showActionsMenu = true,
 }: {
   detail: ServiceOrderDetailResponse;
   onBack: () => void;
   onOpenActions: () => void;
+  onOpenAcceptance?: (type: "Entrada" | "Retirada") => void;
   onOpenBudgetEditor: (type: BudgetLineType) => void;
+	onOpenQuoteSend?: () => void;
 	showBudgetAction?: boolean;
 	showActionsMenu?: boolean;
 }) {
@@ -3928,6 +4093,21 @@ function ServiceOrderHero({
                 variant="primary"
               >
                 Cadastrar orçamento
+              </Button>
+            ) : null}
+            {showBudgetAction ? (
+              <Button icon={<Package size={17} />} onClick={() => onOpenBudgetEditor("part")} variant="secondary">
+                Adicionar peça
+              </Button>
+            ) : null}
+            {detail.workflow_state === "Entrada criada" && onOpenAcceptance ? (
+              <Button icon={<QrCode size={17} />} onClick={() => onOpenAcceptance("Entrada")} variant="secondary">
+                Gerar aceite
+              </Button>
+            ) : null}
+            {detail.workflow_state === "Aguardando aprovação" && detail.services.length + detail.parts.length > 0 && onOpenQuoteSend ? (
+              <Button icon={<Send size={17} />} onClick={onOpenQuoteSend} variant="primary">
+                Enviar orçamento
               </Button>
             ) : null}
             {detail.print_links.length ? <PrintPrimaryLink links={detail.print_links} /> : null}

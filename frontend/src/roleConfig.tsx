@@ -98,6 +98,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       {
         label: "Reparo",
         items: [
+          { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "O que fazer agora" },
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Criar, buscar e acompanhar" },
           { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque e solicitações", children: [
             { id: "repair-parts", icon: Boxes, label: "Estoque de reparo", subtitle: "Disponibilidade" },
@@ -164,7 +165,8 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       {
         label: "Reparo",
         items: [
-          { id: "service-orders", icon: ClipboardList, label: "Minhas OS", subtitle: "Ordens atribuídas" },
+          { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "Prioridades da bancada" },
+          { id: "service-orders", icon: ClipboardList, label: "Minhas OS", subtitle: "Lista completa da carteira" },
           { id: "my-earnings", icon: BadgeDollarSign, label: "Minhas comissões", subtitle: "Lançamentos da sua mão de obra" },
           { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque e solicitações", children: [
             { id: "repair-parts", icon: Boxes, label: "Estoque de Reparo", subtitle: "Disponibilidade" },
@@ -208,6 +210,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       {
         label: "Reparo",
         items: [
+          { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "Filas da operação" },
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Acompanhar e controlar" },
           { id: "repair-parts", icon: Boxes, label: "Peças", subtitle: "Estoque e compras", children: [
             { id: "repair-parts", icon: Boxes, label: "Estoque de Reparo", subtitle: "Disponibilidade" },
@@ -269,6 +272,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         label: "Gestão",
         items: [
           { id: "overview", icon: Grid2X2, label: "Visão executiva", subtitle: "Panorama estratégico" },
+          { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "Filas da operação" },
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Fila e conclusão" },
           { id: "devices", icon: Smartphone, label: "Aparelhos", subtitle: "Base e histórico" },
           { id: "trade-ins", icon: Handshake, label: "Trocas", subtitle: "Avaliações e ofertas" },
@@ -328,6 +332,7 @@ const panelLabels: Record<RolePanel, string> = {
 
 const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
   overview: "Início",
+  "mesa-flow": "Reparo",
   "service-orders": "Reparo",
   "repair-parts": "Reparo",
   "part-requests": "Reparo",
