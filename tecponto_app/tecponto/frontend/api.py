@@ -318,13 +318,19 @@ def register_store_drawer_movement(
 
 
 @frappe.whitelist()
-def close_store_cash_session(counted_amounts: Any = None, reason: str = "", idempotency_key: str = "") -> dict[str, Any]:
+def close_store_cash_session(
+	counted_amounts: Any = None,
+	reason: str = "",
+	idempotency_key: str = "",
+	cash_session: str = "",
+) -> dict[str, Any]:
 	_require_pos_role()
 	return close_cash_session(
 		counted_amounts=counted_amounts or {},
 		reason=reason,
 		idempotency_key=idempotency_key,
 		closed_by=frappe.session.user,
+		cash_session=cash_session or None,
 	)
 
 

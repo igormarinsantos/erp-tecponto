@@ -77,7 +77,7 @@ export function CashStatementScreen({ onToast }: { onToast: (message: string, to
     }
     setClosing(true);
     try {
-      await pos.closeCashSession(Object.fromEntries(differences.map((item) => [item.payment_mode, item.counted_amount])), closingReason.trim(), operationKey("closing"));
+      await pos.closeCashSession(session.session, Object.fromEntries(differences.map((item) => [item.payment_mode, item.counted_amount])), closingReason.trim(), operationKey("closing"));
       onToast("Caixa fechado e conferência auditada.", "success");
       setClosingOpen(false);
       await refresh();

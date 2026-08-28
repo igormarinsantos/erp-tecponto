@@ -42,9 +42,9 @@ export const pos = {
 			body: { movement_type: movementType, amount, reason, idempotency_key: idempotencyKey },
 		});
 	},
-	closeCashSession(countedAmounts: Record<string, number>, reason: string, idempotencyKey: string) {
+	closeCashSession(cashSession: string, countedAmounts: Record<string, number>, reason: string, idempotencyKey: string) {
 		return rpc<CashClosingResponse>(`${API}.close_store_cash_session`, {
-			body: { counted_amounts: countedAmounts, reason, idempotency_key: idempotencyKey },
+			body: { cash_session: cashSession, counted_amounts: countedAmounts, reason, idempotency_key: idempotencyKey },
 		});
 	},
   barcodeLabelUrl(itemCode: string) {

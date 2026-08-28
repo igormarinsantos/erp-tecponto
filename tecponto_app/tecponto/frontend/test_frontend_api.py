@@ -41,6 +41,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_boot,
 	get_store_cash_session,
 	get_store_cash_statement,
+	close_store_cash_session,
 	get_list_statbar,
 	get_service_order_statbar,
 	get_service_order_detail,
@@ -6279,6 +6280,33 @@ def run_cash_closing_checks() -> dict:
 		if divergence["status"] != "Fechado" or divergence["closing"]["reason"] != "Falta apurada na conferência" or divergence["closing"]["counts"][0]["difference"] != -5.0:
 			raise AssertionError("Divergência com motivo não foi fechada e auditada como esperado.")
 
+		# The React screen serializes counts through the public endpoint and pins the
+		# session it rendered. Cover that path, not just the lower-level helper.
+		endpoint_session = open_cash_session(
+			opening_amount=45,
+			idempotency_key=f"tp-close-endpoint-{frappe.generate_hash(length=18)}",
+			opened_by=attendant,
+			cash_point=f"Endpoint 4.3 {frappe.generate_hash(length=9)}",
+		)
+		endpoint_closing = close_store_cash_session(
+			cash_session=endpoint_session["session"],
+			counted_amounts=json.dumps({"Dinheiro": 45}),
+			reason="",
+			idempotency_key=f"tp-close-endpoint-ok-{frappe.generate_hash(length=18)}",
+		)
+		if endpoint_closing["status"] != "Fechado" or frappe.db.get_value(CASH_SESSION_DOCTYPE, endpoint_session["session"], "status") != "Fechado":
+			raise AssertionError("Fechamento pelo endpoint da tela não persistiu a sessão fechada.")
+		payment_blocked_after_close = False
+		try:
+			record_cash_movement(
+				cash_session=endpoint_session["session"], movement_type="Recebimento de venda", direction="Entrada", amount=1,
+				idempotency_key=f"tp-close-block-payment-{frappe.generate_hash(length=18)}", registered_by=attendant,
+			)
+		except frappe.ValidationError:
+			payment_blocked_after_close = True
+		if not payment_blocked_after_close:
+			raise AssertionError("Caixa fechado aceitou pagamento após o fechamento.")
+
 		frappe.set_user(technician)
 		technician_blocked = False
 		try:
@@ -6296,6 +6324,8 @@ def run_cash_closing_checks() -> dict:
 			"clean_closing": matched["session"],
 			"divergence_closing": divergent["session"],
 			"supply_and_withdrawal": True,
+			"endpoint_closing": endpoint_session["session"],
+			"closed_cash_blocks_payment": payment_blocked_after_close,
 			"technician_blocked": technician_blocked,
 			"leaked_fields": leaks,
 		}
