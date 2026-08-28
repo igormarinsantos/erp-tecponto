@@ -31,6 +31,8 @@ from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
 	get_dashboard_metrics,
 	get_administrative_sales_report,
+	get_administration_settings,
+	save_administration_settings,
 	get_director_financial_summary,
 	get_service_order_director_financial_summary,
 	get_director_risk_agenda,
@@ -1217,7 +1219,7 @@ def run_stage_sla_checks() -> dict:
 		ensure_frontend_foundation()
 		manager = _find_or_create_user("Tecponto Gestor")
 		attendant = _find_or_create_user("Tecponto Atendente")
-		frappe.set_user(manager)
+		frappe.set_user("Administrator")
 		slas = get_stage_slas()
 		entry_sla = next((row for row in slas if row["workflow_state"] == "Entrada criada"), None)
 		if not entry_sla or entry_sla["business_hours"] != 4:
@@ -1281,7 +1283,7 @@ def run_stage_sla_checks() -> dict:
 		}
 	finally:
 		if original_entry_sla:
-			frappe.set_user(_find_or_create_user("Tecponto Gestor"))
+			frappe.set_user("Administrator")
 			save_stage_sla(original_entry_sla)
 		frappe.set_user(previous_user)
 
@@ -2865,6 +2867,38 @@ def run_administrative_center_checks() -> dict:
 			director_blocked = True
 		if not director_blocked:
 			raise AssertionError("Administrador sem Diretor acessou indicadores de custo/lucro.")
+		settings_payload = get_administration_settings()
+		if set(settings_payload) != {"identity", "operation", "card_fees", "stage_slas"}:
+			raise AssertionError("Tela administrativa recebeu uma projeção de configuração inesperada.")
+		settings_without_commission_policy = {
+			**settings_payload,
+			"operation": {key: value for key, value in settings_payload["operation"].items() if "commission" not in key},
+		}
+		if contains_sensitive_field(settings_without_commission_policy, forbidden_values={BUDGET_COST_GUARD_VALUATION}):
+			raise AssertionError("Configurações administrativas vazaram custo ou valuation para Administrador sem Diretor.")
+		original_diagnosis_only = settings_payload["operation"].get("diagnosis_only_enabled")
+		saved_settings = save_administration_settings(
+			{
+				"identity": {},
+				"operation": {"diagnosis_only_enabled": not bool(original_diagnosis_only)},
+				"card_fees": settings_payload["card_fees"],
+			}
+		)
+		if bool(saved_settings["operation"].get("diagnosis_only_enabled")) == bool(original_diagnosis_only):
+			raise AssertionError("Administrador não conseguiu salvar configuração operacional permitida.")
+		save_administration_settings(
+			{"identity": {}, "operation": {"diagnosis_only_enabled": original_diagnosis_only}, "card_fees": settings_payload["card_fees"]}
+		)
+		if not settings_payload["stage_slas"]:
+			raise AssertionError("Configurações não retornaram os SLAs de etapa.")
+		save_stage_sla(settings_payload["stage_slas"][0])
+		allowlist_blocked = False
+		try:
+			save_administration_settings({"identity": {}, "operation": {"purchase_approval_threshold": 1}, "card_fees": []})
+		except frappe.PermissionError:
+			allowlist_blocked = True
+		if not allowlist_blocked:
+			raise AssertionError("Endpoint administrativo aceitou campo financeiro fora da allowlist.")
 
 		frappe.set_user(owner)
 		director_admin = save_user_account(
@@ -2884,6 +2918,8 @@ def run_administrative_center_checks() -> dict:
 		if "operational_cost" not in director_financial or "gross_operating_profit" not in director_financial:
 			raise AssertionError("Diretor acumulado não acessou seu endpoint financeiro exclusivo.")
 
+		# Only the owner may create a test user with a business role it does not hold.
+		frappe.set_user(owner)
 		attendant = _find_or_create_user("Tecponto Atendente")
 		frappe.set_user(attendant)
 		operational_blocked = False
@@ -2893,11 +2929,19 @@ def run_administrative_center_checks() -> dict:
 			operational_blocked = True
 		if not operational_blocked:
 			raise AssertionError("Papel operacional acessou o relatório administrativo.")
+		settings_blocked = False
+		try:
+			get_administration_settings()
+		except frappe.PermissionError:
+			settings_blocked = True
+		if not settings_blocked:
+			raise AssertionError("Papel operacional acessou configurações administrativas.")
 		return {
 			"admin_report_safe": True,
 			"director_financial_blocked_for_admin": director_blocked,
 			"director_accumulated_financial": True,
 			"operational_blocked": operational_blocked,
+			"settings_allowlist_and_gate": allowlist_blocked and settings_blocked,
 		}
 	finally:
 		frappe.set_user(previous_user)

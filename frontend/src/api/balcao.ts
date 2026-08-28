@@ -28,6 +28,7 @@ import type {
 	ConfirmTradeInOperationResponse,
 	TradeOutputDeviceListResponse,
 	AdministrativeSalesReport,
+	AdministrationSettings,
 } from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
@@ -54,6 +55,16 @@ export const balcao = {
 
   getAdministrativeSalesReport(period: "today" | "7d" | "month" = "month") {
     return rpc<AdministrativeSalesReport>(API + ".get_administrative_sales_report", { query: { period } });
+  },
+
+  getAdministrationSettings() {
+    return rpc<AdministrationSettings>(`${API}.get_administration_settings`);
+  },
+  saveAdministrationSettings(payload: Pick<AdministrationSettings, "identity" | "operation" | "card_fees">) {
+    return rpc<AdministrationSettings>(`${API}.save_administration_settings`, { body: { payload } });
+  },
+  saveStageSla(payload: AdministrationSettings["stage_slas"][number]) {
+    return rpc<{ item: AdministrationSettings["stage_slas"][number] }>(`${API}.save_stage_sla`, { body: { payload } });
   },
 
   getDirectorFinancialSummary() {

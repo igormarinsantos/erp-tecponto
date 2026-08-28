@@ -23,7 +23,8 @@ export type NavigationTarget =
   | "approval-requests"
   | "notifications"
   | "user-management"
-  | "administration";
+  | "administration"
+  | "administration-settings";
 
 export interface ProductCategoryNode {
   name: string;
@@ -271,6 +272,15 @@ export interface AdministrativeSalesReport {
   };
   categories: Array<{ category: string; revenue: number; quantity: number }>;
   payment_methods: Array<{ payment_mode: string; amount: number; affects_drawer: boolean }>;
+}
+
+export interface AdministrationStageSla { name: string; workflow_state: string; business_hours: number; description: string; active: boolean; }
+export interface AdministrationCardFee { tipo: string; taxa_pct: number; settlement_days: number; }
+export interface AdministrationSettings {
+  identity: CompanyIdentity & { company_name: string; tax_id: string; trade_name: string; public_phone: string; public_email: string; public_address: string; public_logo: string; };
+  operation: Record<string, boolean | number | string | null>;
+  card_fees: AdministrationCardFee[];
+  stage_slas: AdministrationStageSla[];
 }
 
 export interface BootResponse {

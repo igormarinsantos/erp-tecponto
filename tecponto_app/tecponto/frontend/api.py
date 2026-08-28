@@ -677,6 +677,103 @@ def get_administrative_sales_report(period: str = "month") -> dict[str, Any]:
 	}
 
 
+ADMINISTRATION_SETTING_FIELDS = {
+	"identity_company", "trade_name", "public_phone", "public_email", "public_address", "public_logo",
+	"enable_repair_pillar", "enable_buy_pillar", "enable_tradein_pillar",
+	"diagnostic_fee_enabled", "diagnostic_fee_amount", "storage_fee_enabled", "storage_fee_amount",
+	"storage_fee_start_days", "storage_fee_abandonment_days", "diagnosis_only_enabled",
+	"payment_advance_enabled", "payment_installments_enabled", "payment_device_tradein_enabled",
+	"default_warranty_days", "use_technician_commission", "commission_pct", "commission_labor_only",
+}
+
+
+def _administration_settings_payload() -> dict[str, Any]:
+	from tecponto_app.tecponto.company_identity import get_company_identity
+
+	settings = frappe.get_single("Tecponto Settings")
+	resolved_identity = get_company_identity()
+	company_name = settings.identity_company or resolved_identity.get("company")
+	company = frappe.get_doc("Company", company_name) if company_name else None
+	return {
+		"identity": {
+			**resolved_identity,
+			"company_name": company.company_name if company else "",
+			"tax_id": company.tax_id if company else "",
+			"trade_name": settings.trade_name or "",
+			"public_phone": settings.public_phone or "",
+			"public_email": settings.public_email or "",
+			"public_address": settings.public_address or "",
+			"public_logo": settings.public_logo or "",
+		},
+		"operation": {field: settings.get(field) for field in ADMINISTRATION_SETTING_FIELDS if field not in {"identity_company", "trade_name", "public_phone", "public_email", "public_address", "public_logo"}},
+		"card_fees": [{"tipo": row.tipo, "taxa_pct": flt(row.taxa_pct), "settlement_days": cint(row.settlement_days)} for row in settings.get("card_fees") or []],
+		"stage_slas": [stage_sla._serialize_sla(row) for row in stage_sla.get_stage_slas()],
+	}
+
+
+@frappe.whitelist()
+def get_administration_settings() -> dict[str, Any]:
+	"""Read the administration-safe configuration projection for the React UI."""
+	_require_user_management_role()
+	return _administration_settings_payload()
+
+
+@frappe.whitelist()
+def save_administration_settings(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Persist only the explicit operational/identity allowlist from Administration."""
+	_require_user_management_role()
+	data = _parse_payload(payload)
+	operation, identity, card_fees = data.get("operation") or {}, data.get("identity") or {}, data.get("card_fees") or []
+	if not isinstance(operation, dict) or not isinstance(identity, dict) or not isinstance(card_fees, list):
+		frappe.throw(_("Configuração inválida."), frappe.ValidationError)
+
+	settings = frappe.get_single("Tecponto Settings")
+	for field, value in operation.items():
+		if field not in ADMINISTRATION_SETTING_FIELDS:
+			frappe.throw(_("Campo de configuração não permitido: {0}").format(field), frappe.PermissionError)
+		if field.endswith(("_amount", "_pct")):
+			value = max(0, flt(value))
+		elif field.endswith("_days"):
+			value = max(0, cint(value))
+		elif field.startswith(("enable_", "payment_", "use_", "diagnosis_", "commission_")):
+			value = cint(value)
+		settings.set(field, value)
+
+	if settings.storage_fee_abandonment_days and settings.storage_fee_start_days and cint(settings.storage_fee_abandonment_days) < cint(settings.storage_fee_start_days):
+		frappe.throw(_("O prazo de abandono não pode ser menor que o início da armazenagem."), frappe.ValidationError)
+	if cint(settings.default_warranty_days) < 1:
+		frappe.throw(_("Informe ao menos um dia para a garantia."), frappe.ValidationError)
+
+	from tecponto_app.tecponto.company_identity import get_company_identity
+
+	company_name = str(identity.get("company") or settings.identity_company or get_company_identity().get("company") or "").strip()
+	if company_name and not frappe.db.exists("Company", company_name):
+		frappe.throw(_("Empresa não encontrada."), frappe.DoesNotExistError)
+	if company_name:
+		company = frappe.get_doc("Company", company_name)
+		for field, key in (("company_name", "company_name"), ("tax_id", "tax_id"), ("phone_no", "phone"), ("email", "email"), ("company_logo", "logo_url")):
+			if key in identity:
+				company.set(field, str(identity.get(key) or "").strip())
+		company.save(ignore_permissions=True)
+		settings.identity_company = company.name
+	for field in ("trade_name", "public_phone", "public_email", "public_address", "public_logo"):
+		if field in identity:
+			settings.set(field, str(identity.get(field) or "").strip())
+
+	validated_fees = []
+	for row in card_fees:
+		if not isinstance(row, dict) or not str(row.get("tipo") or "").strip():
+			frappe.throw(_("Informe o tipo de cada taxa de cartão."), frappe.ValidationError)
+		fee = flt(row.get("taxa_pct"))
+		if fee < 0 or fee > 100:
+			frappe.throw(_("A taxa de cartão deve ficar entre 0% e 100%."), frappe.ValidationError)
+		validated_fees.append({"tipo": str(row["tipo"]).strip(), "taxa_pct": fee, "settlement_days": max(0, cint(row.get("settlement_days")))})
+	settings.set("card_fees", validated_fees)
+	settings.save(ignore_permissions=True)
+	frappe.clear_cache()
+	return _administration_settings_payload()
+
+
 def _parse_user_account_payload(payload: dict[str, Any] | str) -> dict[str, Any]:
 	if isinstance(payload, str):
 		payload = frappe.parse_json(payload)
@@ -1920,7 +2017,7 @@ def list_stage_slas() -> dict[str, Any]:
 
 @frappe.whitelist()
 def save_stage_sla(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
-	_require_frontend_role()
+	_require_user_management_role()
 	return {"item": stage_sla.save_stage_sla(_parse_payload(payload))}
 
 

@@ -37,7 +37,7 @@ export function AdministrativeCenterScreen({
     <section className="grid gap-3 md:grid-cols-3">
       <AdminAction icon={<Users size={20} />} label="Pessoas e acessos" detail="Contas, papéis e controles individuais." onClick={() => onNavigate("user-management")} />
       <AdminAction icon={<WalletCards size={20} />} label="Caixa e extrato" detail="Sessão, conferência e movimentos da gaveta." onClick={() => onNavigate("cash-statement")} />
-      <AdminAction icon={<Settings2 size={20} />} label="Configurações da loja" detail={canOpenSystemSettings ? "Operação, identidade e parâmetros do sistema." : "Disponível a administradores do sistema."} disabled={!canOpenSystemSettings} onClick={() => window.location.assign("/app/tecponto-settings")} />
+      <AdminAction icon={<Settings2 size={20} />} label="Configurações da loja" detail={canOpenSystemSettings ? "Operação, identidade, SLA e taxas." : "Disponível a administradores do sistema."} disabled={!canOpenSystemSettings} onClick={() => onNavigate("administration-settings")} />
     </section>
 
     <Card className="p-5">

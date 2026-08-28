@@ -119,6 +119,7 @@ import { PartRequestModal, PartRequestsScreen } from "./PartRequestsScreen";
 import { UserManagementScreen } from "./UserManagementScreen";
 import { CashStatementScreen } from "./CashStatementScreen";
 import { AdministrativeCenterScreen } from "./AdministrativeCenterScreen";
+import { AdministrationSettingsScreen } from "./AdministrationSettingsScreen";
 import { RegistryEditorModal } from "./RegistryEditorModal";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition, type OperationPillars } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
@@ -423,6 +424,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   administration: {
     title: "Administração",
     subtitle: "Configurações, pessoas, caixa e relatório de vendas.",
+  },
+  "administration-settings": {
+    title: "Configurações da loja",
+    subtitle: "Operação, identidade, SLA e taxas de cartão.",
   },
 };
 
@@ -1091,7 +1096,7 @@ export function App() {
         onOpenHelp={() => setHelpOpen(true)}
         onNavigate={navigateFromSidebar}
         onOpenPreferences={() => setPreferencesOpen(true)}
-        onOpenSystemSettings={() => window.location.assign("/app/tecponto-settings")}
+        onOpenSystemSettings={() => setActiveView("administration-settings")}
         sections={panel.nav}
         user={visualUser}
       />
@@ -2508,6 +2513,10 @@ function NavigationContent({
 
   if (activeView === "administration") {
     return canManageUsers ? <AdministrativeCenterScreen canOpenSystemSettings={canOpenSystemSettings} canViewDirectorFinancial={canViewDirectorFinancial} onNavigate={onNavigate} onToast={onToast} /> : <Card className="p-5 text-sm font-semibold text-tec-red">Você não possui acesso à Administração.</Card>;
+  }
+
+  if (activeView === "administration-settings") {
+    return canManageUsers ? <AdministrationSettingsScreen onBack={() => onNavigate("administration")} onToast={onToast} /> : <Card className="p-5 text-sm font-semibold text-tec-red">Você não possui acesso às configurações.</Card>;
   }
 
   if (activeView === "my-earnings" && commissionsEnabled) {
