@@ -280,6 +280,57 @@ def get_cash_statement(*, cash_session: str | None = None) -> dict[str, Any]:
 	}
 
 
+def get_cash_session_history(*, limit: int = 31) -> list[dict[str, Any]]:
+	"""List recent daily drawer sessions with totals derived from immutable movements."""
+	rows = frappe.get_all(
+		CASH_SESSION_DOCTYPE,
+		filters={"company": get_default_company(), "cash_point": DEFAULT_CASH_POINT},
+		fields=[
+			"name", "business_date", "status", "opened_by", "opened_at", "closed_by", "closed_at",
+			"opening_amount", "closing_expected_drawer", "closing_counted_drawer", "closing_drawer_difference",
+		],
+		order_by="business_date desc, opened_at desc",
+		limit_page_length=max(1, min(int(limit or 31), 90)),
+	)
+	if not rows:
+		return []
+
+	totals = frappe.db.sql(
+		"""
+			select
+				cash_session,
+				coalesce(sum(case when direction = 'Entrada' then amount else -amount end), 0) as net_flow,
+				coalesce(sum(case when movement_type not in ('Abertura', 'Sangria', 'Suprimento') then abs(amount) else 0 end), 0) as turnover,
+				coalesce(sum(case when affects_drawer = 1 and direction = 'Entrada' then amount when affects_drawer = 1 then -amount else 0 end), 0) as drawer_balance
+			from `tabTecponto Cash Movement`
+			where cash_session in %(sessions)s
+			group by cash_session
+		""",
+		{"sessions": [row.name for row in rows]},
+		as_dict=True,
+	)
+	by_session = {row.cash_session: row for row in totals}
+	return [
+		{
+			"session": row.name,
+			"business_date": str(row.business_date),
+			"status": row.status,
+			"opened_by": row.opened_by,
+			"opened_at": str(row.opened_at),
+			"closed_by": row.closed_by or None,
+			"closed_at": str(row.closed_at) if row.closed_at else None,
+			"opening_amount": flt(row.opening_amount, 2),
+			"drawer_balance": flt(by_session.get(row.name, {}).get("drawer_balance"), 2),
+			"turnover": flt(by_session.get(row.name, {}).get("turnover"), 2),
+			"net_flow": flt(by_session.get(row.name, {}).get("net_flow"), 2),
+			"closing_expected_drawer": flt(row.closing_expected_drawer, 2),
+			"closing_counted_drawer": flt(row.closing_counted_drawer, 2),
+			"closing_drawer_difference": flt(row.closing_drawer_difference, 2),
+		}
+		for row in rows
+	]
+
+
 def close_cash_session(*, counted_amounts: Any, reason: str, idempotency_key: str, closed_by: str | None = None, cash_session: str | None = None) -> dict[str, Any]:
 	"""Close a drawer once, recording counted totals and any explained discrepancy."""
 	key = _validate_idempotency_key(idempotency_key)

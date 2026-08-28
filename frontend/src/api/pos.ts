@@ -3,6 +3,7 @@ import type {
 	CashierOperatorIdentity,
 	CashSessionSummary,
 	CashStatementResponse,
+	CashSessionHistoryResponse,
 	CashClosingResponse,
   PosBarcodeLabelResponse,
   PosItemSearchResponse,
@@ -36,6 +37,9 @@ export const pos = {
 	},
 	getCashStatement(cashSession = "") {
 		return rpc<CashStatementResponse>(`${API}.get_store_cash_statement`, { query: cashSession ? { cash_session: cashSession } : undefined });
+	},
+	getCashSessionHistory(limit = 31) {
+		return rpc<CashSessionHistoryResponse>(`${API}.get_store_cash_session_history`, { query: { limit } });
 	},
 	registerDrawerMovement(movementType: "Sangria" | "Suprimento", amount: number, reason: string, idempotencyKey: string) {
 		return rpc(`${API}.register_store_drawer_movement`, {

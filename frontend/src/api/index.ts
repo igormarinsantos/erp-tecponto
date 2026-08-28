@@ -33,6 +33,8 @@ export type {
 	CashierOperatorIdentity,
 	CashSessionSummary,
 	CashStatementResponse,
+	CashSessionHistoryEntry,
+	CashSessionHistoryResponse,
 	CashClosingResponse,
 	CreateCustomerPayload,
 	CreateCustomerResponse,

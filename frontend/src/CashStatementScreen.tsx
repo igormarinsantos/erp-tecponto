@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, CircleDollarSign, ReceiptText, WalletCards } from "lucide-react";
 
-import { pos, type CashStatementResponse } from "./api";
+import { pos, type CashSessionHistoryEntry, type CashStatementResponse } from "./api";
 import { Button, Card, Modal } from "./ui";
 
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -12,6 +12,8 @@ function operationKey(prefix: string) {
 
 export function CashStatementScreen({ onToast }: { onToast: (message: string, tone?: "success" | "error") => void }) {
   const [statement, setStatement] = useState<CashStatementResponse | null>(null);
+  const [history, setHistory] = useState<CashSessionHistoryEntry[]>([]);
+  const [selectedSession, setSelectedSession] = useState("");
   const [loading, setLoading] = useState(true);
   const [movementType, setMovementType] = useState<"Sangria" | "Suprimento" | null>(null);
   const [movementAmount, setMovementAmount] = useState(0);
@@ -23,19 +25,29 @@ export function CashStatementScreen({ onToast }: { onToast: (message: string, to
   const [closing, setClosing] = useState(false);
 	const [visibleMovements, setVisibleMovements] = useState(30);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (cashSession = selectedSession) => {
     setLoading(true);
     try {
-      const next = await pos.getCashStatement();
+      const next = await pos.getCashStatement(cashSession);
       setStatement(next);
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Não foi possível carregar o extrato.", "error");
     } finally {
       setLoading(false);
     }
+  }, [onToast, selectedSession]);
+
+  const refreshHistory = useCallback(async () => {
+    try {
+      const next = await pos.getCashSessionHistory();
+      setHistory(next.sessions);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Não foi possível carregar o histórico do caixa.", "error");
+    }
   }, [onToast]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void refreshHistory(); }, [refreshHistory]);
 
 	useEffect(() => { setVisibleMovements(30); }, [statement?.session?.session]);
 
@@ -63,6 +75,7 @@ export function CashStatementScreen({ onToast }: { onToast: (message: string, to
       setMovementAmount(0);
       setMovementReason("");
       await refresh();
+      await refreshHistory();
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Não foi possível registrar o movimento.", "error");
     } finally {
@@ -80,7 +93,8 @@ export function CashStatementScreen({ onToast }: { onToast: (message: string, to
       await pos.closeCashSession(session.session, Object.fromEntries(differences.map((item) => [item.payment_mode, item.counted_amount])), closingReason.trim(), operationKey("closing"));
       onToast("Caixa fechado e conferência auditada.", "success");
       setClosingOpen(false);
-      await refresh();
+      await refresh(session.session);
+      await refreshHistory();
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Não foi possível fechar o caixa.", "error");
     } finally {
@@ -91,6 +105,9 @@ export function CashStatementScreen({ onToast }: { onToast: (message: string, to
   if (loading) return <Card className="p-5 text-sm text-tec-subtle">Carregando extrato de caixa...</Card>;
   if (!statement?.session) return <Card className="p-5 text-sm text-tec-subtle">Nenhuma sessão de caixa foi aberta ainda.</Card>;
   const session = statement.session;
+  const turnover = statement.movements
+    .filter((movement) => !["Abertura", "Sangria", "Suprimento"].includes(movement.movement_type))
+    .reduce((total, movement) => total + Math.abs(movement.amount), 0);
 
   return (
     <div className="space-y-5" data-testid="cash-statement-screen">
@@ -102,6 +119,17 @@ export function CashStatementScreen({ onToast }: { onToast: (message: string, to
       <Card className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
         <div><div className="flex items-center gap-2 text-white"><WalletCards size={18} className="text-tec-orange" /><h2 className="font-bold">{session.status === "Aberto" ? "Caixa aberto" : "Caixa fechado"}</h2></div><p className="mt-1 text-sm text-tec-subtle">{session.cash_point} · aberto por {session.opened_by} em {session.opened_at}</p>{session.status === "Fechado" ? <p className="mt-2 text-sm text-tec-subtle">Fechado por {session.closed_by} em {session.closed_at}{session.closing_reason ? ` · ${session.closing_reason}` : ""}</p> : null}</div>
         {session.status === "Aberto" ? <div className="flex flex-wrap gap-2"><Button icon={<ArrowUpFromLine size={16} />} onClick={() => setMovementType("Suprimento")}>Suprimento</Button><Button icon={<ArrowDownToLine size={16} />} onClick={() => setMovementType("Sangria")}>Sangria</Button><Button icon={<CircleDollarSign size={16} />} onClick={openClosing} variant="primary">Fechar caixa</Button></div> : null}
+      </Card>
+
+      <section className="grid gap-3 md:grid-cols-3">
+        <Card className="p-4"><p className="text-xs font-bold uppercase text-tec-muted">Abertura</p><p className="mt-2 text-sm font-bold text-white">{session.opened_at}</p><p className="mt-1 text-xs text-tec-subtle">{brl.format(session.opening_amount)} inicial</p></Card>
+        <Card className="p-4"><p className="text-xs font-bold uppercase text-tec-muted">Giro da jornada</p><p className="mt-2 text-2xl font-bold text-white">{brl.format(turnover)}</p><p className="mt-1 text-xs text-tec-subtle">Recebimentos e estornos registrados</p></Card>
+        <Card className="p-4"><p className="text-xs font-bold uppercase text-tec-muted">Fechamento</p><p className="mt-2 text-sm font-bold text-white">{session.closed_at ?? "Em aberto"}</p><p className="mt-1 text-xs text-tec-subtle">{session.status === "Fechado" ? `Contado: ${brl.format(session.closing_counted_drawer ?? 0)}` : "Conferência pendente"}</p></Card>
+      </section>
+
+      <Card className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">Histórico diário</h2><p className="mt-1 text-sm text-tec-subtle">Abra uma jornada anterior para conferir sua abertura, giro e fechamento.</p></div>{selectedSession ? <Button onClick={() => setSelectedSession("")}>Voltar ao caixa atual</Button> : null}</div>
+        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{history.map((entry) => <button className={`rounded-control border p-3 text-left transition ${entry.session === session.session ? "border-tec-orange/60 bg-tec-orange/10" : "border-tec-border/20 bg-tec-field/45 hover:border-tec-orange/45"}`} key={entry.session} onClick={() => setSelectedSession(entry.session)} type="button"><span className="flex items-center justify-between gap-2"><span className="font-bold text-white">{entry.business_date}</span><span className={entry.status === "Fechado" ? "text-xs font-bold text-tec-success" : "text-xs font-bold text-tec-amber"}>{entry.status}</span></span><span className="mt-2 block text-xs text-tec-subtle">Abriu {entry.opened_at}</span><span className="mt-1 block text-xs text-tec-subtle">Giro {brl.format(entry.turnover)} · Gaveta {brl.format(entry.drawer_balance)}</span>{entry.closed_at ? <span className="mt-1 block text-xs text-tec-subtle">Fechou {entry.closed_at}</span> : null}</button>)}</div>
       </Card>
 
       <Card className="overflow-hidden">

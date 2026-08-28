@@ -45,6 +45,7 @@ from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_DOCTYPE, POS_OPERATOR
 from tecponto_app.tecponto.cash import (
 	close_cash_session,
 	get_cash_statement,
+	get_cash_session_history,
 	get_open_cash_session,
 	open_cash_session,
 	record_drawer_adjustment,
@@ -298,6 +299,12 @@ def get_store_cash_session() -> dict[str, Any]:
 def get_store_cash_statement(cash_session: str = "") -> dict[str, Any]:
 	_require_pos_role()
 	return get_cash_statement(cash_session=cash_session or None)
+
+
+@frappe.whitelist()
+def get_store_cash_session_history(limit: int = 31) -> dict[str, Any]:
+	_require_pos_role()
+	return {"sessions": get_cash_session_history(limit=limit)}
 
 
 @frappe.whitelist()

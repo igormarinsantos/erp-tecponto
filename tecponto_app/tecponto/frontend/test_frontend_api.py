@@ -41,6 +41,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_boot,
 	get_store_cash_session,
 	get_store_cash_statement,
+	get_store_cash_session_history,
 	close_store_cash_session,
 	get_list_statbar,
 	get_service_order_statbar,
@@ -6306,6 +6307,9 @@ def run_cash_closing_checks() -> dict:
 			payment_blocked_after_close = True
 		if not payment_blocked_after_close:
 			raise AssertionError("Caixa fechado aceitou pagamento após o fechamento.")
+		daily_history = get_store_cash_session_history(limit=31)["sessions"]
+		if not daily_history or not all({"opened_at", "turnover", "drawer_balance", "status"}.issubset(row) for row in daily_history):
+			raise AssertionError("Histórico diário não expôs abertura, giro, saldo e status da jornada.")
 
 		frappe.set_user(technician)
 		technician_blocked = False
@@ -6326,6 +6330,7 @@ def run_cash_closing_checks() -> dict:
 			"supply_and_withdrawal": True,
 			"endpoint_closing": endpoint_session["session"],
 			"closed_cash_blocks_payment": payment_blocked_after_close,
+			"daily_history": len(daily_history),
 			"technician_blocked": technician_blocked,
 			"leaked_fields": leaks,
 		}

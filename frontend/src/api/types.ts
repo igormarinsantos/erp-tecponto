@@ -733,6 +733,27 @@ export interface CashStatementResponse {
   movements: CashStatementMovement[];
 }
 
+export interface CashSessionHistoryEntry {
+  session: string;
+  business_date: string;
+  status: "Aberto" | "Fechado";
+  opened_by: string;
+  opened_at: string;
+  closed_by?: string | null;
+  closed_at?: string | null;
+  opening_amount: number;
+  drawer_balance: number;
+  turnover: number;
+  net_flow: number;
+  closing_expected_drawer: number;
+  closing_counted_drawer: number;
+  closing_drawer_difference: number;
+}
+
+export interface CashSessionHistoryResponse {
+  sessions: CashSessionHistoryEntry[];
+}
+
 export interface CashClosingCount {
   payment_mode: string;
   expected_amount: number;
