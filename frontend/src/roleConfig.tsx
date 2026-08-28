@@ -125,7 +125,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         ],
       },
       {
-        label: "Cadastros",
+        label: "Administração",
         items: [
           { id: "customers", icon: Users, label: "Clientes", subtitle: "Base e histórico" },
           { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Cadastro e histórico" },
@@ -173,7 +173,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         ],
       },
       {
-        label: "Cadastros",
+        label: "Administração",
         items: [
           { id: "devices", icon: Smartphone, label: "Aparelhos atendidos", subtitle: "Somente da sua carteira" },
           { id: "services", icon: Wrench, label: "Serviços", subtitle: "Consultar catálogo" },
@@ -236,7 +236,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         ],
       },
       {
-        label: "Cadastros",
+        label: "Administração",
         items: [
           { id: "customers", icon: Users, label: "Clientes", subtitle: "Base e relacionamento" },
           { id: "devices", icon: Smartphone, label: "Aparelhos dos clientes", subtitle: "Cadastro e histórico" },
@@ -339,13 +339,13 @@ const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
   "commercial-products": "Venda",
   "product-attributes": "Venda",
   "product-categories": "Venda",
-  "service-categories": "Cadastros",
+  "service-categories": "Administração",
   "trade-ins": "Troca",
   "used-devices": "Troca",
-  customers: "Cadastros",
-  devices: "Cadastros",
-  services: "Cadastros",
-  "defect-service-mapping": "Cadastros",
+  customers: "Administração",
+  devices: "Administração",
+  services: "Administração",
+  "defect-service-mapping": "Administração",
 };
 
 function withSubmenus(nav: NavSection[]): NavSection[] {
@@ -353,10 +353,13 @@ function withSubmenus(nav: NavSection[]): NavSection[] {
   for (const section of nav) {
     for (const item of section.items.flatMap((source) => source.children?.length ? source.children : [source])) {
       const pillar = pillarForTarget[item.id] ?? section.label;
-      byPillar.set(pillar, [...(byPillar.get(pillar) ?? []), item]);
+		const current = byPillar.get(pillar) ?? [];
+		if (!current.some((candidate) => candidate.id === item.id)) {
+			byPillar.set(pillar, [...current, item]);
+		}
     }
   }
-  const preferredOrder = ["Início", "Reparo", "Venda", "Troca", "Cadastros"];
+  const preferredOrder = ["Início", "Reparo", "Venda", "Troca", "Administração"];
   return [...byPillar.entries()]
     .sort(([left], [right]) => (preferredOrder.indexOf(left) + preferredOrder.length + 1) % (preferredOrder.length + 1) - (preferredOrder.indexOf(right) + preferredOrder.length + 1) % (preferredOrder.length + 1))
     .map(([label, flatItems]) => {
@@ -427,7 +430,7 @@ function unifiedNavigation(panels: RolePanel[]): NavSection[] {
     }
   }
 
-  const preferredOrder = ["Início", "Reparo", "Venda", "Troca", "Cadastros"];
+  const preferredOrder = ["Início", "Reparo", "Venda", "Troca", "Administração"];
   return [...sections.values()].sort((left, right) => {
     const leftIndex = preferredOrder.indexOf(left.label);
     const rightIndex = preferredOrder.indexOf(right.label);

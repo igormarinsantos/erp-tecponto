@@ -187,7 +187,7 @@ interface TecpontoContextMenuState {
   x: number;
   y: number;
 }
-type QueueFilter = "all" | "Aguardando aprovação" | "Entrada criada" | "Em diagnóstico" | "Aguardando peça" | "Em reparo" | "Teste final" | "Pronto para retirada" | "Entregue" | "Reprovado";
+type QueueFilter = "all" | "in_progress" | "Aguardando aprovação" | "Entrada criada" | "Em diagnóstico" | "Aguardando peça" | "Em reparo" | "Teste final" | "Pronto para retirada" | "Entregue" | "Reprovado";
 type DashboardPeriodMode = "7d" | "14d" | "custom";
 
 function commercialName() {
@@ -224,9 +224,10 @@ const DEFAULT_SERVICE_ORDER_FILTERS: ServiceOrderFilterState = {
   period: DEFAULT_DASHBOARD_PERIOD,
 	priority: "all",
   query: "",
-  status: "all",
+  status: "in_progress",
 };
 const QUEUE_FILTERS: Array<{ label: string; value: QueueFilter }> = [
+  { label: "Em andamento", value: "in_progress" },
   { label: "Todos", value: "all" },
   { label: "Aguardando aprovação", value: "Aguardando aprovação" },
   { label: "Entrada criada", value: "Entrada criada" },
@@ -1067,7 +1068,10 @@ export function App() {
   const panel = state.boot.user.can_manage_users
     ? {
       ...basePanel,
-      nav: [...basePanel.nav, { label: "Administração", items: [{ id: "administration" as NavigationTarget, icon: Users, label: "Administração", subtitle: "Pessoas, caixa e relatórios" }] }],
+      nav: basePanel.nav.map((section) => section.label === "Administração"
+        ? { ...section, items: [...section.items, { id: "administration" as NavigationTarget, icon: Users, label: "Administração", subtitle: "Pessoas, caixa e relatórios" }] }
+        : section,
+      ),
     }
     : basePanel;
   const currentView = activeView === "overview"
@@ -6054,6 +6058,7 @@ function CustomerLookup({ canEdit, onToast }: { canEdit: boolean; onToast: (mess
 			"data-tp-label": customer.customer_name ?? customer.name,
 			"data-tp-name": customer.name,
 		})}
+		renderCardAction={canEdit ? (customer) => <button aria-label={`Editar ${customer.customer_name ?? customer.name}`} className="grid h-8 w-8 place-items-center rounded-control border border-tec-border/20 bg-tec-panel text-tec-muted transition hover:border-tec-orange/50 hover:text-white" onClick={(event) => { event.stopPropagation(); setEditingCustomer(customer); }} title="Editar cliente" type="button"><Edit3 size={15} /></button> : undefined}
         onSearch={(event) => {
           event.preventDefault();
           void search(query);
@@ -6292,6 +6297,7 @@ function DeviceLookup({ canEdit, onToast }: { canEdit: boolean; onToast: (messag
           void search(query);
         }}
         onRowClick={setSelectedDevice}
+		renderCardAction={canEdit ? (device) => <button aria-label={`Editar ${device.name}`} className="grid h-8 w-8 place-items-center rounded-control border border-tec-border/20 bg-tec-panel text-tec-muted transition hover:border-tec-orange/50 hover:text-white" onClick={(event) => { event.stopPropagation(); setEditingDevice(device); }} title="Editar aparelho" type="button"><Edit3 size={15} /></button> : undefined}
         placeholder="Buscar por cliente, modelo ou IMEI"
         activeQuickFilter={quickFilter}
         advancedFilters={<label className="block text-xs font-bold text-tec-subtle">Complementos do cadastro<select className="tp-input mt-1 w-full" onChange={(event) => setAdvancedFilter(event.target.value)} value={advancedFilter}><option value="all">Sem filtro adicional</option><option value="without_imei">Sem IMEI ou serial</option><option value="without_photo">Sem foto</option></select></label>}
@@ -7046,6 +7052,7 @@ function StockLookup({
 			"data-tp-label": item.item_name ?? item.item_code,
 			"data-tp-name": item.item_code,
 		})}
+		renderCardAction={((scope === "repair-parts" && canEditRepairParts) || (scope === "commercial-products" && canManageVariantProducts)) ? (item) => <button aria-label={`Editar ${item.item_name ?? item.item_code}`} className="grid h-8 w-8 place-items-center rounded-control border border-tec-border/20 bg-tec-panel text-tec-muted transition hover:border-tec-orange/50 hover:text-white" onClick={(event) => { event.stopPropagation(); setRegistryEditor({ kind: scope === "repair-parts" ? "repair_part" : "product", name: item.item_code }); }} title="Editar cadastro" type="button"><Edit3 size={15} /></button> : undefined}
         onSearch={(event) => {
           event.preventDefault();
           void search(query);
@@ -7366,6 +7373,7 @@ function LookupCard<T>({
   activeQuickFilter,
   advancedFilters,
   columns,
+  renderCardAction,
   emptyLabel,
   headerAction,
 	getRowProps,
@@ -7395,6 +7403,7 @@ function LookupCard<T>({
   activeQuickFilter?: string;
   advancedFilters?: ReactNode;
   columns: Array<TableColumn<T>>;
+  renderCardAction?: (row: T) => ReactNode;
   emptyLabel: string;
   headerAction?: ReactNode;
 	getRowProps?: (row: T) => Record<`data-${string}`, string | undefined>;
@@ -7455,7 +7464,7 @@ function LookupCard<T>({
         </div>
         <div className="flex items-center gap-2">{presentation && onPresentationChange ? <ListGridToggle onChange={onPresentationChange} value={presentation} /> : null}{headerAction}</div>
       </div>
-      {presentation === "grid" ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{displayedRows.map((row, rowIndex) => <button {...getRowProps?.(row)} className="rounded-card border border-tec-border/15 bg-tec-field/45 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-field" key={rowIndex} onClick={() => onRowClick?.(row)} type="button">{columns.slice(0, 4).map((column) => <div className="mt-2 first:mt-0" key={column.key}><span className="block text-[11px] font-bold uppercase text-tec-muted">{column.label}</span><span className="mt-0.5 block text-sm text-tec-text">{column.render(row)}</span></div>)}</button>)}</div> : <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} getRowProps={getRowProps} onRowClick={onRowClick} rows={displayedRows} tableMinWidthClassName={tableMinWidthClassName} />}
+      {presentation === "grid" ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{displayedRows.map((row, rowIndex) => <div {...getRowProps?.(row)} className="relative rounded-card border border-tec-border/15 bg-tec-field/45 p-4 text-left transition hover:border-tec-orange/45 hover:bg-tec-field" key={rowIndex} onClick={() => onRowClick?.(row)} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && onRowClick) { event.preventDefault(); onRowClick(row); } }} role={onRowClick ? "button" : undefined} tabIndex={onRowClick ? 0 : undefined}>{renderCardAction ? <span className="absolute right-3 top-3">{renderCardAction(row)}</span> : null}{columns.slice(0, 4).map((column) => <div className="mt-2 first:mt-0" key={column.key}><span className="block text-[11px] font-bold uppercase text-tec-muted">{column.label}</span><span className="mt-0.5 block text-sm text-tec-text">{column.render(row)}</span></div>)}</div>)}</div> : <DataTable columns={columns} emptyLabel={status === "loading" ? "Carregando..." : emptyLabel} getRowProps={getRowProps} onRowClick={onRowClick} rows={displayedRows} tableMinWidthClassName={tableMinWidthClassName} />}
       <ProgressiveListFooter shown={displayedRows.length} total={rows.length} onShowMore={() => setVisibleCount((current) => current + LIST_PAGE_SIZE)} />
     </Card>
   );
@@ -8218,7 +8227,10 @@ function filterOrdersByDashboardPeriod(orders: ServiceOrderSummary[], filter: Da
 
 function filterOrdersForServiceOrderScreen(orders: ServiceOrderSummary[], filters: ServiceOrderFilterState) {
   return filterOrdersByDashboardPeriod(orders, filters.period).filter((order) => {
-    if (filters.status !== "all" && order.workflow_state !== filters.status) {
+	if (filters.status === "in_progress" && ["Entregue", "Reprovado", "Cancelado", "Orçamento expirado", "Sem conserto"].includes(order.workflow_state ?? "")) {
+		return false;
+	}
+    if (filters.status !== "all" && filters.status !== "in_progress" && order.workflow_state !== filters.status) {
       return false;
     }
 		if (filters.priority !== "all" && order.priority !== filters.priority) {
@@ -8240,7 +8252,7 @@ function toServiceOrderQueryParams(filters: ServiceOrderFilterState, limit: numb
   if (query) {
     params.query = query;
   }
-  if (filters.status !== "all") {
+  if (filters.status !== "all" && filters.status !== "in_progress") {
     params.status = filters.status;
   }
 
