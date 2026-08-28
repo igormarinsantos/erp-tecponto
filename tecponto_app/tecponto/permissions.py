@@ -4,6 +4,7 @@ import frappe
 PRIVILEGED_SERVICE_ORDER_ROLES = {
 	"System Manager",
 	"Tecponto Gestor",
+	"Tecponto Diretor",
 	"Tecponto Atendente",
 }
 

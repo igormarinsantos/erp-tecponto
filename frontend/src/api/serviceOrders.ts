@@ -8,7 +8,8 @@ import type {
   BudgetDecisionPayload,
   PickupPayload,
   QuoteSendPayload,
-  ServiceOrderDetailResponse,
+	ServiceOrderDetailResponse,
+	ServiceOrderDirectorFinancialSummary,
   ServiceOrderKanbanResponse,
   ServiceOrderListResponse,
   ServiceOrderStatBarResponse,
@@ -50,6 +51,11 @@ export const serviceOrders = {
       query: { name },
     });
   },
+	directorFinancialSummary(name: string) {
+		return rpc<ServiceOrderDirectorFinancialSummary>(`${API}.get_service_order_director_financial_summary`, {
+			query: { name },
+		});
+	},
   searchBudgetItems(query: string, lineType: BudgetLineType) {
     return rpc<BudgetItemSearchResponse>(`${API}.search_budget_items`, {
       query: { line_type: lineType, query },

@@ -566,6 +566,18 @@ export interface ServiceOrderPaymentResponse {
 	detail: ServiceOrderDetailResponse;
 }
 
+/** Confidential projection returned only by the Director-gated endpoint. */
+export interface ServiceOrderDirectorFinancialSummary {
+	service_order: string;
+	revenue: number;
+	part_cost: number;
+	labor_cost_provisioned: number;
+	total_cost: number;
+	gross_profit: number;
+	gross_margin_pct: number;
+	net_profit_available: boolean;
+}
+
 export interface ServiceOrderTradeinCandidate {
 	name: string;
 	label: string;

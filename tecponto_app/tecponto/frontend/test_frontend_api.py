@@ -31,6 +31,7 @@ from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
 	get_dashboard_metrics,
 	get_director_financial_summary,
+	get_service_order_director_financial_summary,
 	get_director_risk_agenda,
 	get_director_strategic_report,
 	get_technician_workload,
@@ -291,6 +292,7 @@ def run_foundation_checks() -> dict:
 		pos_cash_integration_check = run_pos_cash_integration_checks()
 		cash_closing_check = run_cash_closing_checks()
 		service_order_cash_check = run_service_order_cash_checks()
+		per_order_finance_check = run_per_order_financial_summary_checks()
 		technician_part_request_check = run_technician_part_request_checks()
 		part_purchase_cycle_check = run_part_purchase_cycle_checks()
 		part_receipt_check = run_part_receipt_reservation_checks()
@@ -363,6 +365,7 @@ def run_foundation_checks() -> dict:
 			"pos_cash_integration": pos_cash_integration_check,
 			"cash_closing": cash_closing_check,
 			"service_order_cash": service_order_cash_check,
+			"per_order_finance": per_order_finance_check,
 			"technician_part_requests": technician_part_request_check,
 			"part_purchase_cycle": part_purchase_cycle_check,
 			"part_receipt_reservation": part_receipt_check,
@@ -6308,6 +6311,112 @@ def run_service_order_cash_checks() -> dict:
 		return {"status": "ok", "cash_receipt": cash_receipt["payment"]["name"], "diagnostic_toggle": fee_disabled, "advance_and_remainder": True, "installments": True, "tradein_no_drawer": True, "cancellation_adjustment": True, "atomic_rollback": True, "session_restored_after_posting_failure": posting_failure_restores_session, "leaked_fields": leaks}
 	finally:
 		frappe.db.set_single_value("Tecponto Settings", settings_before)
+		frappe.set_user(previous_user)
+
+
+def run_per_order_financial_summary_checks() -> dict:
+	"""Prove the OS financial panel stays commercial outside the Director gate."""
+	previous_user = frappe.session.user
+	commission_enabled_before = frappe.db.get_single_value("Tecponto Settings", "use_technician_commission")
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		director = _find_or_create_user("Tecponto Diretor")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		_ensure_default_test_cash_session(attendant)
+		employee = frappe.db.get_value("Employee", {"user_id": technician, "status": "Active"}, "name")
+		if not employee:
+			raise AssertionError("Fundação não criou Employee ativo para a projeção financeira da OS.")
+
+		order_name = _create_action_request_service_order(attendant)
+		order = frappe.get_doc("Service Order", order_name)
+		order.technician = technician
+		order.services[0].technician = employee
+		order.parts[0].valuation_rate = 63.5
+		order.parts[0].outcome = "Usada no reparo"
+		order.save(ignore_permissions=True)
+		frappe.db.set_value(
+			"Service Order",
+			order_name,
+			{"workflow_state": "Pronto para retirada", "link_acceptance_required": 0, "sales_invoice": None},
+			update_modified=False,
+		)
+		from tecponto_app.tecponto.service_order.billing import gerar_nota
+
+		gerar_nota(frappe.get_doc("Service Order", order_name))
+		order = frappe.get_doc("Service Order", order_name)
+		frappe.db.set_single_value("Tecponto Settings", "use_technician_commission", 1, update_modified=False)
+		_create_test_commission(employee, order.services[0].name, 24.0)
+
+		frappe.set_user(attendant)
+		receive_service_order_payment(
+			order.name,
+			{"kind": "regular", "amount": 100, "mode_of_payment": "Dinheiro", "idempotency_key": f"tp-os-finance-partial-{frappe.generate_hash(length=18)}"},
+		)
+		attendant_detail = get_service_order_detail(order.name)
+		finance = attendant_detail["finance"]
+		if finance["total_due"] <= 100 or finance["paid_total"] != 100 or finance["remaining_total"] != flt(finance["total_due"] - 100, 2):
+			raise AssertionError("Resumo financeiro da OS não derivou corretamente o sinal e o saldo restante.")
+		if not any(item["payment_mode"] == "Dinheiro" for item in finance["payments"]):
+			raise AssertionError("Resumo financeiro da OS não trouxe a forma de pagamento registrada.")
+		attendant_leaks = contains_sensitive_field(attendant_detail)
+		if attendant_leaks:
+			raise AssertionError(f"Detalhe comercial do Atendente vazou custo ou lucro: {', '.join(attendant_leaks)}")
+
+		frappe.set_user(manager)
+		manager_detail = get_service_order_detail(order.name)
+		manager_leaks = contains_sensitive_field(manager_detail)
+		if manager_leaks:
+			raise AssertionError(f"Detalhe comercial do Gestor vazou custo ou lucro: {', '.join(manager_leaks)}")
+
+		frappe.set_user(technician)
+		technical_detail = get_service_order_detail(order.name)
+		if any(technical_detail["finance"][key] for key in ("total_due", "paid_total", "remaining_total", "payments")):
+			raise AssertionError("Técnico recebeu valores ou pagamentos no detalhe da OS.")
+
+		blocked_roles = []
+		for label, user in (("atendente", attendant), ("gestor", manager), ("tecnico", technician)):
+			frappe.set_user(user)
+			try:
+				get_service_order_director_financial_summary(order.name)
+			except frappe.PermissionError:
+				blocked_roles.append(label)
+			else:
+				raise AssertionError(f"{label.title()} acessou custo ou lucro confidencial da OS.")
+
+		frappe.set_user(director)
+		director_finance = get_service_order_director_financial_summary(order.name)
+		if director_finance["part_cost"] != 63.5 or director_finance["labor_cost_provisioned"] != 24.0:
+			raise AssertionError("Diretor não recebeu os custos reais de peça usada e mão de obra provisionada.")
+		if director_finance["total_cost"] != 87.5 or director_finance["gross_profit"] != flt(director_finance["revenue"] - 87.5, 2):
+			raise AssertionError("Resultado bruto da OS não foi derivado dos custos reais.")
+
+		frappe.set_user(attendant)
+		remainder = receive_service_order_payment(
+			order.name,
+			{
+				"kind": "regular",
+				"amount": finance["remaining_total"],
+				"mode_of_payment": "Pix",
+				"idempotency_key": f"tp-os-finance-settled-{frappe.generate_hash(length=18)}",
+			},
+		)
+		settled = remainder["detail"]["finance"]
+		if settled["remaining_total"] != 0 or settled["paid_total"] != settled["total_due"]:
+			raise AssertionError("Resumo financeiro da OS não marcou a quitação após o pagamento final.")
+		return {
+			"status": "ok",
+			"partial_balance": finance["remaining_total"],
+			"settled": True,
+			"director_costs": {"parts": director_finance["part_cost"], "labor": director_finance["labor_cost_provisioned"]},
+			"blocked_roles": blocked_roles,
+			"attendant_leaks": attendant_leaks,
+			"manager_leaks": manager_leaks,
+		}
+	finally:
+		frappe.db.set_single_value("Tecponto Settings", "use_technician_commission", commission_enabled_before, update_modified=False)
 		frappe.set_user(previous_user)
 
 

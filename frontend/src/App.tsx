@@ -1186,6 +1186,7 @@ export function App() {
               canEditProductCategories={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
 			  canEditBasicRegistries={state.boot.user.roles.some((role) => ["Tecponto Atendente", "Tecponto Gestor", "Tecponto Diretor", "System Manager"].includes(role))}
               canViewStoreOperations={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
+			  canViewDirectorFinancial={state.boot.user.roles.includes("Tecponto Diretor")}
 			  singleTechnician={state.boot.features.single_technician}
 			  commissionsEnabled={state.boot.features.technician_commissions_enabled}
 			  canManageUsers={state.boot.user.can_manage_users}
@@ -2300,6 +2301,7 @@ function NavigationContent({
   canEditProductCategories,
 	canEditBasicRegistries,
   canViewStoreOperations,
+	canViewDirectorFinancial,
 	 singleTechnician,
 	 commissionsEnabled,
 	canManageUsers,
@@ -2327,6 +2329,7 @@ function NavigationContent({
   canEditProductCategories: boolean;
 	canEditBasicRegistries: boolean;
   canViewStoreOperations: boolean;
+	canViewDirectorFinancial: boolean;
 	 singleTechnician: boolean;
 	 commissionsEnabled: boolean;
 	canManageUsers: boolean;
@@ -2410,6 +2413,7 @@ function NavigationContent({
       <ServiceOrderDetail
         initialFlow={initialOrderFlow}
 		isRestrictedTechnician={isRestrictedTechnician}
+		canViewDirectorFinancial={canViewDirectorFinancial}
         name={selectedOrderName}
         onBack={() => onNavigate("service-orders")}
         onInitialFlowHandled={onInitialOrderFlowHandled}
@@ -2966,6 +2970,7 @@ function nextActionForOrder(order: ServiceOrderSummary): {
 function ServiceOrderDetail({
   initialFlow,
 	isRestrictedTechnician,
+	canViewDirectorFinancial,
   name,
   onBack,
   onInitialFlowHandled,
@@ -2973,6 +2978,7 @@ function ServiceOrderDetail({
 }: {
   initialFlow: ServiceOrderFlow | null;
 	 isRestrictedTechnician: boolean;
+	 canViewDirectorFinancial: boolean;
   name: string;
   onBack: () => void;
   onInitialFlowHandled: () => void;
@@ -3240,6 +3246,7 @@ function ServiceOrderDetail({
           <ServiceOrderAttendanceCard detail={detail} />
 		  <WorkflowSideStepper detail={detail} />
 			<ServiceOrderPaymentCard
+				canViewDirectorFinancial={canViewDirectorFinancial}
 				detail={detail}
 				onToast={onToast}
 				onUpdated={(updated) => setState({ status: "ready", detail: updated })}
@@ -4248,10 +4255,12 @@ function ServiceOrderAttendanceCard({ detail }: { detail: ServiceOrderDetailResp
 }
 
 function ServiceOrderPaymentCard({
+	canViewDirectorFinancial,
 	detail,
 	onToast,
 	onUpdated,
 }: {
+	canViewDirectorFinancial: boolean;
 	detail: ServiceOrderDetailResponse;
 	onToast: (message: string, tone?: ToastState["tone"]) => void;
 	onUpdated: (detail: ServiceOrderDetailResponse) => void;
@@ -4268,6 +4277,21 @@ function ServiceOrderPaymentCard({
 	const [loadingTradeins, setLoadingTradeins] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [directorFinance, setDirectorFinance] = useState<import("./api/types").ServiceOrderDirectorFinancialSummary | null>(null);
+	const [directorFinanceError, setDirectorFinanceError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!canViewDirectorFinancial || detail.technical_view) {
+			setDirectorFinance(null);
+			return;
+		}
+		let cancelled = false;
+		setDirectorFinanceError(null);
+		serviceOrders.directorFinancialSummary(detail.name)
+			.then((response) => { if (!cancelled) setDirectorFinance(response); })
+			.catch(() => { if (!cancelled) setDirectorFinanceError("Não foi possível carregar o resultado bruto desta OS."); });
+		return () => { cancelled = true; };
+	}, [canViewDirectorFinancial, detail.name, detail.technical_view]);
 
 	const options = useMemo(() => {
 		const items: Array<{ value: PaymentKind; label: string }> = [];
@@ -4361,6 +4385,8 @@ function ServiceOrderPaymentCard({
 				{[["Total", detail.finance.total_due], ["Pago", detail.finance.paid_total], ["Restante", detail.finance.remaining_total]].map(([label, value]) => <div className="rounded-control bg-tec-field/45 px-3 py-2" key={String(label)}><dt className="text-xs font-semibold text-tec-muted">{label}</dt><dd className="mt-1 font-bold text-tec-subtle">{formatCurrency(Number(value))}</dd></div>)}
 			</dl>
 			{detail.finance.payments.length ? <div className="mt-4 space-y-2 border-t border-tec-border/20 pt-3">{detail.finance.payments.slice(-3).reverse().map((payment) => <div className="flex items-center justify-between gap-3 text-xs" key={payment.name}><span className="truncate text-tec-muted">{payment.kind} · {payment.payment_mode || "não monetário"}</span><strong className={payment.direction === "Saída" ? "text-tec-red" : "text-tec-success"}>{payment.direction === "Saída" ? "−" : "+"}{formatCurrency(payment.amount)}</strong></div>)}</div> : null}
+			{directorFinance ? <div className="mt-4 border-t border-tec-border/20 pt-3"><p className="text-xs font-bold uppercase text-tec-muted">Diretoria · resultado bruto operacional</p><dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2">{[["Custo de peças usadas", directorFinance.part_cost], ["Mão de obra provisionada", directorFinance.labor_cost_provisioned], ["Custo operacional", directorFinance.total_cost], ["Resultado bruto", directorFinance.gross_profit]].map(([label, value]) => <div className="rounded-control bg-tec-field/45 px-3 py-2" key={String(label)}><dt className="text-tec-muted">{label}</dt><dd className="mt-1 font-bold text-tec-subtle">{formatCurrency(Number(value))}</dd></div>)}</dl><p className="mt-2 text-[11px] text-tec-muted">Não inclui despesas fixas, impostos ou resultado líquido.</p></div> : null}
+			{directorFinanceError ? <p className="mt-3 text-xs text-tec-red">{directorFinanceError}</p> : null}
 			{!hasOptions ? <p className="mt-4 rounded-control border border-tec-border/20 bg-tec-field/45 p-3 text-xs text-tec-muted">Gere a nota para receber o saldo. As modalidades desligadas pela configuração da loja não aparecem aqui.</p> : null}
 			<Modal className="max-w-lg" onClose={() => setOpen(false)} open={open} title={`Receber ${detail.name}`}>
 				<div className="space-y-4">

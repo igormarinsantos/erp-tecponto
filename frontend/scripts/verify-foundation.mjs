@@ -27,6 +27,8 @@ const forbiddenFrontendTerms = [
 const permittedOwnEarningsApi = join(root, "src", "api", "earnings.ts");
 const permittedDirectorRegistryEditor = join(root, "src", "RegistryEditorModal.tsx");
 const permittedDirectorRegistryTypes = join(root, "src", "api", "types.ts");
+const permittedDirectorFinancialApi = join(root, "src", "api", "serviceOrders.ts");
+const permittedDirectorFinancialView = join(root, "src", "App.tsx");
 
 for (const file of requiredBuildFiles) {
   const target = join(publicDir, file);
@@ -64,6 +66,11 @@ for (const file of sourceFiles) {
     // modal may render that server-authorized, read-only value, while backend
     // tests prove the key never reaches Attendente or Técnico payloads.
     if (term === "valuation_rate" && (file === permittedDirectorRegistryEditor || file === permittedDirectorRegistryTypes)) {
+      continue;
+    }
+    // Per-OS cost and result live behind the Director-only endpoint. Keep the
+    // narrow exception restricted to its typed transport and this one view.
+    if (["gross_profit", "cost"].includes(term) && (file === permittedDirectorFinancialApi || file === permittedDirectorFinancialView || file === permittedDirectorRegistryTypes)) {
       continue;
     }
     if (body.includes(term)) {

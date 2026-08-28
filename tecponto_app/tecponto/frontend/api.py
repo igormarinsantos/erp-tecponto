@@ -3871,6 +3871,65 @@ def _service_order_finance_payload(doc, *, technical_view: bool, fallback_total:
 	}
 
 
+@frappe.whitelist()
+def get_service_order_director_financial_summary(name: str) -> dict[str, Any]:
+	"""Return the per-OS confidential cost projection for the Director only.
+
+	The normal detail payload intentionally never receives these fields. Cost is
+	derived from parts actually used in the repair and labor cost only from
+	already-provisioned Additional Salary commission entries; it does not invent
+	a payroll or a parallel financial balance.
+	"""
+	_require_director_financial_role()
+	name = (name or "").strip()
+	if not name:
+		frappe.throw(_("Informe a ordem de serviço."), frappe.ValidationError)
+
+	doc = frappe.get_doc("Service Order", name)
+	doc.check_permission("read")
+	commercial = _service_order_finance_payload(
+		doc,
+		technical_view=False,
+		fallback_total=flt(doc.get("grand_total") or 0),
+	)
+	part_cost = frappe.db.sql(
+		"""
+		select coalesce(sum(coalesce(valuation_rate, 0) * coalesce(qty, 0)), 0)
+		from `tabService Order Part`
+		where parent = %(service_order)s
+			and outcome = %(outcome)s
+		""",
+		{"service_order": doc.name, "outcome": OUTCOME_USADA},
+	)[0][0]
+	labor_cost = frappe.db.sql(
+		"""
+		select coalesce(sum(additional_salary.amount), 0)
+		from `tabAdditional Salary` additional_salary
+		inner join `tabService Order Service` service_row
+			on service_row.name = additional_salary.ref_docname
+		where additional_salary.docstatus = 1
+			and additional_salary.salary_component = 'Comissão'
+			and additional_salary.type = 'Earning'
+			and additional_salary.ref_doctype = 'Service Order Service'
+			and service_row.parent = %(service_order)s
+		""",
+		{"service_order": doc.name},
+	)[0][0]
+	total_cost = flt(part_cost) + flt(labor_cost)
+	revenue = flt(commercial["total_due"])
+	gross_profit = revenue - total_cost
+	return {
+		"service_order": doc.name,
+		"revenue": float(revenue),
+		"part_cost": float(flt(part_cost)),
+		"labor_cost_provisioned": float(flt(labor_cost)),
+		"total_cost": float(total_cost),
+		"gross_profit": float(gross_profit),
+		"gross_margin_pct": float((gross_profit / revenue * 100) if revenue else 0),
+		"net_profit_available": False,
+	}
+
+
 def _get_allowed_kanban_action(current_state: str | None, target_state: str) -> str:
 	user_roles = set(frappe.get_roles(frappe.session.user))
 	matching_transitions = []
