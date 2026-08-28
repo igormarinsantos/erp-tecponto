@@ -30,6 +30,7 @@ from tecponto_app.www import tecponto as frontend_page
 from tecponto_app.tecponto.frontend.api import (
 	contains_sensitive_field,
 	get_dashboard_metrics,
+	get_administrative_sales_report,
 	get_director_financial_summary,
 	get_service_order_director_financial_summary,
 	get_director_risk_agenda,
@@ -254,6 +255,7 @@ def run_foundation_checks() -> dict:
 		# server-side anti-escalation rules as production users.
 		user_access_checks = run_user_access_control_checks()
 		user_management_checks = run_user_management_api_checks()
+		administrative_center_checks = run_administrative_center_checks()
 		users = {role: _find_or_create_user(role) for role in FRONTEND_ROLES}
 		_ensure_default_test_cash_session(users["Tecponto Atendente"])
 		company_identity_check = _check_company_identity(users["Tecponto Atendente"])
@@ -407,6 +409,7 @@ def run_foundation_checks() -> dict:
 			"tracking_lifecycle_checks": tracking_lifecycle_checks,
 			"user_access_checks": user_access_checks,
 			"user_management_checks": user_management_checks,
+			"administrative_center": administrative_center_checks,
 		}
 	finally:
 		frappe.flags.in_test = previous_in_test
@@ -2823,6 +2826,78 @@ def run_inoperative_entry_term_checks() -> dict:
 			"accepted_on": str(acceptance.inoperative_device_term_accepted_on),
 			"entry_print_rendered": True,
 			"conditional_entry_paths": conditional_paths,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_administrative_center_checks() -> dict:
+	"""Administrative reporting is account-gated and never transports cost fields."""
+	from tecponto_app.tecponto import user_access
+
+	previous_user = frappe.session.user
+	try:
+		owner = user_access.ensure_access_control()
+		frappe.set_user(owner)
+		admin = save_user_account(
+			{
+				"full_name": "Administração sem Diretor",
+				"email": f"admin-center-{frappe.generate_hash(length=8)}@tecponto.local",
+				"enabled": True,
+				"roles": [user_access.SYSTEM_MANAGER_ROLE],
+				"discount_limit": 0,
+			}
+		)["item"]
+		frappe.set_user(admin["name"])
+		payload = get_administrative_sales_report("month")
+		expected = {"period", "totals", "categories", "payment_methods"}
+		if set(payload) != expected:
+			raise AssertionError("Relatório administrativo retornou uma projeção inesperada.")
+		if set(payload["totals"]) != {"invoices", "gross_sales", "returns", "net_sales", "payment_entries", "cash_movements"}:
+			raise AssertionError("Resumo administrativo retornou campos inesperados.")
+		leaks = contains_sensitive_field(payload, forbidden_values={BUDGET_COST_GUARD_VALUATION})
+		if leaks:
+			raise AssertionError(f"Administrador sem Diretor recebeu dado financeiro sensível: {', '.join(leaks)}")
+		director_blocked = False
+		try:
+			get_director_financial_summary()
+		except frappe.PermissionError:
+			director_blocked = True
+		if not director_blocked:
+			raise AssertionError("Administrador sem Diretor acessou indicadores de custo/lucro.")
+
+		frappe.set_user(owner)
+		director_admin = save_user_account(
+			{
+				"full_name": "Administração Diretora",
+				"email": f"admin-director-{frappe.generate_hash(length=8)}@tecponto.local",
+				"enabled": True,
+				"roles": [user_access.SYSTEM_MANAGER_ROLE, "Tecponto Diretor"],
+				"discount_limit": 0,
+			}
+		)["item"]
+		frappe.set_user(director_admin["name"])
+		director_report = get_administrative_sales_report("7d")
+		if contains_sensitive_field(director_report, forbidden_values={BUDGET_COST_GUARD_VALUATION}):
+			raise AssertionError("Relatório comercial incluiu custo mesmo para Diretor.")
+		director_financial = get_director_financial_summary()
+		if "operational_cost" not in director_financial or "gross_operating_profit" not in director_financial:
+			raise AssertionError("Diretor acumulado não acessou seu endpoint financeiro exclusivo.")
+
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(attendant)
+		operational_blocked = False
+		try:
+			get_administrative_sales_report("today")
+		except frappe.PermissionError:
+			operational_blocked = True
+		if not operational_blocked:
+			raise AssertionError("Papel operacional acessou o relatório administrativo.")
+		return {
+			"admin_report_safe": True,
+			"director_financial_blocked_for_admin": director_blocked,
+			"director_accumulated_financial": True,
+			"operational_blocked": operational_blocked,
 		}
 	finally:
 		frappe.set_user(previous_user)

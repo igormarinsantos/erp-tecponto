@@ -27,6 +27,7 @@ import type {
 	CompleteTradeBuybackResponse,
 	ConfirmTradeInOperationResponse,
 	TradeOutputDeviceListResponse,
+	AdministrativeSalesReport,
 } from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
@@ -49,6 +50,10 @@ export const balcao = {
 	},
   getDashboardMetrics() {
     return rpc<DashboardMetrics>(`${API}.get_dashboard_metrics`);
+  },
+
+  getAdministrativeSalesReport(period: "today" | "7d" | "month" = "month") {
+    return rpc<AdministrativeSalesReport>(API + ".get_administrative_sales_report", { query: { period } });
   },
 
   getDirectorFinancialSummary() {

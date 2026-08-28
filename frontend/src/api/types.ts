@@ -22,7 +22,8 @@ export type NavigationTarget =
   | "sales"
   | "approval-requests"
   | "notifications"
-  | "user-management";
+  | "user-management"
+  | "administration";
 
 export interface ProductCategoryNode {
   name: string;
@@ -256,6 +257,20 @@ export interface UserAccountPayload {
   roles: string[];
   discount_limit: number;
   cashier?: { enabled: boolean; badge_code: string; pin?: string };
+}
+
+export interface AdministrativeSalesReport {
+  period: { key: "today" | "7d" | "month"; label: string; from_date: string; to_date: string };
+  totals: {
+    invoices: number;
+    gross_sales: number;
+    returns: number;
+    net_sales: number;
+    payment_entries: number;
+    cash_movements: number;
+  };
+  categories: Array<{ category: string; revenue: number; quantity: number }>;
+  payment_methods: Array<{ payment_mode: string; amount: number; affects_drawer: boolean }>;
 }
 
 export interface BootResponse {

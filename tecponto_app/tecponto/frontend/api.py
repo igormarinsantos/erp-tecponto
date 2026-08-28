@@ -581,6 +581,102 @@ def _require_user_management_role() -> None:
 	frappe.throw("A gestão de pessoas é restrita ao Proprietário e Administradores do Sistema.", frappe.PermissionError)
 
 
+@frappe.whitelist()
+def get_administrative_sales_report(period: str = "month") -> dict[str, Any]:
+	"""Read-only sales view for account administration, without cost projections."""
+	_require_user_management_role()
+	period = (period or "month").strip()
+	if period == "today":
+		from_date = today()
+		label = _("Hoje")
+	elif period == "7d":
+		from_date = add_days(today(), -6)
+		label = _("Últimos 7 dias")
+	elif period == "month":
+		from_date = getdate(today()).replace(day=1)
+		label = _("Este mês")
+	else:
+		frappe.throw(_("Período de vendas inválido."), frappe.ValidationError)
+
+	values = {"from_date": from_date, "to_date": today()}
+	invoice_totals = frappe.db.sql(
+		"""
+		select
+			coalesce(sum(case when is_return = 0 then 1 else 0 end), 0) as invoices,
+			coalesce(sum(case when is_return = 0 then grand_total else 0 end), 0) as gross_sales,
+			coalesce(sum(case when is_return = 1 then abs(grand_total) else 0 end), 0) as returns,
+			coalesce(sum(case when is_return = 1 then -abs(grand_total) else grand_total end), 0) as net_sales
+		from `tabSales Invoice`
+		where docstatus = 1 and posting_date between %(from_date)s and %(to_date)s
+		""",
+		values,
+		as_dict=True,
+	)[0]
+	category_rows = frappe.db.sql(
+		"""
+		select
+			coalesce(nullif(item.item_group, ''), 'Sem categoria') as category,
+			coalesce(sum(case when invoice.is_return = 1 then -abs(item.base_net_amount) else item.base_net_amount end), 0) as revenue,
+			coalesce(sum(case when invoice.is_return = 1 then -abs(item.qty) else item.qty end), 0) as quantity
+		from `tabSales Invoice Item` item
+		inner join `tabSales Invoice` invoice on invoice.name = item.parent
+		where invoice.docstatus = 1 and invoice.posting_date between %(from_date)s and %(to_date)s
+		group by item.item_group
+		order by revenue desc
+		limit 12
+		""",
+		values,
+		as_dict=True,
+	)
+	movement_rows = frappe.db.sql(
+		"""
+		select
+			payment_mode,
+			max(affects_drawer) as affects_drawer,
+			count(*) as movement_count,
+			coalesce(sum(case when direction = 'Entrada' then amount else -amount end), 0) as amount
+		from `tabTecponto Cash Movement`
+		where date(occurred_on) between %(from_date)s and %(to_date)s
+			and movement_type in ('Recebimento de venda', 'Recebimento de OS', 'Estorno')
+		group by payment_mode
+		order by amount desc, payment_mode asc
+		""",
+		values,
+		as_dict=True,
+	)
+	payment_entries = frappe.db.sql(
+		"""
+		select count(distinct entry.name)
+		from `tabPayment Entry Reference` reference
+		inner join `tabPayment Entry` entry on entry.name = reference.parent
+		where entry.docstatus = 1
+			and entry.posting_date between %(from_date)s and %(to_date)s
+			and reference.reference_doctype = 'Sales Invoice'
+		""",
+		values,
+	)[0][0]
+
+	return {
+		"period": {"key": period, "label": label, "from_date": str(from_date), "to_date": str(today())},
+		"totals": {
+			"invoices": int(invoice_totals.invoices or 0),
+			"gross_sales": float(flt(invoice_totals.gross_sales)),
+			"returns": float(flt(invoice_totals.returns)),
+			"net_sales": float(flt(invoice_totals.net_sales)),
+			"payment_entries": int(payment_entries or 0),
+			"cash_movements": int(sum(row.movement_count or 0 for row in movement_rows)),
+		},
+		"categories": [
+			{"category": row.category, "revenue": float(flt(row.revenue)), "quantity": float(flt(row.quantity))}
+			for row in category_rows
+		],
+		"payment_methods": [
+			{"payment_mode": row.payment_mode, "amount": float(flt(row.amount)), "affects_drawer": bool(row.affects_drawer)}
+			for row in movement_rows
+		],
+	}
+
+
 def _parse_user_account_payload(payload: dict[str, Any] | str) -> dict[str, Any]:
 	if isinstance(payload, str):
 		payload = frappe.parse_json(payload)

@@ -118,6 +118,7 @@ import { MyEarningsScreen } from "./MyEarningsScreen";
 import { PartRequestModal, PartRequestsScreen } from "./PartRequestsScreen";
 import { UserManagementScreen } from "./UserManagementScreen";
 import { CashStatementScreen } from "./CashStatementScreen";
+import { AdministrativeCenterScreen } from "./AdministrativeCenterScreen";
 import { RegistryEditorModal } from "./RegistryEditorModal";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition, type OperationPillars } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
@@ -418,6 +419,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   "user-management": {
     title: "Pessoas e acessos",
     subtitle: "Contas, papéis operacionais e controles individuais.",
+  },
+  administration: {
+    title: "Administração",
+    subtitle: "Configurações, pessoas, caixa e relatório de vendas.",
   },
 };
 
@@ -1057,7 +1062,7 @@ export function App() {
   const panel = state.boot.user.can_manage_users
     ? {
       ...basePanel,
-      nav: [...basePanel.nav, { label: "Administração", items: [{ id: "user-management" as NavigationTarget, icon: Users, label: "Pessoas e acessos", subtitle: "Contas e papéis" }] }],
+      nav: [...basePanel.nav, { label: "Administração", items: [{ id: "administration" as NavigationTarget, icon: Users, label: "Administração", subtitle: "Pessoas, caixa e relatórios" }] }],
     }
     : basePanel;
   const currentView = activeView === "overview"
@@ -1190,6 +1195,7 @@ export function App() {
 			  singleTechnician={state.boot.features.single_technician}
 			  commissionsEnabled={state.boot.features.technician_commissions_enabled}
 			  canManageUsers={state.boot.user.can_manage_users}
+			  canOpenSystemSettings={state.boot.user.can_manage_users}
 			  isRestrictedTechnician={!state.metrics.sales_visible}
               onInitialPosBarcodeHandled={() => setPendingPosBarcode(null)}
               onInitialRetailBarcodeHandled={() => setPendingRetailBarcode(null)}
@@ -2305,6 +2311,7 @@ function NavigationContent({
 	 singleTechnician,
 	 commissionsEnabled,
 	canManageUsers,
+	canOpenSystemSettings,
 	 isRestrictedTechnician,
   onInitialPosBarcodeHandled,
   onInitialRetailBarcodeHandled,
@@ -2333,6 +2340,7 @@ function NavigationContent({
 	 singleTechnician: boolean;
 	 commissionsEnabled: boolean;
 	canManageUsers: boolean;
+	canOpenSystemSettings: boolean;
 	 isRestrictedTechnician: boolean;
   initialPosBarcode: PendingPosBarcode | null;
   initialRetailBarcode: PendingRetailBarcode | null;
@@ -2496,6 +2504,10 @@ function NavigationContent({
 
   if (activeView === "user-management") {
     return canManageUsers ? <UserManagementScreen onToast={onToast} /> : <Card className="p-5 text-sm font-semibold text-tec-red">Você não possui acesso à gestão de pessoas.</Card>;
+  }
+
+  if (activeView === "administration") {
+    return canManageUsers ? <AdministrativeCenterScreen canOpenSystemSettings={canOpenSystemSettings} canViewDirectorFinancial={canViewDirectorFinancial} onNavigate={onNavigate} onToast={onToast} /> : <Card className="p-5 text-sm font-semibold text-tec-red">Você não possui acesso à Administração.</Card>;
   }
 
   if (activeView === "my-earnings" && commissionsEnabled) {
