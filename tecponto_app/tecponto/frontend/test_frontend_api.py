@@ -6337,6 +6337,14 @@ def run_per_order_financial_summary_checks() -> dict:
 		order.parts[0].valuation_rate = 63.5
 		order.parts[0].outcome = "Usada no reparo"
 		order.save(ignore_permissions=True)
+		# ``gerar_nota`` reloads the order; persist the controlled cost fixture on
+		# the child row rather than relying on an in-memory table value.
+		frappe.db.set_value(
+			"Service Order Part",
+			order.parts[0].name,
+			{"valuation_rate": 63.5, "outcome": "Usada no reparo"},
+			update_modified=False,
+		)
 		frappe.db.set_value(
 			"Service Order",
 			order_name,
@@ -6346,6 +6354,15 @@ def run_per_order_financial_summary_checks() -> dict:
 		from tecponto_app.tecponto.service_order.billing import gerar_nota
 
 		gerar_nota(frappe.get_doc("Service Order", order_name))
+		order = frappe.get_doc("Service Order", order_name)
+		# Billing may save/reload the parent table. Keep the controlled, used-part
+		# fixture in the database before the Director projection is exercised.
+		frappe.db.set_value(
+			"Service Order Part",
+			order.parts[0].name,
+			{"valuation_rate": 63.5, "outcome": "Usada no reparo"},
+			update_modified=False,
+		)
 		order = frappe.get_doc("Service Order", order_name)
 		frappe.db.set_single_value("Tecponto Settings", "use_technician_commission", 1, update_modified=False)
 		_create_test_commission(employee, order.services[0].name, 24.0)
@@ -6389,7 +6406,7 @@ def run_per_order_financial_summary_checks() -> dict:
 		frappe.set_user(director)
 		director_finance = get_service_order_director_financial_summary(order.name)
 		if director_finance["part_cost"] != 63.5 or director_finance["labor_cost_provisioned"] != 24.0:
-			raise AssertionError("Diretor não recebeu os custos reais de peça usada e mão de obra provisionada.")
+			raise AssertionError(f"Diretor não recebeu os custos reais de peça usada e mão de obra provisionada: {director_finance}")
 		if director_finance["total_cost"] != 87.5 or director_finance["gross_profit"] != flt(director_finance["revenue"] - 87.5, 2):
 			raise AssertionError("Resultado bruto da OS não foi derivado dos custos reais.")
 
