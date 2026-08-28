@@ -5516,6 +5516,11 @@ def run_lean_operation_checks() -> dict:
 
 def run_operation_config_checks() -> dict:
 	"""Prove the store operation contract is server-owned and reversible."""
+	from tecponto_app.patches.v16_0.initialize_operation_settings_defaults import (
+		OPERATION_DEFAULTS,
+		execute as initialize_operation_settings_defaults,
+	)
+
 	previous_user = frappe.session.user
 	fields = (
 		"enable_repair_pillar",
@@ -5534,6 +5539,59 @@ def run_operation_config_checks() -> dict:
 		"payment_device_tradein_enabled",
 		"default_warranty_days",
 	)
+	legacy_fields = tuple(OPERATION_DEFAULTS)
+	legacy_before = frappe.db.get_singles_dict("Tecponto Settings")
+	try:
+		frappe.db.delete(
+			"Singles",
+			filters={"doctype": "Tecponto Settings", "field": ("in", legacy_fields)},
+		)
+		frappe.db.set_single_value(
+			"Tecponto Settings",
+			{
+				"diagnostic_fee_enabled": 0,
+				"storage_fee_start_days": 0,
+				"use_technician_commission": 0,
+			},
+			update_modified=False,
+		)
+		initialize_operation_settings_defaults()
+		legacy_after_first_run = frappe.db.get_singles_dict("Tecponto Settings")
+		for fieldname in (
+			"enable_repair_pillar",
+			"enable_buy_pillar",
+			"enable_tradein_pillar",
+			"payment_advance_enabled",
+			"payment_installments_enabled",
+			"payment_device_tradein_enabled",
+		):
+			if legacy_after_first_run.get(fieldname) != "1":
+				raise AssertionError(f"Patch não aplicou o default legado de {fieldname}.")
+		if legacy_after_first_run.get("default_warranty_days") != "90":
+			raise AssertionError("Patch não aplicou o prazo de garantia legado.")
+		if legacy_after_first_run.get("diagnostic_fee_enabled") != "0":
+			raise AssertionError("Patch sobrescreveu taxa de diagnóstico explicitamente desligada.")
+		if legacy_after_first_run.get("storage_fee_start_days") != "0":
+			raise AssertionError("Patch sobrescreveu prazo de armazenamento explicitamente configurado.")
+		if legacy_after_first_run.get("use_technician_commission") != "0":
+			raise AssertionError("Patch sobrescreveu comissão explicitamente desligada.")
+
+		initialize_operation_settings_defaults()
+		if frappe.db.get_singles_dict("Tecponto Settings") != legacy_after_first_run:
+			raise AssertionError("Patch de defaults operacionais não é idempotente.")
+	finally:
+		frappe.db.delete(
+			"Singles",
+			filters={"doctype": "Tecponto Settings", "field": ("in", legacy_fields)},
+		)
+		legacy_restore = {
+			fieldname: legacy_before[fieldname]
+			for fieldname in legacy_fields
+			if fieldname in legacy_before
+		}
+		if legacy_restore:
+			frappe.db.set_single_value("Tecponto Settings", legacy_restore, update_modified=False)
+
 	settings = frappe.get_single("Tecponto Settings")
 	original = {field: settings.get(field) for field in fields}
 	try:
@@ -5582,6 +5640,7 @@ def run_operation_config_checks() -> dict:
 		return {
 			"lean_store": lean_boot["features"],
 			"complete_store_pillars": complete_boot["features"]["pillars"],
+			"legacy_defaults_patch": "idempotent_without_overwriting_explicit_zero",
 			"cost_guard_contract": "no_cost_fields",
 		}
 	finally:
