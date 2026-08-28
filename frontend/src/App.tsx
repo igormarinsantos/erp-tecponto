@@ -2998,6 +2998,7 @@ function ServiceOrderDetail({
   const [courtesyWarrantyOpen, setCourtesyWarrantyOpen] = useState(false);
   const [moveApproval, setMoveApproval] = useState<{ targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
   const [checkinTracking, setCheckinTracking] = useState<TrackingLinkResponse | null>(null);
+  const [activeStageScreen, setActiveStageScreen] = useState<ServiceOrderStageScreen>("atendimento");
   const initialFlowRef = useRef(initialFlow);
 
   useEffect(() => {
@@ -3035,6 +3036,7 @@ function ServiceOrderDetail({
       .then((detail) => {
         if (mounted) {
           setState({ status: "ready", detail });
+          setActiveStageScreen(serviceOrderStageScreenForState(detail.workflow_state));
           if (initialFlowRef.current) {
             setActiveFlow(initialFlowRef.current);
             onInitialFlowHandled();
@@ -3175,59 +3177,28 @@ function ServiceOrderDetail({
         onOpenBudgetEditor={setBudgetLineType}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_330px]">
-        <div className="min-w-0 space-y-4">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <IdentityCard
-              action={
-                whatsappUrl ? (
-                  <a
-                    className="mt-4 inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-whatsapp/35 bg-tec-whatsapp/10 px-4 text-sm font-bold text-tec-whatsapp transition hover:bg-tec-whatsapp/20"
-                    href={whatsappUrl}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    <WhatsAppLogo size={17} />
-                    Abrir WhatsApp
-                  </a>
-                ) : (
-                  <button
-                    className="mt-4 inline-flex min-h-10 cursor-not-allowed items-center justify-center gap-2 rounded-control border border-tec-border/15 bg-tec-field/55 px-4 text-sm font-bold text-tec-muted opacity-70"
-                    disabled
-                    title="Cadastre um telefone ou WhatsApp no cliente para abrir conversa contextual."
-                    type="button"
-                  >
-                    <WhatsAppLogo size={17} />
-                    Adicionar telefone
-                  </button>
-                )
-              }
-              icon={<UserRound size={20} />}
-              lines={[
-                ["Cliente", customerLabel],
-                ["Telefone", detail.customer?.custom_whatsapp || detail.customer?.mobile_no || "Não informado"],
-                ["E-mail", detail.customer?.email_id ?? "Não informado"],
-                ["Atendente", detail.attendant ?? "Não definido"],
-              ]}
-              title="Cliente"
-            />
-            <IdentityCard
-              icon={<Smartphone size={20} />}
-              lines={[
-                ["Aparelho", deviceLabel],
-                ["IMEI / Serial", detail.device?.imei_serial ?? "Não informado"],
-                ["Capacidade", detail.device?.capacity ?? "Não informada"],
-                ["Estado declarado", detail.physical_state ?? "Não informado"],
-              ]}
-              title="Aparelho"
-            />
-          </div>
+      <ServiceOrderStageTabs active={activeStageScreen} detail={detail} onChange={setActiveStageScreen} />
 
-          <BudgetCard detail={detail} onOpenBudgetEditor={setBudgetLineType} />
-          <TimelineCard events={detail.timeline} onOpenHistory={() => setHistoryOpen(true)} />
-        </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_330px]">
+        <main className="min-w-0">
+          <ServiceOrderStageScreenContent
+            active={activeStageScreen}
+            canViewDirectorFinancial={canViewDirectorFinancial}
+            customerLabel={customerLabel}
+            detail={detail}
+            deviceLabel={deviceLabel}
+            onOpenAcceptance={setAcceptanceType}
+            onOpenBudgetEditor={setBudgetLineType}
+            onOpenHistory={() => setHistoryOpen(true)}
+            onOpenQuoteSend={() => setQuoteSendOpen(true)}
+            onToast={onToast}
+            onUpdated={(updated) => setState({ status: "ready", detail: updated })}
+            whatsappUrl={whatsappUrl}
+          />
+        </main>
 
         <aside className="space-y-4">
+          <ServiceOrderPersistentOverview detail={detail} />
           <NextActionCard
             actions={detail.workflow_transitions}
             blockedTransitions={detail.workflow_blockers}
@@ -3243,14 +3214,7 @@ function ServiceOrderDetail({
 				requestType: targetState === "Cancelado" && Boolean(detail.finance.sales_invoice) ? "billed_service_order_cancel" : "service_order_move",
 			})}
           />
-          <ServiceOrderAttendanceCard detail={detail} />
 		  <WorkflowSideStepper detail={detail} />
-			<ServiceOrderPaymentCard
-				canViewDirectorFinancial={canViewDirectorFinancial}
-				detail={detail}
-				onToast={onToast}
-				onUpdated={(updated) => setState({ status: "ready", detail: updated })}
-			/>
         </aside>
       </div>
       <BudgetDecisionModal
@@ -3579,6 +3543,7 @@ function TechnicalServiceOrderDetail({
 	 onSetPartOutcome: (partName: string, outcome: "Usada no reparo" | "Perdida", lossReason?: string) => Promise<void>;
 }) {
   const [diagnosis, setDiagnosis] = useState(detail.diagnosis.problem_found ?? "");
+  const [activeStageScreen, setActiveStageScreen] = useState<ServiceOrderStageScreen>(() => serviceOrderStageScreenForState(detail.workflow_state));
   const [savingDiagnosis, setSavingDiagnosis] = useState(false);
   const [moving, setMoving] = useState(false);
 	const [moveApproval, setMoveApproval] = useState<{ targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
@@ -3592,6 +3557,10 @@ function TechnicalServiceOrderDetail({
   useEffect(() => {
     setDiagnosis(detail.diagnosis.problem_found ?? "");
   }, [detail.diagnosis.problem_found, detail.name]);
+
+  useEffect(() => {
+    setActiveStageScreen(serviceOrderStageScreenForState(detail.workflow_state));
+  }, [detail.name]);
 
   async function saveDiagnosis() {
     setSavingDiagnosis(true);
@@ -3621,9 +3590,11 @@ function TechnicalServiceOrderDetail({
         showActionsMenu={false}
         showBudgetAction={false}
       />
+      <ServiceOrderStageTabs active={activeStageScreen} detail={detail} onChange={setActiveStageScreen} />
 
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
+          {activeStageScreen === "atendimento" ? <>
           <div className="grid gap-4 lg:grid-cols-2">
             <IdentityCard
               icon={<UserRound size={20} />}
@@ -3640,7 +3611,11 @@ function TechnicalServiceOrderDetail({
               title="Aparelho"
             />
           </div>
+          <ServiceOrderAttendanceCard detail={detail} />
+          <TimelineCard events={detail.timeline} />
+          </> : null}
 
+          {activeStageScreen === "diagnostico" ? <>
           <Card className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -3661,7 +3636,10 @@ function TechnicalServiceOrderDetail({
               </Button>
             </div>
           </Card>
+          <TimelineCard events={detail.timeline} />
+          </> : null}
 
+          {activeStageScreen === "reparo" ? <>
           <Card className="p-5">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -3676,8 +3654,10 @@ function TechnicalServiceOrderDetail({
 					<TechnicalLineList lines={detail.parts} onRecordPartOutcome={setPartOutcomeTarget} title="Peças aplicadas" type="part" />
             </div>
           </Card>
-
           <TimelineCard events={detail.timeline} />
+          </> : null}
+
+          {activeStageScreen === "financeiro" ? <TechnicalFinanceStageCard detail={detail} /> : null}
         </div>
 
         <aside className="space-y-4">
@@ -3737,6 +3717,23 @@ function TechnicalServiceOrderDetail({
 				: `Seu papel não permite mover esta OS para ${moveApproval?.targetState ?? "esta etapa"}. Deseja solicitar aprovação?`}
 		/>
     </div>
+  );
+}
+
+function TechnicalFinanceStageCard({ detail }: { detail: ServiceOrderDetailResponse }) {
+  return (
+    <Card className="p-5">
+      <p className="text-xs font-bold uppercase tracking-wide text-tec-muted">Financeiro e retirada</p>
+      <h3 className="mt-2 text-xl font-bold text-white">Situação de entrega</h3>
+      <p className="mt-2 text-sm leading-6 text-tec-subtle">
+        A retirada é acompanhada aqui para contexto operacional. Valores e resultados comerciais permanecem restritos aos papéis autorizados.
+      </p>
+      <dl className="mt-5 space-y-3 text-sm">
+        <DetailLine label="Status" value={detail.pickup.without_repair ? "Retirada sem reparo" : detail.pickup.pickup_date ? "Entregue" : "Em preparação"} />
+        <DetailLine label="Aceite de retirada" value={detail.pickup.has_signature ? "Registrado" : "Pendente"} />
+        <DetailLine label="Data de retirada" value={detail.pickup.pickup_date ? formatDate(detail.pickup.pickup_date) : "Ainda não registrada"} />
+      </dl>
+    </Card>
   );
 }
 
@@ -3925,6 +3922,197 @@ function ServiceOrderHero({
       <WorkflowStepper detail={detail} />
     </Card>
   );
+}
+
+type ServiceOrderStageScreen = "atendimento" | "diagnostico" | "reparo" | "financeiro";
+
+const SERVICE_ORDER_STAGE_SCREENS: Array<{
+  key: ServiceOrderStageScreen;
+  label: string;
+  description: string;
+  icon: typeof ClipboardCheck;
+}> = [
+  { key: "atendimento", label: "Atendimento", description: "Entrada e aceite", icon: ClipboardCheck },
+  { key: "diagnostico", label: "Diagnóstico", description: "Laudo e orçamento", icon: SearchIcon },
+  { key: "reparo", label: "Reparo", description: "Peças e execução", icon: Wrench },
+  { key: "financeiro", label: "Financeiro", description: "Pagamento e retirada", icon: CircleDollarSign },
+];
+
+function serviceOrderStageScreenForState(state: string | null): ServiceOrderStageScreen {
+  if (["Entrada criada"].includes(state ?? "")) return "atendimento";
+  if (["Em diagnóstico", "Aguardando aprovação", "Aprovado", "Reprovado", "Orçamento expirado"].includes(state ?? "")) return "diagnostico";
+  if (["Aguardando peça", "Em reparo", "Teste final", "Sem conserto"].includes(state ?? "")) return "reparo";
+  return "financeiro";
+}
+
+function ServiceOrderStageTabs({
+  active,
+  detail,
+  onChange,
+}: {
+  active: ServiceOrderStageScreen;
+  detail: ServiceOrderDetailResponse;
+  onChange: (screen: ServiceOrderStageScreen) => void;
+}) {
+  const current = serviceOrderStageScreenForState(detail.workflow_state);
+
+  return (
+    <Card className="p-2">
+      <nav aria-label="Áreas da ordem de serviço" className="grid gap-1 sm:grid-cols-2 xl:grid-cols-4">
+        {SERVICE_ORDER_STAGE_SCREENS.map(({ key, label, description, icon: Icon }) => {
+          const selected = active === key;
+          const isCurrent = current === key;
+          return (
+            <button
+              className={cx(
+                "flex min-h-16 items-center gap-3 rounded-control border px-3 py-2 text-left transition",
+                selected
+                  ? "border-tec-orange/70 bg-tec-orange/10 text-white shadow-glow"
+                  : "border-transparent text-tec-subtle hover:border-tec-border/30 hover:bg-tec-field/60",
+              )}
+              key={key}
+              onClick={() => onChange(key)}
+              type="button"
+            >
+              <span className={cx("grid h-9 w-9 shrink-0 place-items-center rounded-control", selected ? "bg-tec-orange text-tec-ink" : "bg-tec-field text-tec-muted")}>
+                <Icon size={18} />
+              </span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-2 text-sm font-bold">
+                  {label}
+                  {isCurrent ? <span className="rounded-full bg-tec-orange/15 px-2 py-0.5 text-[10px] font-bold uppercase text-tec-orange">Atual</span> : null}
+                </span>
+                <span className="mt-0.5 block text-xs text-tec-muted">{description}</span>
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+    </Card>
+  );
+}
+
+function ServiceOrderPersistentOverview({ detail }: { detail: ServiceOrderDetailResponse }) {
+  const device = [detail.device?.brand, detail.device?.model].filter(Boolean).join(" ") || detail.device?.name || "Não informado";
+  return (
+    <Card className="p-5">
+      <p className="text-xs font-bold uppercase tracking-wide text-tec-muted">Visão geral persistente</p>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <h3 className="text-lg font-bold text-white">{detail.name}</h3>
+        <BadgeStatus status={detail.workflow_state} />
+      </div>
+      <dl className="mt-4 space-y-3 text-sm">
+        <DetailLine label="Cliente" value={detail.customer?.customer_name ?? detail.customer?.name ?? "Não informado"} />
+        <DetailLine label="Aparelho" value={device} />
+        <DetailLine label="Técnico" value={detail.technician ?? "Não definido"} />
+        <DetailLine label="Previsão" value={detail.approval_deadline ? formatDate(detail.approval_deadline) : "Não definida"} />
+      </dl>
+    </Card>
+  );
+}
+
+function ServiceOrderStageScreenContent({
+  active,
+  canViewDirectorFinancial,
+  customerLabel,
+  detail,
+  deviceLabel,
+  onOpenAcceptance,
+  onOpenBudgetEditor,
+  onOpenHistory,
+  onOpenQuoteSend,
+  onToast,
+  onUpdated,
+  whatsappUrl,
+}: {
+  active: ServiceOrderStageScreen;
+  canViewDirectorFinancial: boolean;
+  customerLabel: string;
+  detail: ServiceOrderDetailResponse;
+  deviceLabel: string;
+  onOpenAcceptance: (type: "Entrada" | "Retirada") => void;
+  onOpenBudgetEditor: (type: BudgetLineType) => void;
+  onOpenHistory: () => void;
+  onOpenQuoteSend: () => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+  onUpdated: (detail: ServiceOrderDetailResponse) => void;
+  whatsappUrl: string | null;
+}) {
+  if (active === "atendimento") {
+    return (
+      <div className="space-y-4">
+        <StageHeading title="Atendimento e entrada" description="Conferência do cliente, aparelho e evidências da recepção." />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <IdentityCard
+            action={whatsappUrl ? <a className="mt-4 inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-whatsapp/35 bg-tec-whatsapp/10 px-4 text-sm font-bold text-tec-whatsapp transition hover:bg-tec-whatsapp/20" href={whatsappUrl} rel="noreferrer" target="_blank"><WhatsAppLogo size={17} />Abrir WhatsApp</a> : undefined}
+            icon={<UserRound size={20} />}
+            lines={[["Cliente", customerLabel], ["Telefone", detail.customer?.custom_whatsapp || detail.customer?.mobile_no || "Não informado"], ["E-mail", detail.customer?.email_id ?? "Não informado"], ["Atendente", detail.attendant ?? "Não definido"]]}
+            title="Cliente"
+          />
+          <IdentityCard icon={<Smartphone size={20} />} lines={[["Aparelho", deviceLabel], ["IMEI / Serial", detail.device?.imei_serial ?? "Não informado"], ["Capacidade", detail.device?.capacity ?? "Não informada"], ["Condição na entrada", detail.entry_operating_condition ?? detail.physical_state ?? "Não informada"]]} title="Aparelho" />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ServiceOrderAttendanceCard detail={detail} />
+          <StageAcceptanceCard detail={detail} onOpenAcceptance={onOpenAcceptance} />
+        </div>
+        <TimelineCard events={detail.timeline} onOpenHistory={onOpenHistory} />
+      </div>
+    );
+  }
+
+  if (active === "diagnostico") {
+    const hasBudget = detail.services.length + detail.parts.length > 0;
+    return (
+      <div className="space-y-4">
+        <StageHeading title="Diagnóstico e orçamento" description="Laudo técnico, composição comercial e envio para decisão do cliente." />
+        <Card className="p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold text-white">Laudo técnico</h3>
+              <p className="mt-2 text-sm leading-6 text-tec-subtle">{detail.diagnosis.problem_found || "O diagnóstico ainda não foi registrado pelo técnico."}</p>
+            </div>
+            <span className="rounded-full bg-tec-field px-3 py-1 text-xs font-bold text-tec-subtle">{detail.diagnosis.diagnosis_date ? `Registrado em ${formatDate(detail.diagnosis.diagnosis_date)}` : "Pendente"}</span>
+          </div>
+        </Card>
+        <BudgetCard detail={detail} onOpenBudgetEditor={onOpenBudgetEditor} />
+        <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
+          <div><h3 className="text-lg font-bold text-white">Enviar orçamento</h3><p className="mt-1 text-sm text-tec-muted">O motor exige diagnóstico salvo e ao menos um item antes de avançar.</p></div>
+          <Button disabled={!hasBudget || detail.workflow_state !== "Aguardando aprovação"} icon={<Send size={17} />} onClick={onOpenQuoteSend} title={!hasBudget ? "Inclua ao menos um serviço ou peça." : undefined} variant="primary">Enviar ao cliente</Button>
+        </Card>
+      </div>
+    );
+  }
+
+  if (active === "reparo") {
+    return (
+      <div className="space-y-4">
+        <StageHeading title="Reparo e execução" description="Acompanhe serviços, reservas e a execução técnica da OS." />
+        <Card className="p-5"><StageLineList lines={detail.services} title="Serviços planejados" /><div className="mt-5"><StageLineList lines={detail.parts} title="Peças e reservas" type="part" /></div></Card>
+        <TimelineCard events={detail.timeline} onOpenHistory={onOpenHistory} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <StageHeading title="Financeiro e retirada" description="Pagamentos reais, saldo da OS e conclusão de retirada." />
+      <ServiceOrderPaymentCard canViewDirectorFinancial={canViewDirectorFinancial} detail={detail} onToast={onToast} onUpdated={onUpdated} />
+      <Card className="p-5"><h3 className="text-lg font-bold text-white">Retirada</h3><dl className="mt-4 space-y-3 text-sm"><DetailLine label="Status" value={detail.pickup.without_repair ? "Retirada sem reparo" : detail.pickup.pickup_date ? "Entregue" : "Aguardando retirada"} /><DetailLine label="Data" value={detail.pickup.pickup_date ? formatDate(detail.pickup.pickup_date) : "Ainda não registrada"} /><DetailLine label="Aceite" value={detail.pickup.has_signature ? "Assinatura registrada" : "Pendente"} /></dl></Card>
+    </div>
+  );
+}
+
+function StageHeading({ description, title }: { description: string; title: string }) {
+  return <Card className="p-5"><p className="text-xs font-bold uppercase tracking-wide text-tec-orange">Área da etapa</p><h2 className="mt-2 text-2xl font-bold text-white">{title}</h2><p className="mt-2 text-sm text-tec-subtle">{description}</p></Card>;
+}
+
+function StageAcceptanceCard({ detail, onOpenAcceptance }: { detail: ServiceOrderDetailResponse; onOpenAcceptance: (type: "Entrada" | "Retirada") => void }) {
+  const type = detail.workflow_state === "Pronto para retirada" ? "Retirada" : "Entrada";
+  return <Card className="p-5"><h3 className="text-lg font-bold text-white">Aceite do cliente</h3><p className="mt-2 text-sm text-tec-subtle">Gere o link digital ou arquive a folha física assinada. O motor valida a evidência antes do avanço.</p><Button className="mt-4" icon={<QrCode size={17} />} onClick={() => onOpenAcceptance(type)} variant="secondary">{type === "Entrada" ? "Gerar aceite de entrada" : "Gerar aceite de retirada"}</Button></Card>;
+}
+
+function StageLineList({ lines, title, type = "service" }: { lines: ServiceOrderBudgetLine[]; title: string; type?: "service" | "part" }) {
+  return <section><div className="mb-3 flex items-center justify-between"><h3 className="text-lg font-bold text-white">{title}</h3><span className="rounded-full bg-tec-field px-2.5 py-1 text-xs font-bold text-tec-muted">{lines.length}</span></div>{lines.length ? <div className="overflow-hidden rounded-card border border-tec-border/15">{lines.map((line, index) => <div className="flex flex-wrap items-center justify-between gap-3 border-b border-tec-border/15 bg-tec-field/45 px-4 py-3 last:border-0" key={line.name ?? `${title}-${index}`}><div className="min-w-0"><p className="font-semibold text-white">{line.description || line.item_code || "Item sem descrição"}</p><p className="mt-1 text-xs text-tec-muted">Qtd. {line.qty.toLocaleString("pt-BR")}{type === "part" && line.outcome ? ` · ${line.outcome}` : ""}</p></div>{type === "part" ? <TechnicalPartStatus line={line} /> : <span className="text-sm font-bold text-tec-subtle">{formatCurrency(line.amount ?? (line.unit_price ?? 0) * line.qty)}</span>}</div>)}</div> : <p className="rounded-card border border-dashed border-tec-border/20 p-4 text-sm text-tec-muted">Nenhum item registrado nesta OS.</p>}</section>;
 }
 
 const SERVICE_ORDER_STEPS = ["Entrada", "Diagnóstico", "Orçamento", "Aprovação", "Execução", "Retirada"];
