@@ -25,6 +25,8 @@ const forbiddenFrontendTerms = [
   "stock_value",
 ];
 const permittedOwnEarningsApi = join(root, "src", "api", "earnings.ts");
+const permittedDirectorRegistryEditor = join(root, "src", "RegistryEditorModal.tsx");
+const permittedDirectorRegistryTypes = join(root, "src", "api", "types.ts");
 
 for (const file of requiredBuildFiles) {
   const target = join(publicDir, file);
@@ -57,6 +59,12 @@ for (const file of sourceFiles) {
       if (!body.replaceAll("technician_commissions_enabled", "").replaceAll("commissionsEnabled", "").includes(term)) {
         continue;
       }
+    }
+    // The registry endpoint omits this key for every role except Diretor. The
+    // modal may render that server-authorized, read-only value, while backend
+    // tests prove the key never reaches Attendente or Técnico payloads.
+    if (term === "valuation_rate" && (file === permittedDirectorRegistryEditor || file === permittedDirectorRegistryTypes)) {
+      continue;
     }
     if (body.includes(term)) {
       throw new Error(`Termo sensível no front (${term}): ${file}`);

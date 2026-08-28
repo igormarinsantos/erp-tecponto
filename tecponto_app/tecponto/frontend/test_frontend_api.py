@@ -53,6 +53,8 @@ from tecponto_app.tecponto.frontend.api import (
 	list_warranty_candidates,
 	open_store_cash_session,
 	create_customer,
+	create_customer_device,
+	get_registry_record,
 	list_catalog_references,
 	list_catalog_services,
 	list_customer_devices,
@@ -72,6 +74,7 @@ from tecponto_app.tecponto.frontend.api import (
 	resolve_panel,
 	search_budget_items,
 	search_customers,
+	save_registry_record,
 	search_pos_items,
 	set_tradein_approved_value,
 	list_product_categories,
@@ -160,6 +163,7 @@ from tecponto_app.tecponto.pos import (
 	ensure_item_barcode_source_field,
 	ensure_pos_barcode_label_print_format,
 	ensure_pos_receipt_print_format,
+	get_retail_item_groups,
 )
 from tecponto_app.tecponto import notify
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD
@@ -316,6 +320,7 @@ def run_foundation_checks() -> dict:
 		daily_action_checks = run_daily_action_checks()
 		quick_stage_checks = run_quick_stage_move_checks()
 		customer_registration_checks = run_customer_registration_checks()
+		registry_crud_checks = run_registry_crud_checks()
 		service_catalog_checks = run_service_catalog_checks()
 		product_category_checks = run_product_category_checks()
 		product_variant_checks = run_product_variant_checks()
@@ -378,6 +383,7 @@ def run_foundation_checks() -> dict:
 			"quick_stage_checks": quick_stage_checks,
 			"inoperative_entry_term": inoperative_entry_term_checks,
 			"customer_registration_checks": customer_registration_checks,
+			"registry_crud_checks": registry_crud_checks,
 			"service_catalog_checks": service_catalog_checks,
 			"product_category_checks": product_category_checks,
 			"product_variant_checks": product_variant_checks,
@@ -1781,6 +1787,135 @@ def run_customer_registration_checks() -> dict:
 		frappe.set_user(previous_user)
 
 
+def run_registry_crud_checks() -> dict:
+	"""Prove registry writes are allowlisted and Item cost remains a Director-only projection."""
+	previous_user = frappe.session.user
+	created_part = None
+	created_customer = None
+	created_device = None
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		director = _find_or_create_user("Tecponto Diretor")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		suffix = frappe.generate_hash(length=8).upper()
+
+		frappe.set_user(attendant)
+		created_customer = create_customer(
+			{
+				"customer_name": f"Cliente CRUD {suffix}",
+				"mobile_no": "11999998888",
+				"custom_cpf": "12345678909",
+			}
+		)["item"]
+		updated_customer = save_registry_record(
+			"customer",
+			created_customer["name"],
+			{
+				"customer_name": f"Cliente CRUD editado {suffix}",
+				"mobile_no": "11999997777",
+				"custom_whatsapp": "11999997777",
+				"custom_cpf": "12345678909",
+				"custom_rg": "",
+				"custom_nao_possui_cpf": 0,
+				"email_id": "crud@tecponto.local",
+				"address": {"address_line1": "Rua do Teste, 100", "city": "Guarulhos", "state": "SP", "pincode": "07000-000"},
+			},
+		)["item"]
+		if updated_customer.get("address", {}).get("city") != "Guarulhos":
+			raise AssertionError("Edição de endereço do cliente não foi persistida no cadastro nativo.")
+
+		created_device = create_customer_device(
+			{
+				"customer": created_customer["name"],
+				"brand": "Apple",
+				"model": "iPhone CRUD",
+				"color": "Preto",
+				"imei_serial": f"CRUD-{suffix}",
+			}
+		)["item"]
+		updated_device = save_registry_record(
+			"device",
+			created_device["name"],
+			{"brand": "Apple", "model": "iPhone CRUD editado", "color": "Azul", "imei_serial": f"CRUD-{suffix}", "capacity": "128GB", "general_state": "Sem danos aparentes."},
+		)["item"]
+		if updated_device.get("model") != "iPhone CRUD editado":
+			raise AssertionError("Atendente não conseguiu editar aparelho próprio do cadastro.")
+
+		part = save_registry_record(
+			"repair_part",
+			"",
+			{
+				"item_code": f"TP-CRUD-PART-{suffix}",
+				"item_name": "Peça CRUD",
+				"item_group": "Peças de Reparo",
+				"description": "iPhone 13",
+				"custom_compatible_models": "iPhone 13 / 13 Pro",
+				"custom_part_type": "Tela",
+			},
+		)["item"]
+		created_part = part["item_code"]
+		attendant_part = get_registry_record("repair_part", created_part)["item"]
+		for forbidden in ("valuation_rate", "cost", "margin", "purchase_rate", "incoming_rate"):
+			if forbidden in attendant_part:
+				raise AssertionError(f"Payload da peça para Atendente vazou {forbidden}.")
+		leaks = contains_sensitive_field(attendant_part)
+		if leaks:
+			raise AssertionError(f"Payload da peça para Atendente vazou campos sensíveis: {', '.join(leaks)}")
+
+		allowlist_blocked = False
+		try:
+			save_registry_record("repair_part", created_part, {"valuation_rate": 1})
+		except frappe.PermissionError:
+			allowlist_blocked = True
+		if not allowlist_blocked:
+			raise AssertionError("Allowlist aceitou valuation_rate enviado pelo Atendente.")
+
+		retail_item = frappe.db.get_value("Item", {"item_group": ["in", get_retail_item_groups()]}, "name")
+		catalog_edit_blocked = False
+		try:
+			save_registry_record("product", retail_item, {"item_name": "Tentativa bloqueada"})
+		except frappe.PermissionError:
+			catalog_edit_blocked = True
+		if not catalog_edit_blocked:
+			raise AssertionError("Atendente alterou catálogo comercial/estoque fora do seu papel.")
+
+		frappe.set_user(director)
+		director_part = get_registry_record("repair_part", created_part)["item"]
+		if "valuation_rate" not in director_part:
+			raise AssertionError("Diretor não recebeu o custo interno da peça no cadastro.")
+
+		frappe.set_user(technician)
+		technician_blocked = False
+		try:
+			get_registry_record("customer", created_customer["name"])
+		except frappe.PermissionError:
+			technician_blocked = True
+		if not technician_blocked:
+			raise AssertionError("Técnico abriu cadastro global de cliente fora da própria carteira.")
+
+		return {
+			"status": "ok",
+			"customer_and_device_updated": True,
+			"attendant_part_leaked_fields": leaks,
+			"director_sees_valuation": True,
+			"catalog_edit_blocked": catalog_edit_blocked,
+			"allowlist_blocked": allowlist_blocked,
+			"technician_blocked": technician_blocked,
+		}
+	finally:
+		# Test data is created under role-scoped sessions; native Customer cleanup also
+		# removes linked Address records, which requires an administrative session.
+		frappe.set_user("Administrator")
+		if created_device and frappe.db.exists("Customer Device", created_device["name"]):
+			frappe.delete_doc("Customer Device", created_device["name"], ignore_permissions=True, force=True)
+		if created_part and frappe.db.exists("Item", created_part):
+			frappe.delete_doc("Item", created_part, ignore_permissions=True, force=True)
+		if created_customer and frappe.db.exists("Customer", created_customer["name"]):
+			frappe.delete_doc("Customer", created_customer["name"], ignore_permissions=True, force=True)
+		frappe.set_user(previous_user)
+
+
 def run_product_category_checks() -> dict:
 	"""Prove native Item Group categories are editable only by management roles."""
 	previous_user = frappe.session.user
@@ -2714,7 +2849,9 @@ def run_user_management_api_checks() -> dict:
 			raise AssertionError("O limite individual de desconto não foi aplicado pelo motor.")
 
 		frappe.set_user(owner)
-		listed = list_user_accounts()
+		# The persistent runner intentionally retains historical fixtures. Querying
+		# the account under test avoids a pagination-dependent assertion.
+		listed = list_user_accounts(query=created["name"])
 		listed_item = next((item for item in listed["items"] if item["name"] == created["name"]), None)
 		if not listed_item or listed_item["discount_limit"] != 27.5 or '"pin":' in frappe.as_json(listed_item).lower():
 			raise AssertionError("A listagem de pessoas expôs credencial ou perdeu configuração individual.")
@@ -4250,6 +4387,15 @@ def run_pos_retail_barcode_catalog_checks() -> dict:
 		internal_code = f"TP-BAR-INT-{suffix}"
 
 		frappe.set_user(attendant)
+		catalog_registration_blocked = False
+		try:
+			pos_register_retail_product({})
+		except frappe.PermissionError:
+			catalog_registration_blocked = True
+		if not catalog_registration_blocked:
+			raise AssertionError("Atendente ainda consegue cadastrar produto comercial pelo endpoint legado.")
+
+		frappe.set_user(manager)
 		factory = pos_register_retail_product(
 			{
 				"barcode": factory_barcode,
@@ -4346,6 +4492,7 @@ def run_pos_retail_barcode_catalog_checks() -> dict:
 
 		return {
 			"status": "ok",
+			"catalog_registration_blocked_for_attendant": catalog_registration_blocked,
 			"factory": {"barcode": factory_barcode, "source": factory_row.get(BARCODE_SOURCE_FIELD)},
 			"internal": {"barcode": internal_row.barcode, "type": internal_row.get(BARCODE_SYMBOLOGY_FIELD)},
 			"duplicate_blocked": duplicate_blocked,

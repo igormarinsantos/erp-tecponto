@@ -42,6 +42,7 @@ from tecponto_app.tecponto.stock import normalize_barcode
 
 
 POS_SALE_ROLES = {"Tecponto Atendente", "Tecponto Gestor", "System Manager"}
+INVENTORY_CATALOG_ROLES = {"Tecponto Gestor", "Tecponto Diretor", "System Manager"}
 INVENTORY_RECEIPT_ROLES = {"Tecponto Gestor", "System Manager"}
 IDEMPOTENCY_DOCTYPE = "Tecponto POS Sale Request"
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,95}$")
@@ -285,7 +286,7 @@ def pos_list_retail_item_groups() -> dict[str, Any]:
 @frappe.whitelist()
 def pos_register_retail_product(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
 	"""Create one quantity-controlled retail item and attach its chosen barcode."""
-	_require_pos_sale_role()
+	_require_inventory_catalog_role()
 	data = _parse_payload(payload)
 	item_code = str(data.get("item_code") or "").strip()[:140]
 	item_name = str(data.get("item_name") or "").strip()[:140]
@@ -431,6 +432,15 @@ def _require_inventory_receipt_role() -> None:
 	if frappe.session.user == "Administrator" or set(frappe.get_roles(frappe.session.user)) & INVENTORY_RECEIPT_ROLES:
 		return
 	raise frappe.PermissionError(_("Somente o Gestor pode registrar entrada de estoque com custo."))
+
+
+def _require_inventory_catalog_role() -> None:
+	user = frappe.session.user
+	if not user or user == "Guest":
+		raise frappe.AuthenticationError(_("Faça login para cadastrar produtos."))
+	if user == "Administrator" or set(frappe.get_roles(user)) & INVENTORY_CATALOG_ROLES:
+		return
+	raise frappe.PermissionError(_("Somente Gestor ou Diretor pode editar o catálogo comercial."))
 
 
 def _parse_payload(payload: str | dict[str, Any] | None) -> dict[str, Any]:

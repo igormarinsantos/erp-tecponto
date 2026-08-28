@@ -1036,6 +1036,44 @@ export interface CustomerSearchResponse {
   fields: string[];
 }
 
+export type RegistryKind = "customer" | "device" | "repair_part" | "product";
+
+export interface RegistryAddress {
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+}
+
+export interface RegistryCustomerRecord extends CustomerSummary {
+  address: RegistryAddress;
+}
+
+export interface RegistryDeviceRecord extends CustomerDeviceSummary {
+  general_state: string;
+}
+
+export interface RegistryItemRecord {
+  item_code: string;
+  item_name: string | null;
+  item_group: string | null;
+  model: string;
+  compatible_models: string;
+  part_type: string;
+  selling_rate: number;
+  barcode: string | null;
+  valuation_rate?: number;
+  kind: "repair_part" | "product";
+}
+
+export type RegistryRecord = RegistryCustomerRecord | RegistryDeviceRecord | RegistryItemRecord;
+
+export interface RegistryRecordResponse {
+  item: RegistryRecord;
+  can_edit?: boolean;
+}
+
 export interface CreateCustomerPayload {
   customer_name: string;
   mobile_no: string;

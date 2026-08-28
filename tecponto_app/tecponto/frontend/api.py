@@ -183,6 +183,19 @@ SAFE_DEVICE_FIELDS = (
 	"registration_date",
 	"modified",
 )
+REGISTRY_KINDS = {"customer", "device", "repair_part", "product"}
+CUSTOMER_REGISTRY_FIELDS = {
+	"customer_name",
+	"mobile_no",
+	"custom_whatsapp",
+	"custom_cpf",
+	"custom_rg",
+	CUSTOMER_NO_CPF_FIELD,
+	"email_id",
+	"address",
+}
+DEVICE_REGISTRY_FIELDS = {"brand", "model", "color", "imei_serial", "capacity", "general_state"}
+ITEM_REGISTRY_FIELDS = {"item_name", "description", "custom_compatible_models", "custom_part_type", "standard_rate"}
 SAFE_TRADE_EVALUATION_FIELDS = (
 	"name",
 	"customer",
@@ -2526,6 +2539,208 @@ def create_customer_device(payload: str | dict[str, Any] | None = None) -> dict[
 	return {"item": _serialize_customer_device(item)}
 
 
+def _require_registry_editor(kind: str) -> None:
+	"""Keep registry writes on the server, with a distinct boundary per registry."""
+	if kind not in REGISTRY_KINDS:
+		frappe.throw(_("Cadastro inválido."), frappe.ValidationError)
+	if kind in {"customer", "device", "repair_part"}:
+		_require_frontend_role()
+		roles = set(frappe.get_roles(frappe.session.user))
+		if frappe.session.user == "Administrator" or roles & {"Tecponto Atendente", "Tecponto Gestor", "Tecponto Diretor", "System Manager"}:
+			return
+		frappe.throw(_("Seu papel não permite editar este cadastro operacional."), frappe.PermissionError)
+		return
+	_require_product_category_editor()
+
+
+def _require_registry_reader(kind: str) -> None:
+	"""Technicians retain their scoped operational reads, never global registry editing."""
+	if kind not in REGISTRY_KINDS:
+		frappe.throw(_("Cadastro inválido."), frappe.ValidationError)
+	if is_restricted_technician():
+		frappe.throw(_("O perfil técnico não abre cadastros globais."), frappe.PermissionError)
+	_require_registry_editor(kind)
+
+
+def _assert_registry_payload_fields(data: dict[str, Any], allowed_fields: set[str]) -> None:
+	unknown = sorted(set(data) - allowed_fields)
+	if unknown:
+		frappe.throw(
+			_("Campo não permitido nesta edição: {0}.").format(", ".join(unknown)),
+			frappe.PermissionError,
+		)
+
+
+def _customer_address(customer_name: str) -> dict[str, str]:
+	address_name = frappe.db.get_value(
+		"Dynamic Link",
+		{"link_doctype": "Customer", "link_name": customer_name, "parenttype": "Address"},
+		"parent",
+	)
+	if not address_name or not frappe.db.exists("Address", address_name):
+		return {}
+	address = frappe.db.get_value(
+		"Address",
+		address_name,
+		["address_line1", "address_line2", "city", "state", "pincode"],
+		as_dict=True,
+	)
+	return {field: str(address.get(field) or "") for field in ("address_line1", "address_line2", "city", "state", "pincode")}
+
+
+def _save_customer_address(customer_name: str, value: Any) -> None:
+	if not isinstance(value, dict):
+		frappe.throw(_("Endereço inválido."), frappe.ValidationError)
+	allowed = {"address_line1", "address_line2", "city", "state", "pincode"}
+	_assert_registry_payload_fields(value, allowed)
+	clean = {field: str(value.get(field) or "").strip() for field in allowed}
+	address_name = frappe.db.get_value(
+		"Dynamic Link",
+		{"link_doctype": "Customer", "link_name": customer_name, "parenttype": "Address"},
+		"parent",
+	)
+	if address_name and frappe.db.exists("Address", address_name):
+		address = frappe.get_doc("Address", address_name)
+		address.update(clean)
+		address.save(ignore_permissions=True)
+		return
+	if not any(clean.values()):
+		return
+	address = frappe.get_doc(
+		{
+			"doctype": "Address",
+			"address_title": frappe.db.get_value("Customer", customer_name, "customer_name") or customer_name,
+			"address_type": "Billing",
+			**clean,
+			"links": [{"link_doctype": "Customer", "link_name": customer_name}],
+		}
+	)
+	address.insert(ignore_permissions=True)
+
+
+def _registry_item_scope(kind: str) -> set[str]:
+	return set(_descendant_item_groups("Peças de Reparo")) if kind == "repair_part" else set(get_retail_item_groups())
+
+
+def _registry_item_projection(item: Any, kind: str, warehouse: str | None = None) -> dict[str, Any]:
+	result = {
+		"item_code": item.get("name") or item.get("item_code"),
+		"item_name": item.get("item_name"),
+		"item_group": item.get("item_group"),
+		"model": item.get("description") or "",
+		"compatible_models": item.get("custom_compatible_models") or "",
+		"part_type": item.get("custom_part_type") or "",
+		"selling_rate": flt(item.get("standard_rate"), 2),
+		"barcode": next((row.barcode for row in item.get("barcodes") or [] if row.barcode), None),
+		"kind": kind,
+	}
+	if _current_user_is_director():
+		result["valuation_rate"] = flt(
+			frappe.db.get_value("Bin", {"item_code": result["item_code"], "warehouse": warehouse}, "valuation_rate")
+			if warehouse
+			else item.get("valuation_rate"),
+			2,
+		)
+	return result
+
+
+@frappe.whitelist()
+def get_registry_record(kind: str, name: str) -> dict[str, Any]:
+	"""Return one role-scoped registry record; Item cost exists only for Diretor."""
+	kind = (kind or "").strip()
+	name = (name or "").strip()
+	_require_registry_reader(kind)
+	if not name:
+		frappe.throw(_("Cadastro não informado."), frappe.ValidationError)
+	if kind == "customer":
+		row = frappe.db.get_value("Customer", name, list(SAFE_CUSTOMER_FIELDS), as_dict=True)
+		if not row:
+			frappe.throw(_("Cliente não encontrado."), frappe.DoesNotExistError)
+		return {"item": {**_serialize_customer(row), "address": _customer_address(name)}, "can_edit": True}
+	if kind == "device":
+		row = frappe.db.get_value("Customer Device", name, list(SAFE_DEVICE_FIELDS) + ["general_state"], as_dict=True)
+		if not row:
+			frappe.throw(_("Aparelho não encontrado."), frappe.DoesNotExistError)
+		return {"item": {**_serialize_customer_device(row), "general_state": row.get("general_state") or ""}, "can_edit": True}
+
+	item = frappe.get_doc("Item", name)
+	if item.item_group not in _registry_item_scope(kind):
+		frappe.throw(_("Item não pertence a este cadastro."), frappe.PermissionError)
+	warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse" if kind == "repair_part" else "commercial_warehouse")
+	return {"item": _registry_item_projection(item, kind, warehouse), "can_edit": True}
+
+
+@frappe.whitelist()
+def save_registry_record(kind: str, name: str = "", payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Create/update only registry fields explicitly allowed for the caller's workflow."""
+	kind = (kind or "").strip()
+	name = (name or "").strip()
+	_require_registry_editor(kind)
+	data = _parse_payload(payload)
+	if kind == "customer":
+		if not name or not frappe.db.exists("Customer", name):
+			frappe.throw(_("Cliente não encontrado."), frappe.DoesNotExistError)
+		_assert_registry_payload_fields(data, CUSTOMER_REGISTRY_FIELDS)
+		customer = frappe.get_doc("Customer", name)
+		for field in CUSTOMER_REGISTRY_FIELDS - {"address"}:
+			if field in data:
+				customer.set(field, data[field])
+		customer.mobile_no = (customer.mobile_no or customer.custom_whatsapp or "").strip()
+		customer.custom_whatsapp = (customer.custom_whatsapp or customer.mobile_no or "").strip()
+		validate_customer_contact_document(customer)
+		customer.save(ignore_permissions=True)
+		if "address" in data:
+			_save_customer_address(customer.name, data["address"])
+		row = frappe.db.get_value("Customer", customer.name, list(SAFE_CUSTOMER_FIELDS), as_dict=True)
+		return {"item": {**_serialize_customer(row), "address": _customer_address(customer.name)}}
+	if kind == "device":
+		if not name or not frappe.db.exists("Customer Device", name):
+			frappe.throw(_("Aparelho não encontrado."), frappe.DoesNotExistError)
+		_assert_registry_payload_fields(data, DEVICE_REGISTRY_FIELDS)
+		device = frappe.get_doc("Customer Device", name)
+		for field, value in data.items():
+			device.set(field, value)
+		_validate_device_payload(device)
+		device.save(ignore_permissions=True)
+		row = frappe.db.get_value("Customer Device", device.name, list(SAFE_DEVICE_FIELDS) + ["general_state"], as_dict=True)
+		return {"item": {**_serialize_customer_device(row), "general_state": row.get("general_state") or ""}}
+
+	_assert_registry_payload_fields(data, ITEM_REGISTRY_FIELDS | ({"item_code", "item_group"} if kind == "repair_part" and not name else set()))
+	allowed_groups = _registry_item_scope(kind)
+	if name:
+		item = frappe.get_doc("Item", name)
+		if item.item_group not in allowed_groups:
+			frappe.throw(_("Item não pertence a este cadastro."), frappe.PermissionError)
+	else:
+		if kind != "repair_part":
+			frappe.throw(_("Use o cadastro por código de barras para criar produtos comerciais."), frappe.ValidationError)
+		item_code = str(data.get("item_code") or "").strip()
+		item_group = str(data.get("item_group") or "Peças de Reparo").strip()
+		if not item_code or not data.get("item_name"):
+			frappe.throw(_("Código e nome da peça são obrigatórios."), frappe.ValidationError)
+		if item_group not in allowed_groups:
+			frappe.throw(_("Selecione um grupo de Peças de Reparo."), frappe.ValidationError)
+		if frappe.db.exists("Item", item_code):
+			frappe.throw(_("Já existe uma peça com este código."), frappe.ValidationError)
+		item = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code,
+				"item_name": data["item_name"].strip(),
+				"item_group": item_group,
+				"stock_uom": "Nos",
+				"is_stock_item": 1,
+				"is_purchase_item": 1,
+			}
+		)
+	for field in ITEM_REGISTRY_FIELDS:
+		if field in data:
+			item.set(field, data[field])
+	item.save(ignore_permissions=True)
+	warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse" if kind == "repair_part" else "commercial_warehouse")
+	return {"item": _registry_item_projection(item, kind, warehouse)}
+
+
 @frappe.whitelist()
 def list_trade_evaluations(query: str = "", limit: int = 12) -> dict[str, Any]:
 	_require_tradein_role()
@@ -3254,6 +3469,11 @@ def _operational_warehouse_pair() -> tuple[str, str]:
 def _current_user_is_manager() -> bool:
 	roles = set(frappe.get_roles(frappe.session.user))
 	return frappe.session.user == "Administrator" or bool({"Tecponto Gestor", "System Manager"} & roles)
+
+
+def _current_user_is_director() -> bool:
+	roles = set(frappe.get_roles(frappe.session.user))
+	return frappe.session.user == "Administrator" or "Tecponto Diretor" in roles
 
 
 def _serialize_stock_transfer(doc) -> dict[str, Any]:

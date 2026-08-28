@@ -7,6 +7,8 @@ import type {
   CreateCustomerDeviceResponse,
   CustomerDeviceListResponse,
   CustomerSearchResponse,
+	RegistryKind,
+	RegistryRecordResponse,
   DashboardMetrics,
   DirectorFinancialSummary,
   DirectorStrategicReport,
@@ -78,6 +80,12 @@ export const balcao = {
       body: { payload },
     });
   },
+	getRegistryRecord(kind: RegistryKind, name: string) {
+		return rpc<RegistryRecordResponse>(`${API}.get_registry_record`, { query: { kind, name } });
+	},
+	saveRegistryRecord(kind: RegistryKind, name: string, payload: Record<string, unknown>) {
+		return rpc<RegistryRecordResponse>(`${API}.save_registry_record`, { body: { kind, name, payload: JSON.stringify(payload) } });
+	},
   listDevices(query = "", limit = 12, customer = "") {
     return rpc<CustomerDeviceListResponse>(`${API}.list_customer_devices`, {
       query: { query, limit, customer },

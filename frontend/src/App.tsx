@@ -16,6 +16,7 @@ import {
   ClipboardCheck,
   Clock3,
   Copy,
+	Edit3,
   CircleDollarSign,
   CreditCard,
   FileText,
@@ -117,6 +118,7 @@ import { MyEarningsScreen } from "./MyEarningsScreen";
 import { PartRequestModal, PartRequestsScreen } from "./PartRequestsScreen";
 import { UserManagementScreen } from "./UserManagementScreen";
 import { CashStatementScreen } from "./CashStatementScreen";
+import { RegistryEditorModal } from "./RegistryEditorModal";
 import { getUnifiedPanelDefinition, panelDefinitions, type ActionDefinition, type OperationPillars } from "./roleConfig";
 import { ServiceOrderKanban } from "./ServiceOrderKanban";
 import { ServiceCatalogScreen } from "./ServiceCatalogScreen";
@@ -1182,6 +1184,7 @@ export function App() {
               canReceiveStock={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "System Manager")}
               canEditServiceCatalog={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
               canEditProductCategories={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
+			  canEditBasicRegistries={state.boot.user.roles.some((role) => ["Tecponto Atendente", "Tecponto Gestor", "Tecponto Diretor", "System Manager"].includes(role))}
               canViewStoreOperations={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
 			  singleTechnician={state.boot.features.single_technician}
 			  commissionsEnabled={state.boot.features.technician_commissions_enabled}
@@ -2295,6 +2298,7 @@ function NavigationContent({
   canReceiveStock,
   canEditServiceCatalog,
   canEditProductCategories,
+	canEditBasicRegistries,
   canViewStoreOperations,
 	 singleTechnician,
 	 commissionsEnabled,
@@ -2321,6 +2325,7 @@ function NavigationContent({
   canReceiveStock: boolean;
   canEditServiceCatalog: boolean;
   canEditProductCategories: boolean;
+	canEditBasicRegistries: boolean;
   canViewStoreOperations: boolean;
 	 singleTechnician: boolean;
 	 commissionsEnabled: boolean;
@@ -2502,11 +2507,11 @@ function NavigationContent({
   }
 
   if (activeView === "customers") {
-      return <CustomerLookup onToast={onToast} />;
+      return <CustomerLookup canEdit={canEditBasicRegistries} onToast={onToast} />;
   }
 
   if (activeView === "devices") {
-    return <DeviceLookup onToast={onToast} />;
+    return <DeviceLookup canEdit={canEditBasicRegistries} onToast={onToast} />;
   }
 
   if (activeView === "services") {
@@ -2534,7 +2539,7 @@ function NavigationContent({
   }
 
   if (activeView === "parts-stock" || activeView === "repair-parts" || activeView === "commercial-products" || activeView === "used-devices") {
-    return <StockLookup canManageVariantProducts={canEditProductCategories} canReceiveStock={canReceiveStock} initialBarcode={initialRetailBarcode} onInitialBarcodeHandled={onInitialRetailBarcodeHandled} onToast={onToast} scope={activeView} />;
+    return <StockLookup canEditRepairParts={canEditBasicRegistries} canManageVariantProducts={canEditProductCategories} canReceiveStock={canReceiveStock} initialBarcode={initialRetailBarcode} onInitialBarcodeHandled={onInitialRetailBarcodeHandled} onToast={onToast} scope={activeView} />;
   }
 
   if (activeView === "pos") {
@@ -5671,10 +5676,11 @@ function TotalPill({ label, strong, value }: { label: string; strong?: boolean; 
   );
 }
 
-function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastState["tone"]) => void }) {
+function CustomerLookup({ canEdit, onToast }: { canEdit: boolean; onToast: (message: string, tone?: ToastState["tone"]) => void }) {
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<CustomerSummary[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
+	const [editingCustomer, setEditingCustomer] = useState<CustomerSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.customers.presentation"));
@@ -5829,7 +5835,20 @@ function CustomerLookup({ onToast }: { onToast: (message: string, tone?: ToastSt
         }}
         open={registrationOpen}
       />
-      <CustomerDetailModal customer={selectedCustomer} onClose={() => setSelectedCustomer(null)} />
+	  <CustomerDetailModal canEdit={canEdit} customer={selectedCustomer} onClose={() => setSelectedCustomer(null)} onEdit={() => selectedCustomer && setEditingCustomer(selectedCustomer)} />
+	  <RegistryEditorModal
+		kind="customer"
+		name={editingCustomer?.name}
+		onClose={() => setEditingCustomer(null)}
+		onSaved={(updated) => {
+			if (!("customer_name" in updated)) return;
+			const customer = updated as CustomerSummary;
+			setRows((current) => current.map((row) => row.name === customer.name ? customer : row));
+			setSelectedCustomer(customer);
+			onToast("Cliente atualizado.");
+		}}
+		open={Boolean(editingCustomer)}
+	  />
     </>
   );
 }
@@ -5928,10 +5947,11 @@ function CustomerFormField({ children, label, optional, required }: { children: 
   );
 }
 
-function DeviceLookup({ onToast }: { onToast: (message: string, tone?: ToastState["tone"]) => void }) {
+function DeviceLookup({ canEdit, onToast }: { canEdit: boolean; onToast: (message: string, tone?: ToastState["tone"]) => void }) {
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<CustomerDeviceSummary[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<CustomerDeviceSummary | null>(null);
+	const [editingDevice, setEditingDevice] = useState<CustomerDeviceSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [presentation, setPresentation] = useState<ListPresentation>(() => getStoredListPresentation("tecponto.devices.presentation"));
@@ -6025,12 +6045,25 @@ function DeviceLookup({ onToast }: { onToast: (message: string, tone?: ToastStat
         }}
         open={registrationOpen}
       />
-      <DeviceDetailModal device={selectedDevice} onClose={() => setSelectedDevice(null)} />
+	  <DeviceDetailModal canEdit={canEdit} device={selectedDevice} onClose={() => setSelectedDevice(null)} onEdit={() => selectedDevice && setEditingDevice(selectedDevice)} />
+	  <RegistryEditorModal
+		kind="device"
+		name={editingDevice?.name}
+		onClose={() => setEditingDevice(null)}
+		onSaved={(updated) => {
+			if (!("imei_serial" in updated)) return;
+			const device = updated as CustomerDeviceSummary;
+			setRows((current) => current.map((row) => row.name === device.name ? device : row));
+			setSelectedDevice(device);
+			onToast("Aparelho atualizado.");
+		}}
+		open={Boolean(editingDevice)}
+	  />
     </>
   );
 }
 
-function CustomerDetailModal({ customer, onClose }: { customer: CustomerSummary | null; onClose: () => void }) {
+function CustomerDetailModal({ canEdit, customer, onClose, onEdit }: { canEdit: boolean; customer: CustomerSummary | null; onClose: () => void; onEdit: () => void }) {
   const label = customer?.customer_name ?? customer?.name ?? "Cliente";
   const whatsappUrl = customer
     ? buildWhatsAppUrl(customer.custom_whatsapp || customer.mobile_no, `Olá, ${label}. Aqui é da ${commercialName()}. Podemos falar por aqui?`)
@@ -6046,6 +6079,8 @@ function CustomerDetailModal({ customer, onClose }: { customer: CustomerSummary 
                 <p className="text-2xl font-bold text-white">{label}</p>
                 <p className="mt-1 text-sm text-tec-muted">{customer.name}</p>
               </div>
+			  <div className="flex flex-wrap items-center justify-end gap-2">
+			  {canEdit ? <Button icon={<Edit3 size={16} />} onClick={onEdit}>Editar</Button> : null}
               {whatsappUrl ? (
                 <a
                   className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-whatsapp/35 bg-tec-whatsapp/10 px-4 text-sm font-bold text-tec-whatsapp transition hover:bg-tec-whatsapp/20"
@@ -6056,7 +6091,8 @@ function CustomerDetailModal({ customer, onClose }: { customer: CustomerSummary 
                   <WhatsAppLogo size={17} />
                   WhatsApp
                 </a>
-              ) : null}
+			  ) : null}
+			  </div>
             </div>
             <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
               <DetailPill label="Telefone" value={customer.custom_whatsapp || customer.mobile_no || "Não informado"} />
@@ -6071,7 +6107,7 @@ function CustomerDetailModal({ customer, onClose }: { customer: CustomerSummary 
   );
 }
 
-function DeviceDetailModal({ device, onClose }: { device: CustomerDeviceSummary | null; onClose: () => void }) {
+function DeviceDetailModal({ canEdit, device, onClose, onEdit }: { canEdit: boolean; device: CustomerDeviceSummary | null; onClose: () => void; onEdit: () => void }) {
   const deviceLabel = device ? [device.brand, device.model, device.color].filter(Boolean).join(" ") || device.name : "Aparelho";
 
   return (
@@ -6086,7 +6122,8 @@ function DeviceDetailModal({ device, onClose }: { device: CustomerDeviceSummary 
                 <Smartphone size={34} />
               </span>
             )}
-            <div className="min-w-0 flex-1">
+			<div className="min-w-0 flex-1">
+				<div className="flex justify-end">{canEdit ? <Button icon={<Edit3 size={16} />} onClick={onEdit}>Editar</Button> : null}</div>
               <p className="text-2xl font-bold text-white">{deviceLabel}</p>
               <p className="mt-1 text-sm text-tec-muted">{device.name}</p>
               <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
@@ -6481,6 +6518,7 @@ function TradeInOperationModal({
 }
 
 function StockLookup({
+	canEditRepairParts,
 	canManageVariantProducts,
   canReceiveStock,
   initialBarcode,
@@ -6488,6 +6526,7 @@ function StockLookup({
   onToast,
   scope,
 }: {
+	canEditRepairParts: boolean;
 	canManageVariantProducts: boolean;
   canReceiveStock: boolean;
   initialBarcode: PendingRetailBarcode | null;
@@ -6527,6 +6566,7 @@ function StockLookup({
   const [registrationBarcode, setRegistrationBarcode] = useState<string | null>(null);
 	const [listingEntries, setListingEntries] = useState<CommercialCatalogItem[]>([]);
 	const [listingItem, setListingItem] = useState<CommercialCatalogItem | null>(null);
+	const [registryEditor, setRegistryEditor] = useState<{ kind: "repair_part" | "product"; name?: string } | null>(null);
 	const [categoryFilter, setCategoryFilter] = useState("");
 	const [categoryOptions, setCategoryOptions] = useState<Array<{ name: string; label: string }>>([]);
 
@@ -6700,8 +6740,13 @@ function StockLookup({
 				</Button>
 			),
 		}] : []),
-    ],
-	[busyItem, canManageVariantProducts, canTransfer, generateBarcode, isCommercialCatalog, listingEntries, scope],
+		...((scope === "repair-parts" && canEditRepairParts) || (scope === "commercial-products" && canManageVariantProducts) ? [{
+			key: "edit",
+			label: "Cadastro",
+			render: (row: StockItemSummary) => <Button icon={<Edit3 size={15} />} onClick={() => setRegistryEditor({ kind: scope === "repair-parts" ? "repair_part" : "product", name: row.item_code })}>Editar</Button>,
+		}] : []),
+	],
+	[busyItem, canEditRepairParts, canManageVariantProducts, canTransfer, generateBarcode, isCommercialCatalog, listingEntries, scope],
   );
 
   return (
@@ -6714,14 +6759,15 @@ function StockLookup({
           </div>
 		  <div className="flex flex-wrap gap-2">
 			{canManageVariantProducts ? <Button icon={<Boxes size={16} />} onClick={() => setVariantRegistrationOpen(true)}>Produto com variações</Button> : null}
-			<Button icon={<Plus size={16} />} onClick={() => {
+			{canManageVariantProducts ? <Button icon={<Plus size={16} />} onClick={() => {
 			  setRegistrationBarcode(null);
 			  setRegistrationOpen(true);
-			}} variant="primary">Cadastrar produto</Button>
+			}} variant="primary">Cadastrar produto</Button> : null}
 		  </div>
         </div>
       ) : null}
 		{scope === "commercial-products" || scope === "used-devices" ? <div className="rounded-control border border-tec-border/15 bg-tec-field/35 px-4 py-3 text-sm text-tec-subtle"><strong className="text-white">{scope === "used-devices" ? "Itens únicos do trade-in" : "Prateleira com variações"}</strong><span className="ml-2">{scope === "used-devices" ? "Cada aparelho usa o Item serializado já criado no trade-in; estoque unitário no Comercial." : "Cada linha é uma variação nativa, com SKU, GTIN e estoque próprios."}</span></div> : null}
+		{scope === "repair-parts" && canEditRepairParts ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-card bg-tec-field/35 p-4"><div><h2 className="text-lg font-bold text-white">Cadastro de peças</h2><p className="mt-1 text-sm text-tec-subtle">Modelo e compatibilidade ficam no cadastro; custo não é exposto nesta tela.</p></div><Button icon={<Plus size={16} />} onClick={() => setRegistryEditor({ kind: "repair_part" })} variant="primary">Cadastrar peça</Button></div> : null}
       <LookupCard
         columns={columns}
         emptyLabel={status === "error" ? "Falha ao consultar estoque." : "Nenhum item encontrado."}
@@ -6765,6 +6811,19 @@ function StockLookup({
       ) : null}
 		{isCommercialCatalog && canManageVariantProducts ? <VariantProductModal onClose={() => setVariantRegistrationOpen(false)} onCreated={(message) => { onToast(message); void search(""); }} open={variantRegistrationOpen} /> : null}
 		<ListingMetadataModal item={listingItem} onClose={() => setListingItem(null)} onSaved={(item) => { setListingEntries((current) => current.map((entry) => entry.item_code === item.item_code ? item : entry)); onToast("Dados de anúncio atualizados."); }} open={Boolean(listingItem)} />
+		<RegistryEditorModal
+			kind={registryEditor?.kind ?? "repair_part"}
+			name={registryEditor?.name}
+			onClose={() => setRegistryEditor(null)}
+			onSaved={(updated) => {
+				if (!("item_code" in updated)) return;
+				const item = updated;
+				setRows((current) => current.map((row) => row.item_code === item.item_code ? { ...row, item_name: item.item_name, item_group: item.item_group, barcode: item.barcode } : row));
+				void search("");
+				onToast(registryEditor?.name ? "Cadastro do item atualizado." : "Peça cadastrada.");
+			}}
+			open={Boolean(registryEditor)}
+		/>
 		<Modal
 			onClose={() => setTransferItem(null)}
 			open={Boolean(transferItem)}
