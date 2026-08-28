@@ -27,6 +27,7 @@ PENDING_STATUS = "Pendente"
 TOKEN_TTL_HOURS = 24
 MAX_SELFIE_BYTES = 5 * 1024 * 1024
 MAX_SIGNATURE_BYTES = 2 * 1024 * 1024
+MAX_PHYSICAL_EVIDENCE_BYTES = 10 * 1024 * 1024
 LGPD_CONSENT_VERSION = "TECPONTO-ACEITE-1.0"
 EVIDENCE_AUDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 
@@ -59,6 +60,7 @@ def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str 
 			"doctype": "OS Acceptance",
 			"service_order": order.name,
 			"acceptance_type": acceptance_type,
+			"acceptance_method": "Digital",
 			"signer_role": signer_role,
 			"status": PENDING_STATUS,
 			"token_hash": _token_hash(token),
@@ -84,6 +86,88 @@ def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str 
 		"link": link,
 		"qr_svg": f"data:image/svg+xml;base64,{qr_svg}",
 	}
+
+
+def record_physical_acceptance(
+	service_order: str,
+	acceptance_type: str,
+	file_data: str,
+	file_name: str,
+	*,
+	inoperative_term_consent: int | bool = False,
+	customer_part_term_consent: int | bool = False,
+) -> dict:
+	"""Archive a real signed paper copy as a private, immutable acceptance evidence.
+
+	This deliberately never manufactures digital evidence: no selfie, signature
+	canvas or LGPD consent fields are populated for the physical method.
+	"""
+	service_order = (service_order or "").strip()
+	acceptance_type = (acceptance_type or "").strip()
+	if acceptance_type not in ACCEPTANCE_TYPES:
+		frappe.throw(_("Tipo de aceite inválido."), frappe.ValidationError)
+	order = frappe.get_doc("Service Order", service_order)
+	order.check_permission("read")
+	content, extension = _decode_physical_evidence(file_data, file_name)
+	term = build_inoperative_device_term(order) if acceptance_type == "Entrada" and requires_inoperative_device_term(order) else None
+	customer_part_term = build_customer_supplied_part_term(order) if acceptance_type == "Orçamento" and requires_customer_supplied_part_term(order) else None
+	if term and not frappe.utils.cint(inoperative_term_consent):
+		frappe.throw(_("Confirme o termo adicional antes de arquivar o aceite físico."), frappe.ValidationError)
+	if customer_part_term and not frappe.utils.cint(customer_part_term_consent):
+		frappe.throw(_("Confirme o termo da peça do cliente antes de arquivar o aceite físico."), frappe.ValidationError)
+
+	# A physical copy supersedes only a pending copy of the same legal action.
+	frappe.db.set_value(
+		"OS Acceptance",
+		{"service_order": order.name, "acceptance_type": acceptance_type, "status": PENDING_STATUS},
+		"status",
+		"Invalidado",
+		update_modified=False,
+	)
+	previous_user = frappe.session.user
+	try:
+		# The authenticated operator is authorized for this single private file,
+		# scoped to the selected OS.  It is not a guest upload path.
+		frappe.set_user("Administrator")
+		file_doc = save_file(
+			f"aceite-fisico-{order.name}-{secrets.token_hex(6)}.{extension}",
+			content,
+			dt="Service Order",
+			dn=order.name,
+			is_private=1,
+		)
+	finally:
+		if previous_user:
+			frappe.set_user(previous_user)
+	_assert_private_evidence_file(file_doc, order.name, "via física assinada")
+	accepted_on = now_datetime()
+	doc = frappe.get_doc(
+		{
+			"doctype": "OS Acceptance",
+			"service_order": order.name,
+			"acceptance_type": acceptance_type,
+			"acceptance_method": "Físico",
+			"signer_role": "Dono",
+			"status": "Concluído",
+			"token_hash": _token_hash(secrets.token_urlsafe(32)),
+			"expires_on": accepted_on,
+			"issued_by": previous_user or "Administrator",
+			"physical_evidence_file": file_doc.name,
+			"physical_evidence_hash": hashlib.sha256(content).hexdigest(),
+			"physical_collected_by": previous_user or "Administrator",
+			"physical_collected_on": accepted_on,
+			"inoperative_device_term_version": term["version"] if term else "",
+			"inoperative_device_term_text": term["text"] if term else "",
+			"inoperative_device_term_accepted_on": accepted_on if term else None,
+			"customer_part_term_version": customer_part_term["version"] if customer_part_term else "",
+			"customer_part_term_text": customer_part_term["text"] if customer_part_term else "",
+			"customer_part_term_accepted_on": accepted_on if customer_part_term else None,
+			"used_on": accepted_on,
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	_assert_acceptance_evidence(doc)
+	return {"completed": True, "acceptance": doc.name, "acceptance_type": acceptance_type, "method": "physical"}
 
 
 def issue_budget_acceptance_from_tracking(tracking, identity_document: str) -> dict:
@@ -115,6 +199,7 @@ def issue_budget_acceptance_from_tracking(tracking, identity_document: str) -> d
 			"doctype": "OS Acceptance",
 			"service_order": order.name,
 			"acceptance_type": "Orçamento",
+			"acceptance_method": "Digital",
 			"signer_role": "Dono",
 			"status": PENDING_STATUS,
 			"token_hash": _token_hash(token),
@@ -168,6 +253,7 @@ def issue_portal_acceptance(tracking, acceptance_type: str, identity_document: s
 			"doctype": "OS Acceptance",
 			"service_order": order.name,
 			"acceptance_type": acceptance_type,
+			"acceptance_method": "Digital",
 			"signer_role": "Dono",
 			"status": PENDING_STATUS,
 			"token_hash": _token_hash(token),
@@ -368,6 +454,25 @@ def assert_completed_acceptance_evidence(service_order: str, acceptance_type: st
 	_assert_acceptance_evidence(acceptance)
 
 
+def has_completed_physical_acceptance(service_order: str, acceptance_type: str) -> bool:
+	"""Return true only for an intact archived paper acceptance."""
+	name = frappe.db.get_value(
+		"OS Acceptance",
+		{
+			"service_order": service_order,
+			"acceptance_type": acceptance_type,
+			"acceptance_method": "Físico",
+			"status": "Concluído",
+		},
+		"name",
+		order_by="used_on desc",
+	)
+	if not name:
+		return False
+	_assert_acceptance_evidence(frappe.get_doc("OS Acceptance", name))
+	return True
+
+
 def assert_completed_inoperative_device_term(service_order: str) -> None:
 	"""Require the extra legal acknowledgement when the entry condition demands it."""
 	acceptance_name = frappe.db.get_value(
@@ -441,6 +546,14 @@ def audit_completed_acceptance_evidence(service_order: str | None = None) -> dic
 
 
 def _assert_acceptance_evidence(acceptance) -> None:
+	if acceptance.get("acceptance_method") == "Físico":
+		file_doc = _assert_private_evidence_file(acceptance.physical_evidence_file, acceptance.service_order, "via física assinada")
+		if not acceptance.get("physical_evidence_hash"):
+			frappe.throw(_("O hash da via física assinada não está disponível."), frappe.ValidationError)
+		with open(file_doc.get_full_path(), "rb") as evidence_file:
+			if hashlib.sha256(evidence_file.read()).hexdigest() != acceptance.physical_evidence_hash:
+				frappe.throw(_("A integridade da via física assinada não pôde ser confirmada."), frappe.ValidationError)
+		return
 	_assert_private_evidence_file(acceptance.signature_file, acceptance.service_order, "assinatura")
 	if not frappe.utils.cint(acceptance.selfie_exception):
 		_assert_private_evidence_file(acceptance.selfie_file, acceptance.service_order, "selfie")
@@ -459,7 +572,6 @@ def _assert_private_evidence_file(file_reference, service_order: str, evidence_l
 			_("A prova de {0} não está disponível. Gere um novo link de aceite.").format(evidence_label),
 			frappe.ValidationError,
 		)
-
 	file_doc = file_reference if getattr(file_reference, "doctype", None) == "File" else frappe.get_doc("File", file_reference)
 	if (
 		not file_doc.is_private
@@ -471,6 +583,7 @@ def _assert_private_evidence_file(file_reference, service_order: str, evidence_l
 			_("A prova de {0} não pôde ser validada. Gere um novo link de aceite.").format(evidence_label),
 			frappe.ValidationError,
 		)
+	return file_doc
 
 
 def _get_valid_acceptance(token: str):
@@ -579,3 +692,25 @@ def _decode_signature(signature_data: str) -> dict:
 	if len(content) < 256 or len(content) > MAX_SIGNATURE_BYTES or not content.startswith(b"\x89PNG\r\n\x1a\n"):
 		frappe.throw(_("A assinatura capturada é inválida."), frappe.ValidationError)
 	return {"content": content, "data_url": signature_data}
+
+
+def _decode_physical_evidence(file_data: str, file_name: str) -> tuple[bytes, str]:
+	"""Allow a scanned physical signature as JPEG, PNG or PDF only."""
+	if not isinstance(file_data, str) or ";base64," not in file_data:
+		frappe.throw(_("Envie a foto ou PDF da via física assinada."), frappe.ValidationError)
+	prefix, encoded = file_data.split(";base64,", 1)
+	allowed = {
+		"data:image/jpeg": ("jpg", b"\xff\xd8\xff"),
+		"data:image/png": ("png", b"\x89PNG\r\n\x1a\n"),
+		"data:application/pdf": ("pdf", b"%PDF-"),
+	}
+	if prefix not in allowed:
+		frappe.throw(_("A via física deve ser JPEG, PNG ou PDF."), frappe.ValidationError)
+	try:
+		content = b64decode(encoded, validate=True)
+	except ValueError:
+		frappe.throw(_("O arquivo da via física é inválido."), frappe.ValidationError)
+	extension, magic = allowed[prefix]
+	if len(content) < 128 or len(content) > MAX_PHYSICAL_EVIDENCE_BYTES or not content.startswith(magic):
+		frappe.throw(_("O arquivo da via física é inválido."), frappe.ValidationError)
+	return content, extension

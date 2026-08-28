@@ -111,6 +111,8 @@ from tecponto_app.tecponto.acceptance import (
 	assert_completed_inoperative_device_term,
 	complete_public_acceptance,
 	get_public_acceptance,
+	has_completed_physical_acceptance,
+	record_physical_acceptance,
 	save_public_acceptance_selfie,
 )
 from tecponto_app.tecponto.tracking import (
@@ -613,6 +615,13 @@ def run_print_document_checks() -> dict:
 		for name in (PF_TERMO_ENTRADA, PF_TERMO_RETIRADA, PF_OS_ORCAMENTO, PF_OS_ORCAMENTO_DISCRIMINADO, PF_LAUDO_TECNICO, PF_TERMO_GARANTIA, PF_TERMO_PECA_CLIENTE, PF_ETIQUETA_QR, PF_ETIQUETA_INTERNA, PF_TERMO_APARELHO_PAGAMENTO):
 			if not frappe.db.exists("Print Format", name):
 				raise AssertionError(f"Formato de impressão {name} não foi provisionado.")
+			print_format = frappe.get_doc("Print Format", name)
+			if name not in {PF_ETIQUETA_QR, PF_ETIQUETA_INTERNA} and (
+				"tp.qr_code" not in print_format.html or "Acompanhe sua OS" not in print_format.html
+			):
+				raise AssertionError(f"{name} não recebeu o QR comum de acompanhamento da OS.")
+			if 'font-family: "Space Grotesk"' not in print_format.css:
+				raise AssertionError(f"{name} não recebeu a base visual configurada da marca.")
 		for name in (POS_RECEIPT_PRINT_FORMAT, POS_RECEIPT_58_PRINT_FORMAT, POS_BARCODE_LABEL_PRINT_FORMAT):
 			if not frappe.db.exists("Print Format", name):
 				raise AssertionError(f"Formato de etiqueta/cupom {name} não foi provisionado.")
@@ -625,6 +634,7 @@ def run_print_document_checks() -> dict:
 			"closed_quote": True,
 			"itemized_quote_sale_prices_only": True,
 			"warranty_from_pickup": True,
+			"portal_qr_on_all_documents": True,
 			"formats_provisioned": len(rendered) + 3,
 		}
 	finally:
@@ -3688,6 +3698,56 @@ def run_public_acceptance_checks() -> dict:
 		if not token_reuse_blocked:
 			raise AssertionError("Token concluído foi reutilizado.")
 
+		# A paper acceptance is a different proof: it has one private scanned copy
+		# and hash, never forged selfie/signature fields from the digital flow.
+		frappe.set_user(attendant)
+		physical_order = _create_action_request_service_order(attendant)
+		physical = record_physical_acceptance(
+			physical_order,
+			"Entrada",
+			camera_selfie,
+			"aceite-entrada.jpg",
+		)
+		physical_doc = frappe.get_doc("OS Acceptance", physical["acceptance"])
+		physical_file = frappe.get_doc("File", physical_doc.physical_evidence_file)
+		if (
+			physical_doc.acceptance_method != "Físico"
+			or physical_doc.selfie_file
+			or physical_doc.signature_file
+			or not physical_doc.physical_evidence_hash
+			or not physical_doc.physical_collected_by
+			or not physical_file.is_private
+			or physical_file.attached_to_name != physical_order
+			or not has_completed_physical_acceptance(physical_order, "Entrada")
+		):
+			raise AssertionError("Aceite físico não preservou sua própria evidência privada e distinta do aceite digital.")
+		from tecponto_app.tecponto.service_order.aceites import validate_aceites
+
+		physical_order_doc = frappe.get_doc("Service Order", physical_order)
+		physical_order_doc.entry_photos = "Foto de entrada registrada no balcão."
+		physical_order_doc.workflow_state = "Em diagnóstico"
+		validate_aceites(physical_order_doc)
+		physical_missing_file_blocked = False
+		physical_path = physical_file.get_full_path()
+		quarantined_physical_path = f"{physical_path}.integrity-check"
+		os.replace(physical_path, quarantined_physical_path)
+		try:
+			try:
+				has_completed_physical_acceptance(physical_order, "Entrada")
+			except frappe.ValidationError:
+				physical_missing_file_blocked = True
+		finally:
+			os.replace(quarantined_physical_path, physical_path)
+		if not physical_missing_file_blocked:
+			raise AssertionError("Aceite físico foi aceito sem a via assinada presente no disco.")
+		physical_upload_blocked = False
+		try:
+			record_physical_acceptance(physical_order, "Retirada", "data:text/plain;base64,aGVsbG8=", "aceite.txt")
+		except frappe.ValidationError:
+			physical_upload_blocked = True
+		if not physical_upload_blocked:
+			raise AssertionError("Aceite físico aceitou arquivo fora de JPEG, PNG ou PDF.")
+
 		# An attendant cannot skip the selfie. A Gestor may approve only a documented exception,
 		# after which signature and LGPD consent remain mandatory.
 		frappe.set_user(attendant)
@@ -3804,6 +3864,8 @@ def run_public_acceptance_checks() -> dict:
 			"reissued_token_invalidated": True,
 			"invalid_token_blocked": not invalid.get("valid"),
 			"expired_token_blocked": not expired.get("valid"),
+			"physical_acceptance_private_and_distinct": True,
+			"physical_acceptance_satisfies_entry_gate": True,
 		}
 	finally:
 		frappe.set_user(previous_user)

@@ -48,12 +48,10 @@ def _validate_entry_acceptance(doc) -> None:
 	if not doc.get("entry_photos"):
 		frappe.throw("Foto de entrada e obrigatoria antes de iniciar o atendimento.")
 
-	if doc.meta.has_field("entry_signature") and not doc.get("entry_signature"):
-		frappe.throw("Assinatura de entrada e obrigatoria antes de iniciar o atendimento.")
-
 	from tecponto_app.tecponto.acceptance import (
 		assert_completed_acceptance_evidence,
 		assert_completed_inoperative_device_term,
+		has_completed_physical_acceptance,
 	)
 	from tecponto_app.tecponto.service_order.inoperative_device import (
 		requires_inoperative_device_term,
@@ -64,6 +62,8 @@ def _validate_entry_acceptance(doc) -> None:
 		"Entrada",
 		required=bool(doc.get("link_acceptance_required")),
 	)
+	if doc.meta.has_field("entry_signature") and not doc.get("entry_signature") and not has_completed_physical_acceptance(doc.name, "Entrada"):
+		frappe.throw("Assinatura de entrada ou via física arquivada é obrigatória antes de iniciar o atendimento.")
 	if requires_inoperative_device_term(doc):
 		assert_completed_inoperative_device_term(doc.name)
 
@@ -132,16 +132,15 @@ def _validate_delivery_acceptance(doc) -> None:
 	if not doc.get("is_warranty") and (doc.get("sales_invoice") or not doc.get("pickup_without_repair")):
 		_exigir_nota_paga(doc)
 
-	if not doc.get("customer_signature"):
-		frappe.throw("Assinatura de retirada e obrigatoria.")
-
-	from tecponto_app.tecponto.acceptance import assert_completed_acceptance_evidence
+	from tecponto_app.tecponto.acceptance import assert_completed_acceptance_evidence, has_completed_physical_acceptance
 
 	assert_completed_acceptance_evidence(
 		doc.name,
 		"Retirada",
 		required=bool(doc.get("link_acceptance_required")),
 	)
+	if not doc.get("customer_signature") and not has_completed_physical_acceptance(doc.name, "Retirada"):
+		frappe.throw("Assinatura de retirada ou via física arquivada é obrigatória.")
 
 	# Delivery is the legal and operational start of a normal warranty. The
 	# resulting dates are written once, so later settings changes cannot rewrite

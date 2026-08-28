@@ -137,6 +137,9 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
   const [thirdPartyAuthorized, setThirdPartyAuthorized] = useState(false);
   const [notes, setNotes] = useState("");
   const [acceptance, setAcceptance] = useState<AcceptanceIssueResponse | null>(null);
+	const [physicalAcceptanceName, setPhysicalAcceptanceName] = useState<string | null>(null);
+	const [physicalFile, setPhysicalFile] = useState<File | null>(null);
+	const [physicalConfirmed, setPhysicalConfirmed] = useState(false);
   const [exceptionRequestOpen, setExceptionRequestOpen] = useState(false);
   const [exceptionRequestSent, setExceptionRequestSent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -152,6 +155,9 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
     setThirdPartyAuthorized(false);
     setNotes("");
     setAcceptance(null);
+		setPhysicalAcceptanceName(null);
+		setPhysicalFile(null);
+		setPhysicalConfirmed(false);
     setExceptionRequestOpen(false);
     setExceptionRequestSent(null);
     setError(null);
@@ -160,7 +166,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
 
   const termLink = detail.print_links.find((link) => link.label === "Termo de retirada");
   const canPrepare = !thirdParty || (pickedUpBy.trim() && pickedUpDoc.trim() && thirdPartyAuthorized);
-  const canSubmit = Boolean(acceptance) && canPrepare;
+  const canSubmit = Boolean(acceptance || physicalAcceptanceName) && canPrepare;
 
   async function copyAcceptanceLink() {
     if (!acceptance) return;
@@ -196,10 +202,48 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
     }
   }
 
+	async function archivePhysicalAcceptance() {
+		setError(null);
+		if (!canPrepare || !physicalFile || !physicalConfirmed) {
+			setError("Selecione a via física assinada e confirme a coleta antes de arquivar.");
+			return;
+		}
+		setSubmitting(true);
+		try {
+			const prepared = await serviceOrders.preparePickup(detail.name, {
+				picked_up_by: pickedUpBy.trim(),
+				picked_up_doc: pickedUpDoc.trim(),
+				pickup_notes: notes.trim(),
+				third_party: thirdParty,
+				third_party_auth: thirdParty && thirdPartyAuthorized ? "Autorização de retirada por terceiro confirmada no balcão." : "",
+			});
+			const fileData = await new Promise<string>((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Arquivo inválido."));
+				reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+				reader.readAsDataURL(physicalFile);
+			});
+			const archived = await balcao.recordPhysicalAcceptance({
+				service_order: detail.name,
+				acceptance_type: "Retirada",
+				file_data: fileData,
+				file_name: physicalFile.name,
+				term_confirmed: physicalConfirmed,
+			});
+			setPhysicalAcceptanceName(archived.acceptance);
+			onUpdated(prepared);
+		} catch (caught) {
+			setError(caught instanceof Error ? friendlyPickupError(caught.message) : "Falha ao arquivar a via física assinada.");
+		} finally {
+			setSubmitting(false);
+		}
+	}
+
   async function submit() {
     setError(null);
-    if (!acceptance) {
-      setError("Gere e conclua o aceite por link antes de entregar.");
+		const acceptanceName = acceptance?.acceptance || physicalAcceptanceName;
+		if (!acceptanceName) {
+		setError("Gere o aceite digital ou arquive a via física assinada antes de entregar.");
       return;
     }
     if (thirdParty && (!pickedUpBy.trim() || !pickedUpDoc.trim() || !thirdPartyAuthorized)) {
@@ -208,7 +252,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
     }
 
     const payload: PickupPayload = {
-      acceptance_name: acceptance.acceptance,
+		acceptance_name: acceptanceName,
       picked_up_by: pickedUpBy.trim(),
       picked_up_doc: pickedUpDoc.trim(),
       pickup_notes: notes.trim(),
@@ -287,7 +331,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
                   {exceptionRequestSent ? <p className="rounded-card border border-tec-success/30 bg-tec-success/10 p-3 text-xs text-tec-success">{exceptionRequestSent}</p> : null}
                 </div>
               </div>
-            ) : <Button className="mt-4" disabled={!canPrepare || submitting} icon={<QrCode size={17} />} onClick={() => void prepareAcceptance()} variant="primary">{submitting ? "Gerando..." : "Gerar link e QR de retirada"}</Button>}
+					) : <div className="mt-4 space-y-4"><Button disabled={!canPrepare || submitting} icon={<QrCode size={17} />} onClick={() => void prepareAcceptance()} variant="primary">{submitting ? "Gerando..." : "Gerar link e QR de retirada"}</Button><div className="rounded-card border border-tec-border/20 bg-tec-surface p-3"><p className="text-sm font-bold text-white">Ou arquivar via física assinada</p><p className="mt-1 text-xs text-tec-muted">Foto JPEG/PNG ou PDF privado, com hash e identificação de quem coletou.</p><input accept="image/jpeg,image/png,application/pdf" className="tp-input mt-3 w-full" onChange={(event) => setPhysicalFile(event.target.files?.[0] ?? null)} type="file" /><label className="mt-3 flex items-start gap-2 text-xs leading-5 text-tec-subtle"><input checked={physicalConfirmed} className="mt-1" onChange={(event) => setPhysicalConfirmed(event.target.checked)} type="checkbox" />Confirmo que esta é a folha impressa assinada pelo cliente.</label><Button className="mt-3" disabled={!canPrepare || !physicalFile || !physicalConfirmed || submitting} icon={<FileText size={16} />} onClick={() => void archivePhysicalAcceptance()} variant="secondary">Arquivar via física</Button></div></div>}
           </div>
           {error ? <ErrorBox message={error} /> : null}
         </section>

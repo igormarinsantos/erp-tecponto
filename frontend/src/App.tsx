@@ -5583,10 +5583,14 @@ function AcceptanceLinkModal({
 }) {
 	const [result, setResult] = useState<AcceptanceIssueResponse | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [physicalFile, setPhysicalFile] = useState<File | null>(null);
+	const [physicalConfirmed, setPhysicalConfirmed] = useState(false);
 
 	useEffect(() => {
 		setResult(null);
 		setBusy(false);
+		setPhysicalFile(null);
+		setPhysicalConfirmed(false);
 	}, [acceptanceType, serviceOrder]);
 
 	const issue = async () => {
@@ -5598,6 +5602,32 @@ function AcceptanceLinkModal({
 			onToast("Link de aceite gerado. Ele expira em 24 horas.");
 		} catch (error) {
 			onToast(error instanceof Error ? error.message : "Não foi possível gerar o link de aceite.", "error");
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const archivePhysical = async () => {
+		if (!acceptanceType || !physicalFile) return;
+		setBusy(true);
+		try {
+			const fileData = await new Promise<string>((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Arquivo inválido."));
+				reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+				reader.readAsDataURL(physicalFile);
+			});
+			await balcao.recordPhysicalAcceptance({
+				service_order: serviceOrder,
+				acceptance_type: acceptanceType,
+				file_data: fileData,
+				file_name: physicalFile.name,
+				term_confirmed: physicalConfirmed,
+			});
+			onToast("Aceite físico arquivado como evidência privada da OS.");
+			onClose();
+		} catch (error) {
+			onToast(error instanceof Error ? error.message : "Não foi possível arquivar a via física.", "error");
 		} finally {
 			setBusy(false);
 		}
@@ -5625,7 +5655,11 @@ function AcceptanceLinkModal({
 					<div className="flex justify-end gap-2"><Button onClick={copyLink} variant="secondary">Copiar link</Button><Button onClick={onClose} variant="primary">Concluir</Button></div>
 				</div>
 			) : (
-				<div className="space-y-4"><p className="text-sm leading-6 text-tec-subtle">O cliente verá somente o resumo da OS e a minuta de privacidade. Nenhum dado do atendimento poderá ser alterado por este link.</p><Button disabled={busy} icon={<QrCode size={17} />} onClick={() => void issue()} variant="primary">{busy ? "Gerando..." : "Gerar link e QR"}</Button></div>
+				<div className="space-y-5">
+					<p className="text-sm leading-6 text-tec-subtle">Escolha como a evidência será coletada. O link digital exige selfie, assinatura e consentimento; a via física preserva somente a folha realmente assinada pelo cliente.</p>
+					<div className="rounded-card border border-tec-border/20 bg-tec-field p-4"><h3 className="text-sm font-bold text-tec-text">Aceite digital</h3><p className="mt-1 text-xs text-tec-subtle">QR de uso único para captura ao vivo e assinatura.</p><Button className="mt-3" disabled={busy} icon={<QrCode size={17} />} onClick={() => void issue()} variant="primary">{busy ? "Gerando..." : "Gerar link e QR"}</Button></div>
+					<div className="rounded-card border border-tec-border/20 bg-tec-field p-4"><h3 className="text-sm font-bold text-tec-text">Aceite físico arquivado</h3><p className="mt-1 text-xs text-tec-subtle">Envie a foto ou PDF da folha impressa e assinada. O arquivo fica privado e recebe hash de integridade.</p><input accept="image/jpeg,image/png,application/pdf" className="tp-input mt-3 w-full" onChange={(event) => setPhysicalFile(event.target.files?.[0] ?? null)} type="file" /><label className="mt-3 flex items-start gap-2 text-xs leading-5 text-tec-subtle"><input checked={physicalConfirmed} className="mt-1" onChange={(event) => setPhysicalConfirmed(event.target.checked)} type="checkbox" />Confirmo que esta é a via física assinada pelo cliente e que os termos aplicáveis foram apresentados.</label><Button className="mt-3" disabled={busy || !physicalFile || !physicalConfirmed} icon={<FileText size={17} />} onClick={() => void archivePhysical()} variant="secondary">Arquivar via física</Button></div>
+				</div>
 			)}
 		</Modal>
 	);

@@ -1127,6 +1127,28 @@ def issue_os_acceptance(service_order: str, acceptance_type: str, signer_role: s
 
 
 @frappe.whitelist()
+def record_os_physical_acceptance(
+	service_order: str,
+	acceptance_type: str,
+	file_data: str,
+	file_name: str = "aceite-fisico.jpg",
+	term_confirmed: int | bool = False,
+) -> dict[str, Any]:
+	"""Archive an authenticated attendant's real signed paper copy."""
+	_require_attendant_flow_role()
+	from tecponto_app.tecponto.acceptance import record_physical_acceptance
+
+	return record_physical_acceptance(
+		service_order,
+		acceptance_type,
+		file_data,
+		file_name,
+		inoperative_term_consent=term_confirmed,
+		customer_part_term_consent=term_confirmed,
+	)
+
+
+@frappe.whitelist()
 def get_service_order_detail(name: str) -> dict[str, Any]:
 	_require_frontend_role()
 	name = (name or "").strip()
@@ -1917,8 +1939,9 @@ def complete_service_order_pickup(name: str, payload: str | dict[str, Any] | Non
 	acceptance = frappe.get_doc("OS Acceptance", acceptance_name)
 	if acceptance.service_order != doc.name or acceptance.acceptance_type != "Retirada" or acceptance.status != "Concluído":
 		frappe.throw(_("O aceite de retirada ainda não foi concluído pelo cliente."), frappe.ValidationError)
-	if not doc.get("customer_signature"):
-		frappe.throw(_("A assinatura de retirada ainda não foi registrada."), frappe.ValidationError)
+	from tecponto_app.tecponto.acceptance import has_completed_physical_acceptance
+	if not doc.get("customer_signature") and not has_completed_physical_acceptance(doc.name, "Retirada"):
+		frappe.throw(_("A assinatura de retirada ou via física arquivada ainda não foi registrada."), frappe.ValidationError)
 
 	frappe.db.set_value(doc.doctype, doc.name, "pickup_date", now_datetime(), update_modified=False)
 	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), STATE_ENTREGUE)

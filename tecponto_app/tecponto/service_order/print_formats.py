@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from base64 import b64encode
 from io import BytesIO
+from urllib.parse import quote
 
 import frappe
-from frappe.utils import flt, fmt_money, format_datetime, formatdate, get_url_to_form
+from frappe.utils import flt, fmt_money, format_datetime, formatdate, get_url, get_url_to_form
 
 
 DOCTYPE_SERVICE_ORDER = "Service Order"
@@ -94,7 +95,8 @@ def get_service_order_print_context(doc) -> dict:
 		0,
 	)
 	withdrawal_total = max(service_total + used_parts_total - flt(doc.get("discount")), 0)
-	os_url = get_url_to_form(DOCTYPE_SERVICE_ORDER, doc.name)
+	portal_lookup_url = f"{get_url()}/tecponto/acompanhar?service_order={quote(doc.name)}"
+	internal_os_url = get_url_to_form(DOCTYPE_SERVICE_ORDER, doc.name)
 
 	return {
 		"company": get_company_identity(doc.get("company")),
@@ -124,17 +126,41 @@ def get_service_order_print_context(doc) -> dict:
 		"entry_operating_condition": doc.get("entry_operating_condition") or "Liga e permite teste",
 		"inoperative_device_term": _inoperative_term_context(doc) if requires_inoperative_device_term(doc) else None,
 		"customer_part_term": _customer_part_term_context(doc) if requires_customer_supplied_part_term(doc) else None,
+		"entry_acceptance": _acceptance_context(doc, "Entrada"),
+		"pickup_acceptance": _acceptance_context(doc, "Retirada"),
+		"budget_acceptance": _acceptance_context(doc, "Orçamento"),
 		"has_customer_supplied_part": bool(customer_parts),
 		"diagnosis_date": _date(doc.get("diagnosis_date")),
 		"pickup_date": _datetime(doc.get("pickup_date")),
 		"warranty_expiry": _date(doc.get("warranty_expiry")),
-		"os_url": os_url,
-		"qr_code": qr_code_data_uri(os_url),
+		"os_url": portal_lookup_url,
+		"internal_os_url": internal_os_url,
+		"qr_code": qr_code_data_uri(portal_lookup_url),
 		"is_without_repair": bool(doc.get("pickup_without_repair")) or doc.get("workflow_state")
 		in {"Reprovado", "Orçamento expirado", "Sem conserto", "Cancelado"},
 		"picked_up_by": doc.get("picked_up_by") or customer.get("name") or doc.get("customer"),
 		"picked_up_doc": doc.get("picked_up_doc"),
 		"third_party_name": doc.get("third_party_doc") if doc.get("picked_up_by_third_party") else None,
+	}
+
+
+def _acceptance_context(doc, acceptance_type: str) -> dict | None:
+	acceptance = frappe.db.get_value(
+		"OS Acceptance",
+		{"service_order": doc.name, "acceptance_type": acceptance_type, "status": "Concluído"},
+		["acceptance_method", "signer_name", "used_on", "physical_collected_by", "physical_collected_on"],
+		as_dict=True,
+		order_by="used_on desc",
+	)
+	if not acceptance:
+		return None
+	method = acceptance.get("acceptance_method") or "Digital"
+	return {
+		"method": method,
+		"signer_name": acceptance.get("signer_name") or doc.get("picked_up_by") or "Cliente",
+		"accepted_on": _datetime(acceptance.get("used_on")),
+		"collected_by": acceptance.get("physical_collected_by") or "",
+		"collected_on": _datetime(acceptance.get("physical_collected_on")),
 	}
 
 
@@ -326,17 +352,31 @@ def _print_format_definitions():
 	common_css = _common_css()
 	label_css = common_css + _label_css()
 	return (
-		(PF_TERMO_ENTRADA, DOCTYPE_SERVICE_ORDER, _termo_entrada_html(), common_css, _a4_margins()),
-		(PF_TERMO_RETIRADA, DOCTYPE_SERVICE_ORDER, _termo_retirada_html(), common_css, _a4_margins()),
-		(PF_OS_ORCAMENTO, DOCTYPE_SERVICE_ORDER, _os_orcamento_html(), common_css, _a4_margins()),
-		(PF_OS_ORCAMENTO_DISCRIMINADO, DOCTYPE_SERVICE_ORDER, _os_orcamento_discriminado_html(), common_css, _a4_margins()),
-		(PF_LAUDO_TECNICO, DOCTYPE_SERVICE_ORDER, _laudo_tecnico_html(), common_css, _a4_margins()),
-		(PF_TERMO_GARANTIA, DOCTYPE_SERVICE_ORDER, _termo_garantia_html(), common_css, _a4_margins()),
-		(PF_TERMO_PECA_CLIENTE, DOCTYPE_SERVICE_ORDER, _termo_peca_cliente_html(), common_css, _a4_margins()),
+		(PF_TERMO_ENTRADA, DOCTYPE_SERVICE_ORDER, _with_document_qr(_termo_entrada_html()), common_css, _a4_margins()),
+		(PF_TERMO_RETIRADA, DOCTYPE_SERVICE_ORDER, _with_document_qr(_termo_retirada_html()), common_css, _a4_margins()),
+		(PF_OS_ORCAMENTO, DOCTYPE_SERVICE_ORDER, _with_document_qr(_os_orcamento_html()), common_css, _a4_margins()),
+		(PF_OS_ORCAMENTO_DISCRIMINADO, DOCTYPE_SERVICE_ORDER, _with_document_qr(_os_orcamento_discriminado_html()), common_css, _a4_margins()),
+		(PF_LAUDO_TECNICO, DOCTYPE_SERVICE_ORDER, _with_document_qr(_laudo_tecnico_html()), common_css, _a4_margins()),
+		(PF_TERMO_GARANTIA, DOCTYPE_SERVICE_ORDER, _with_document_qr(_termo_garantia_html()), common_css, _a4_margins()),
+		(PF_TERMO_PECA_CLIENTE, DOCTYPE_SERVICE_ORDER, _with_document_qr(_termo_peca_cliente_html()), common_css, _a4_margins()),
 		(PF_ETIQUETA_QR, DOCTYPE_SERVICE_ORDER, _etiqueta_qr_html(), label_css, {"top": 4, "bottom": 4, "left": 4, "right": 4}),
 		(PF_ETIQUETA_INTERNA, DOCTYPE_SERVICE_ORDER, _etiqueta_interna_html(), label_css, {"top": 4, "bottom": 4, "left": 4, "right": 4}),
-		(PF_TERMO_APARELHO_PAGAMENTO, PAYMENT_DOCTYPE, _termo_aparelho_pagamento_html(), common_css, _a4_margins()),
+		(PF_TERMO_APARELHO_PAGAMENTO, PAYMENT_DOCTYPE, _with_document_qr(_termo_aparelho_pagamento_html()), common_css, _a4_margins()),
 	)
+
+
+def _with_document_qr(html: str) -> str:
+	"""Add the same public portal QR to every A4 document without duplicating markup."""
+	qr = '''
+  <aside class="tp-document-qr">
+    <img src="{{ tp.qr_code }}" alt="QR Code para acompanhar a OS">
+    <div><strong>Acompanhe sua OS</strong><br><span>Escaneie para abrir o portal seguro.</span></div>
+  </aside>
+'''
+	if "<footer>" in html:
+		return html.replace("<footer>", qr + "<footer>")
+	position = html.rfind("</div>")
+	return f"{html[:position]}{qr}{html[position:]}" if position >= 0 else f"{html}{qr}"
 
 
 def _a4_margins() -> dict:
@@ -405,6 +445,12 @@ def _termo_entrada_html() -> str:
 
   {% if doc.entry_signature %}
     <img class="tp-signature-img" src="{{ doc.entry_signature }}" alt="Assinatura de entrada do cliente">
+  {% endif %}
+  {% if tp.entry_acceptance %}
+  <section class="tp-acceptance-stamp {% if tp.entry_acceptance.method == 'Físico' %}physical{% endif %}">
+    {% if tp.entry_acceptance.method == 'Físico' %}<strong>Via física assinada e arquivada</strong> em {{ tp.entry_acceptance.collected_on }} por {{ tp.entry_acceptance.collected_by }}.
+    {% else %}<strong>Aceito digitalmente</strong> por {{ tp.entry_acceptance.signer_name }}, em {{ tp.entry_acceptance.accepted_on }}. Evidências: selfie, assinatura e consentimento registrados.{% endif %}
+  </section>
   {% endif %}
   <div class="tp-signatures">
     <div><span></span><p>Assinatura do cliente</p></div>
@@ -496,6 +542,12 @@ def _termo_retirada_html() -> str:
 
   {% if doc.customer_signature %}
     <img class="tp-signature-img" src="{{ doc.customer_signature }}" alt="Assinatura do cliente">
+  {% endif %}
+  {% if tp.pickup_acceptance %}
+  <section class="tp-acceptance-stamp {% if tp.pickup_acceptance.method == 'Físico' %}physical{% endif %}">
+    {% if tp.pickup_acceptance.method == 'Físico' %}<strong>Via física assinada e arquivada</strong> em {{ tp.pickup_acceptance.collected_on }} por {{ tp.pickup_acceptance.collected_by }}.
+    {% else %}<strong>Aceito digitalmente</strong> por {{ tp.pickup_acceptance.signer_name }}, em {{ tp.pickup_acceptance.accepted_on }}. Evidências: selfie, assinatura e consentimento registrados.{% endif %}
+  </section>
   {% endif %}
   <div class="tp-signatures">
     <div><span></span><p>Assinatura de retirada</p></div>
@@ -727,7 +779,7 @@ def _etiqueta_interna_html() -> str:
     <p class="tp-password"><strong>Senha / padrão:</strong> {{ tp.device.password or "Não informada" }}</p>
   </div>
   <img src="{{ tp.qr_code }}" alt="QR Code interno da OS">
-  <div class="tp-url">USO INTERNO · {{ tp.os_url }}</div>
+  <div class="tp-url">USO INTERNO · {{ tp.internal_os_url }}</div>
 </div>
 """
 
@@ -735,20 +787,22 @@ def _etiqueta_interna_html() -> str:
 def _common_css() -> str:
 	return """
 .tp-print {
-  color: #1f2937;
+  color: #17202a;
+  font-family: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
   font-size: 12px;
   line-height: 1.45;
 }
 .tp-header {
   align-items: flex-start;
-  border-bottom: 2px solid #111827;
+  border-bottom: 3px solid #f05a22;
   display: flex;
   justify-content: space-between;
   margin-bottom: 14px;
   padding-bottom: 10px;
 }
 .tp-header h1 {
-  font-size: 22px;
+  font-size: 24px;
+  letter-spacing: 0;
   margin: 0 0 4px;
 }
 .tp-brand-logo {
@@ -776,12 +830,14 @@ def _common_css() -> str:
   grid-template-columns: 1fr 1fr;
 }
 .tp-print section {
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #d7dce1;
   margin-bottom: 12px;
   padding-bottom: 10px;
 }
 .tp-print h2 {
-  font-size: 14px;
+  color: #17202a;
+  font-size: 13px;
+  text-transform: uppercase;
   margin: 0 0 6px;
 }
 .tp-notice,
@@ -816,7 +872,7 @@ td {
   vertical-align: top;
 }
 th {
-  background: #f3f4f6;
+  background: #edf1f4;
   text-align: left;
 }
 .num {
@@ -849,6 +905,36 @@ th {
   display: block;
   max-height: 80px;
   max-width: 260px;
+}
+.tp-document-qr {
+  align-items: center;
+  background: #f7f9fa;
+  border: 1px solid #d7dce1;
+  display: flex;
+  font-size: 10px;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 8px;
+}
+.tp-document-qr img {
+  height: 42px;
+  width: 42px;
+}
+.tp-document-qr span {
+  color: #52606d;
+}
+.tp-acceptance-stamp {
+  background: #e9f8ef;
+  border: 1px solid #77c996 !important;
+  border-left: 4px solid #178c4a !important;
+  color: #155b35;
+  padding: 9px 10px !important;
+}
+.tp-acceptance-stamp.physical {
+  background: #fff8e7;
+  border-color: #e7bd58 !important;
+  border-left-color: #b7791f !important;
+  color: #704a10;
 }
 footer {
   border-top: 1px solid #e5e7eb;

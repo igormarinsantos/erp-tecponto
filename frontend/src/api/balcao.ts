@@ -70,6 +70,9 @@ export const balcao = {
 			body: { service_order: serviceOrder, acceptance_type: acceptanceType, signer_role: signerRole },
 		});
 	},
+	recordPhysicalAcceptance(payload: { service_order: string; acceptance_type: "Entrada" | "Retirada"; file_data: string; file_name: string; term_confirmed: boolean }) {
+		return rpc<{ completed: boolean; acceptance: string; acceptance_type: "Entrada" | "Retirada"; method: "physical" }>(`${API}.record_os_physical_acceptance`, { body: payload });
+	},
   searchCustomers(query = "", limit = 12) {
     return rpc<CustomerSearchResponse>(`${API}.search_customers`, {
       query: { query, limit },
