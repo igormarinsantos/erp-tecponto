@@ -90,6 +90,7 @@ export type {
 	ServiceOrderTradeinCandidate,
   ServiceOrderPrintLink,
   ServiceOrderSummary,
+	UnassignedServiceOrderResponse,
   ServiceOrderTimelineEvent,
   ServiceOrderWorkflowAction,
 	ServiceCatalogReference,

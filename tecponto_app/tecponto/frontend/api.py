@@ -697,6 +697,7 @@ ADMINISTRATION_SETTING_FIELDS = {
 	"storage_fee_start_days", "storage_fee_abandonment_days", "diagnosis_only_enabled",
 	"payment_advance_enabled", "payment_installments_enabled", "payment_device_tradein_enabled",
 	"default_warranty_days", "use_technician_commission", "commission_pct", "commission_labor_only",
+	"technician_assignment_mode", "unassigned_technician_alert_hours",
 }
 
 
@@ -748,6 +749,12 @@ def save_administration_settings(payload: str | dict[str, Any] | None = None) ->
 			value = max(0, flt(value))
 		elif field.endswith("_days"):
 			value = max(0, cint(value))
+		elif field == "unassigned_technician_alert_hours":
+			value = max(0, flt(value))
+		elif field == "technician_assignment_mode":
+			value = str(value or "").strip()
+			if value not in {"Pull", "Dispatch"}:
+				frappe.throw(_("Modo de atribuição inválido."), frappe.ValidationError)
 		elif field.startswith(("enable_", "payment_", "use_", "diagnosis_", "commission_")):
 			value = cint(value)
 		settings.set(field, value)
@@ -911,6 +918,48 @@ def list_service_orders(
 		"count": count,
 		"fields": list(SAFE_SERVICE_ORDER_FIELDS),
 	}
+
+
+@frappe.whitelist()
+def list_unassigned_service_orders(limit: int = 100) -> dict[str, Any]:
+	"""Dedicated safe queue; technicians only receive it while Pull is enabled."""
+	from tecponto_app.tecponto.service_order.assignment import list_unassigned
+
+	_require_frontend_role()
+	result = list_unassigned(frappe.session.user, limit=limit)
+	result["items"] = [
+		{
+			**_serialize_service_order(row),
+			"unassigned_waiting_hours": row.get("unassigned_waiting_hours"),
+			"unassigned_overdue": row.get("unassigned_overdue"),
+		}
+		for row in result["items"]
+	]
+	return result
+
+
+@frappe.whitelist()
+def claim_service_order(name: str) -> dict[str, Any]:
+	from tecponto_app.tecponto.service_order.assignment import claim
+
+	_require_frontend_role()
+	return claim(name, frappe.session.user)
+
+
+@frappe.whitelist()
+def assign_service_order(name: str, technician: str, observation: str = "") -> dict[str, Any]:
+	from tecponto_app.tecponto.service_order.assignment import assign
+
+	_require_frontend_role()
+	return assign(name, technician, frappe.session.user, observation=observation)
+
+
+@frappe.whitelist()
+def transfer_service_order(name: str, technician: str, observation: str = "") -> dict[str, Any]:
+	from tecponto_app.tecponto.service_order.assignment import transfer
+
+	_require_frontend_role()
+	return transfer(name, technician, frappe.session.user, observation=observation)
 
 
 @frappe.whitelist()
@@ -4230,6 +4279,23 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 			"tone": "blue",
 		}
 	]
+	if frappe.db.exists("DocType", "Tecponto Service Order Assignment Event"):
+		assignment_events = frappe.get_all(
+			"Tecponto Service Order Assignment Event",
+			filters={"service_order": doc.name},
+			fields=["event_type", "previous_technician", "new_technician", "performed_by", "observation", "occurred_at"],
+			order_by="occurred_at asc, creation asc",
+			limit_page_length=100,
+		)
+		for event in assignment_events:
+			labels = {"Claim": "OS assumida", "Assign": "Técnico atribuído", "Transfer": "OS transferida"}
+			if event.event_type == "Transfer":
+				detail = f"{event.previous_technician or 'Sem técnico'} → {event.new_technician}"
+			else:
+				detail = f"Técnico: {event.new_technician}"
+			if event.observation:
+				detail += f" · {event.observation}"
+			timeline.append({"title": labels.get(event.event_type, "Atribuição"), "detail": detail, "date": str(event.occurred_at or ""), "tone": "blue"})
 	if doc.get("problem_found") or doc.get("diagnosis_date"):
 		timeline.append(
 			{
@@ -4266,7 +4332,7 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 				"tone": "green",
 			}
 		)
-	return timeline
+	return sorted(timeline, key=lambda event: event.get("date") or "")
 
 
 def _get_quote_send_timeline_events(doc: Any) -> list[dict[str, str]]:

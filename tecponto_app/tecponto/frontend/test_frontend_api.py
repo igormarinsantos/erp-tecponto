@@ -66,6 +66,10 @@ from tecponto_app.tecponto.frontend.api import (
 	list_customer_devices,
 	list_my_commissions,
 	list_service_orders,
+	list_unassigned_service_orders,
+	claim_service_order,
+	assign_service_order,
+	transfer_service_order,
 	list_stock_items,
 	list_sales,
 	list_trade_evaluations,
@@ -296,6 +300,9 @@ def run_foundation_checks() -> dict:
 		technician_commission_check = run_technician_commission_checks()
 		lean_operation_check = run_lean_operation_checks()
 		operation_config_check = run_operation_config_checks()
+		technician_assignment_check = run_technician_assignment_checks(
+			users["Tecponto Gestor"], users["Tecponto Atendente"], users["Tecponto Tecnico"]
+		)
 		cash_session_check = run_cash_session_checks()
 		pos_cash_integration_check = run_pos_cash_integration_checks()
 		cash_closing_check = run_cash_closing_checks()
@@ -369,6 +376,7 @@ def run_foundation_checks() -> dict:
 			"technician_commissions": technician_commission_check,
 			"lean_operation": lean_operation_check,
 			"operation_config": operation_config_check,
+			"technician_assignment": technician_assignment_check,
 			"cash_session": cash_session_check,
 			"pos_cash_integration": pos_cash_integration_check,
 			"cash_closing": cash_closing_check,
@@ -417,6 +425,93 @@ def run_foundation_checks() -> dict:
 		}
 	finally:
 		frappe.flags.in_test = previous_in_test
+		frappe.set_user(previous_user)
+
+
+def run_technician_assignment_checks(manager: str, attendant: str, technician: str) -> dict:
+	"""Exercise Pull/Dispatch, stale claims, transfer audit and the safe queue contract."""
+	previous_user = frappe.session.user
+	settings = frappe.get_single("Tecponto Settings")
+	previous_mode = settings.technician_assignment_mode or "Dispatch"
+	previous_alert = settings.unassigned_technician_alert_hours or 4
+	second_technician = "front-tecnico-k1@tecponto.local"
+	try:
+		frappe.set_user("Administrator")
+		if not frappe.db.exists("User", second_technician):
+			user = frappe.get_doc({
+				"doctype": "User", "email": second_technician, "first_name": "Técnico", "last_name": "K1",
+				"enabled": 1, "user_type": "System User", "send_welcome_email": 0,
+				"roles": [{"role": "Tecponto Tecnico"}],
+			})
+			user.insert(ignore_permissions=True)
+		elif "Tecponto Tecnico" not in frappe.get_roles(second_technician):
+			user = frappe.get_doc("User", second_technician)
+			user.append("roles", {"role": "Tecponto Tecnico"})
+			user.save(ignore_permissions=True)
+
+		order = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", order, "technician", None, update_modified=False)
+		frappe.db.set_single_value("Tecponto Settings", "technician_assignment_mode", "Pull")
+		frappe.db.set_single_value("Tecponto Settings", "unassigned_technician_alert_hours", 4)
+		frappe.clear_cache(doctype="Tecponto Settings")
+		state_before = frappe.db.get_value("Service Order", order, "workflow_state")
+
+		frappe.set_user(technician)
+		available = list_unassigned_service_orders()
+		if order not in {item["name"] for item in available["items"]} or contains_sensitive_field(available):
+			raise AssertionError("Fila Pull não trouxe a OS segura e sem técnico.")
+		claim = claim_service_order(order)
+		try:
+			frappe.set_user(second_technician)
+			claim_service_order(order)
+		except (frappe.ValidationError, frappe.PermissionError):
+			pass
+		else:
+			raise AssertionError("Uma segunda reivindicação conseguiu sobrescrever o técnico.")
+		if frappe.db.get_value("Service Order", order, "technician") != technician:
+			raise AssertionError("A reivindicação atômica não preservou o primeiro técnico.")
+		if frappe.db.count("Tecponto Service Order Assignment Event", {"service_order": order, "event_type": "Claim"}) != 1:
+			raise AssertionError("A reivindicação não gerou exatamente um evento de auditoria.")
+
+		frappe.set_user(manager)
+		try:
+			transfer_service_order(order, second_technician, "")
+		except frappe.ValidationError:
+			pass
+		else:
+			raise AssertionError("Transferência sem observação foi aceita.")
+		transfer = transfer_service_order(order, second_technician, "Redistribuição de bancada")
+		if frappe.db.get_value("Service Order", order, "workflow_state") != state_before:
+			raise AssertionError("A atribuição alterou o ciclo de vida da OS.")
+
+		dispatch_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", dispatch_order, "technician", None, update_modified=False)
+		frappe.db.set_single_value("Tecponto Settings", "technician_assignment_mode", "Dispatch")
+		frappe.clear_cache(doctype="Tecponto Settings")
+		assigned = assign_service_order(dispatch_order, technician, "Distribuição do gestor")
+		frappe.set_user(second_technician)
+		try:
+			claim_service_order(dispatch_order)
+		except frappe.PermissionError:
+			pass
+		else:
+			raise AssertionError("Técnico reivindicou OS enquanto a operação estava em Dispatch.")
+
+		frappe.set_user("Administrator")
+		event = frappe.get_doc("Tecponto Service Order Assignment Event", transfer["event"])
+		event.observation = "tentativa de adulteração"
+		try:
+			event.save(ignore_permissions=True)
+		except frappe.PermissionError:
+			pass
+		else:
+			raise AssertionError("Evento de atribuição imutável pôde ser editado.")
+		return {"status": "ok", "claim": claim["event"], "transfer": transfer["event"], "assign": assigned["event"]}
+	finally:
+		frappe.set_user("Administrator")
+		frappe.db.set_single_value("Tecponto Settings", "technician_assignment_mode", previous_mode)
+		frappe.db.set_single_value("Tecponto Settings", "unassigned_technician_alert_hours", previous_alert)
+		frappe.clear_cache(doctype="Tecponto Settings")
 		frappe.set_user(previous_user)
 
 

@@ -27,6 +27,8 @@
   "enable_buy_pillar",
   "enable_tradein_pillar",
   "operation_policies_section",
+  "technician_assignment_mode",
+  "unassigned_technician_alert_hours",
   "diagnostic_fee_enabled",
   "diagnostic_fee_amount",
   "storage_fee_enabled",
@@ -168,6 +170,22 @@
    "fieldname": "operation_policies_section",
    "fieldtype": "Section Break",
    "label": "Regras da opera\u00e7\u00e3o"
+  },
+  {
+   "default": "Dispatch",
+   "fieldname": "technician_assignment_mode",
+   "fieldtype": "Select",
+   "label": "Atribuição de técnico",
+   "options": "Pull\nDispatch",
+   "reqd": 1
+  },
+  {
+   "default": "4",
+   "fieldname": "unassigned_technician_alert_hours",
+   "fieldtype": "Float",
+   "label": "Alertar OS sem técnico após (horas úteis)",
+   "non_negative": 1,
+   "reqd": 1
   },
   {
    "default": "0",

@@ -1,0 +1,24 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:TPSOAE-{#####}",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["service_order", "event_type", "previous_technician", "new_technician", "performed_by", "assignment_mode", "observation", "occurred_at"],
+ "fields": [
+  {"fieldname":"service_order","fieldtype":"Link","label":"Ordem de Serviço","options":"Service Order","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"event_type","fieldtype":"Select","label":"Evento","options":"Claim\nAssign\nTransfer","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"previous_technician","fieldtype":"Link","label":"Técnico anterior","options":"User","read_only":1},
+  {"fieldname":"new_technician","fieldtype":"Link","label":"Novo técnico","options":"User","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"performed_by","fieldtype":"Link","label":"Realizado por","options":"User","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"assignment_mode","fieldtype":"Select","label":"Modo","options":"Pull\nDispatch","reqd":1,"read_only":1},
+  {"fieldname":"observation","fieldtype":"Small Text","label":"Observação","read_only":1},
+  {"fieldname":"occurred_at","fieldtype":"Datetime","label":"Data e hora","reqd":1,"in_list_view":1,"read_only":1}
+ ],
+ "module": "Tecponto",
+ "name": "Tecponto Service Order Assignment Event",
+ "permissions": [{"role":"System Manager","read":1,"report":1,"export":1,"print":1}],
+ "sort_field": "occurred_at",
+ "sort_order": "DESC",
+ "track_changes": 0
+}

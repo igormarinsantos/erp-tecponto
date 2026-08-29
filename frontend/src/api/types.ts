@@ -293,6 +293,7 @@ export interface BootResponse {
 			buy: boolean;
 			tradein: boolean;
 		};
+		technician_assignment: { mode: "Pull" | "Dispatch"; alert_hours: number };
     technician_commissions_enabled: boolean;
 		diagnostic_fee: { enabled: boolean; amount: number };
 		storage_fee: { enabled: boolean; amount: number; start_days: number; abandonment_days: number };
@@ -441,6 +442,15 @@ export interface ServiceOrderSummary {
   approval_status: string | null;
   approval_deadline: string;
   modified: string;
+	unassigned_waiting_hours?: number;
+	unassigned_overdue?: boolean;
+}
+
+export interface UnassignedServiceOrderResponse {
+	items: ServiceOrderSummary[];
+	count: number;
+	mode: "Pull" | "Dispatch";
+	alert_hours: number;
 }
 
 export interface ServiceOrderListResponse {

@@ -14,6 +14,7 @@ import type {
   ServiceOrderListResponse,
   ServiceOrderStatBarResponse,
   ServiceOrderMoveResponse,
+	UnassignedServiceOrderResponse,
 	ServiceOrderPaymentPayload,
 	ServiceOrderPaymentResponse,
 	ServiceOrderTradeinCandidate,
@@ -32,6 +33,18 @@ export interface ServiceOrderQueryParams extends Record<string, string | number 
 }
 
 export const serviceOrders = {
+	listUnassigned(limit = 100) {
+		return rpc<UnassignedServiceOrderResponse>(`${API}.list_unassigned_service_orders`, { query: { limit } });
+	},
+	claim(name: string) {
+		return rpc<{ service_order: string; technician: string; event: string }>(`${API}.claim_service_order`, { body: { name } });
+	},
+	assign(name: string, technician: string, observation = "") {
+		return rpc<{ service_order: string; technician: string; event: string }>(`${API}.assign_service_order`, { body: { name, technician, observation } });
+	},
+	transfer(name: string, technician: string, observation: string) {
+		return rpc<{ service_order: string; technician: string; event: string }>(`${API}.transfer_service_order`, { body: { name, technician, observation } });
+	},
   statBar() {
     return rpc<ServiceOrderStatBarResponse>(`${API}.get_service_order_statbar`);
   },

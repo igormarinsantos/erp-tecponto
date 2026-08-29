@@ -1204,7 +1204,9 @@ export function App() {
               canEditProductCategories={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
 			  canEditBasicRegistries={state.boot.user.roles.some((role) => ["Tecponto Atendente", "Tecponto Gestor", "Tecponto Diretor", "System Manager"].includes(role))}
               canViewStoreOperations={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "Tecponto Diretor" || role === "System Manager")}
+			  canAssignTechnician={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "System Manager")}
 			  canViewDirectorFinancial={state.boot.user.roles.includes("Tecponto Diretor")}
+			  technicianAssignment={state.boot.features.technician_assignment}
 			  singleTechnician={state.boot.features.single_technician}
 			  commissionsEnabled={state.boot.features.technician_commissions_enabled}
 			  canManageUsers={state.boot.user.can_manage_users}
@@ -2320,7 +2322,9 @@ function NavigationContent({
   canEditProductCategories,
 	canEditBasicRegistries,
   canViewStoreOperations,
+	canAssignTechnician,
 	canViewDirectorFinancial,
+	technicianAssignment,
 	 singleTechnician,
 	 commissionsEnabled,
 	canManageUsers,
@@ -2349,7 +2353,9 @@ function NavigationContent({
   canEditProductCategories: boolean;
 	canEditBasicRegistries: boolean;
   canViewStoreOperations: boolean;
+	canAssignTechnician: boolean;
 	canViewDirectorFinancial: boolean;
+	technicianAssignment: BootResponse["features"]["technician_assignment"];
 	 singleTechnician: boolean;
 	 commissionsEnabled: boolean;
 	canManageUsers: boolean;
@@ -2448,8 +2454,10 @@ function NavigationContent({
   if (activeView === "mesa-flow") {
     return (
       <MesaFlowBoard
+		canAssignTechnician={canAssignTechnician}
         canViewStoreOperations={canViewStoreOperations}
         isRestrictedTechnician={isRestrictedTechnician}
+		technicianAssignment={technicianAssignment}
         onOpenOrder={onOpenServiceOrder}
         onToast={onToast}
       />
@@ -2603,13 +2611,17 @@ const MESA_FLOW_QUEUES = [
 ] as const;
 
 function MesaFlowBoard({
+	canAssignTechnician,
   canViewStoreOperations,
   isRestrictedTechnician,
+	technicianAssignment,
   onOpenOrder,
   onToast,
 }: {
+	canAssignTechnician: boolean;
   canViewStoreOperations: boolean;
   isRestrictedTechnician: boolean;
+	technicianAssignment: BootResponse["features"]["technician_assignment"];
   onOpenOrder: (name: string) => void;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
 }) {
@@ -2618,6 +2630,8 @@ function MesaFlowBoard({
     | { status: "ready"; items: ServiceOrderSummary[] }
     | { status: "error"; message: string }
   >({ status: "loading" });
+	const [unassigned, setUnassigned] = useState<ServiceOrderSummary[]>([]);
+	const [technicians, setTechnicians] = useState<TechnicianWorkloadItem[]>([]);
 
   const load = useCallback(async () => {
     setState((current) => current.status === "ready" ? current : { status: "loading" });
@@ -2625,10 +2639,18 @@ function MesaFlowBoard({
       // The endpoint scopes the response to the logged-in role; the Mesa never broadens that query in React.
       const response = await serviceOrders.list({ limit: 100 });
       setState({ status: "ready", items: response.items });
+		if (canAssignTechnician || (isRestrictedTechnician && technicianAssignment.mode === "Pull")) {
+			const available = await serviceOrders.listUnassigned(100);
+			setUnassigned(available.items);
+		}
+		if (canAssignTechnician) {
+			const workload = await balcao.getTechnicianWorkload();
+			setTechnicians(workload.items);
+		}
     } catch (caught) {
       setState({ status: "error", message: caught instanceof Error ? caught.message : "Não foi possível carregar a Mesa." });
     }
-  }, []);
+  }, [canAssignTechnician, isRestrictedTechnician, technicianAssignment.mode]);
 
   useEffect(() => {
     void load();
@@ -2644,6 +2666,7 @@ function MesaFlowBoard({
 
   const total = queues.reduce((count, queue) => count + queue.items.length, 0);
   const overdue = queues.flatMap((queue) => queue.items).filter((item) => item.stage_clock?.is_overdue).length;
+	const unassignedOverdue = unassigned.filter((item) => item.unassigned_overdue).length;
 
   return (
     <div className="space-y-5">
@@ -2663,6 +2686,7 @@ function MesaFlowBoard({
             <span className="text-lg font-bold text-white">{total} OS</span>
           </div>
           {overdue ? <div className="rounded-control border border-tec-red/30 bg-tec-red/10 px-3 py-2 text-right"><span className="block text-xs font-bold text-tec-red">Atrasadas</span><span className="text-lg font-bold text-tec-red">{overdue}</span></div> : null}
+		  {unassigned.length ? <div className={cx("rounded-control border px-3 py-2 text-right", unassignedOverdue ? "border-tec-red/30 bg-tec-red/10" : "border-tec-amber/30 bg-tec-amber/10")}><span className={cx("block text-xs font-bold", unassignedOverdue ? "text-tec-red" : "text-tec-amber")}>Sem técnico</span><span className={cx("text-lg font-bold", unassignedOverdue ? "text-tec-red" : "text-tec-amber")}>{unassigned.length}</span></div> : null}
           <Button icon={<RefreshCw size={17} />} onClick={() => void load()} variant="secondary">Atualizar</Button>
         </div>
       </section>
@@ -2672,20 +2696,27 @@ function MesaFlowBoard({
       {state.status === "loading" ? <Card className="p-6"><div className="h-9 w-9 animate-spin rounded-full border-2 border-tec-orange border-t-transparent" /><p className="mt-3 text-sm font-semibold text-tec-subtle">Organizando a Mesa...</p></Card> : null}
 
       {state.status === "ready" ? <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-        {queues.map((queue) => <MesaFlowQueue key={queue.title} onOpenOrder={onOpenOrder} onToast={onToast} queue={queue} />)}
+		{unassigned.length ? <MesaAssignmentQueue canAssignTechnician={canAssignTechnician && technicianAssignment.mode === "Dispatch"} canClaim={isRestrictedTechnician && technicianAssignment.mode === "Pull"} items={unassigned} onChanged={load} onOpenOrder={onOpenOrder} onToast={onToast} technicians={technicians} /> : null}
+        {queues.map((queue) => <MesaFlowQueue canAssignTechnician={canAssignTechnician} key={queue.title} onChanged={load} onOpenOrder={onOpenOrder} onToast={onToast} queue={queue} technicians={technicians} />)}
       </div> : null}
     </div>
   );
 }
 
 function MesaFlowQueue({
+	canAssignTechnician,
+	onChanged,
   onOpenOrder,
   onToast,
   queue,
+	technicians,
 }: {
+	canAssignTechnician: boolean;
+	onChanged: () => Promise<void>;
   onOpenOrder: (name: string) => void;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   queue: (typeof MESA_FLOW_QUEUES)[number] & { items: ServiceOrderSummary[] };
+	technicians: TechnicianWorkloadItem[];
 }) {
   const visibleItems = queue.items.slice(0, 8);
   return (
@@ -2700,7 +2731,7 @@ function MesaFlowQueue({
         </div>
       </header>
       <div className="flex-1 space-y-2 p-3">
-        {visibleItems.map((order) => <MesaFlowOrderCard key={order.name} onOpenOrder={onOpenOrder} onToast={onToast} order={order} />)}
+        {visibleItems.map((order) => <MesaFlowOrderCard canAssignTechnician={canAssignTechnician} key={order.name} onChanged={onChanged} onOpenOrder={onOpenOrder} onToast={onToast} order={order} technicians={technicians} />)}
         {!visibleItems.length ? <div className="grid min-h-28 place-items-center rounded-control border border-dashed border-tec-border/20 px-4 text-center text-sm text-tec-muted">Nenhuma OS nesta etapa.</div> : null}
       </div>
       {queue.items.length > visibleItems.length ? <footer className="border-t border-tec-border/15 p-3 text-center text-xs font-bold text-tec-muted">+{queue.items.length - visibleItems.length} OS nesta fila</footer> : null}
@@ -2708,7 +2739,7 @@ function MesaFlowQueue({
   );
 }
 
-function MesaFlowOrderCard({ onOpenOrder, onToast, order }: { onOpenOrder: (name: string) => void; onToast: (message: string, tone?: ToastState["tone"]) => void; order: ServiceOrderSummary }) {
+function MesaFlowOrderCard({ canAssignTechnician, onChanged, onOpenOrder, onToast, order, technicians }: { canAssignTechnician: boolean; onChanged: () => Promise<void>; onOpenOrder: (name: string) => void; onToast: (message: string, tone?: ToastState["tone"]) => void; order: ServiceOrderSummary; technicians: TechnicianWorkloadItem[] }) {
   const next = nextActionForOrder(order);
   const blockerEntry = Object.entries(order.workflow_blockers).find(([target]) => order.workflow_transitions.some((action) => action.next_state === target));
   const requestable = blockerEntry && order.workflow_requestable_transitions.includes(blockerEntry[0]);
@@ -2733,8 +2764,24 @@ function MesaFlowOrderCard({ onOpenOrder, onToast, order }: { onOpenOrder: (name
         if (blockerEntry && !requestable) onToast(blockerEntry[1], "error");
         onOpenOrder(order.name);
       }} variant={requestable ? "secondary" : "primary"}>{buttonLabel}</Button>
+	  {canAssignTechnician && order.technician ? <TechnicianAssignmentControl current={order.technician} mode="transfer" onChanged={onChanged} onToast={onToast} order={order.name} technicians={technicians} /> : null}
     </article>
   );
+}
+
+function MesaAssignmentQueue({ canAssignTechnician, canClaim, items, onChanged, onOpenOrder, onToast, technicians }: { canAssignTechnician: boolean; canClaim: boolean; items: ServiceOrderSummary[]; onChanged: () => Promise<void>; onOpenOrder: (name: string) => void; onToast: (message: string, tone?: ToastState["tone"]) => void; technicians: TechnicianWorkloadItem[] }) {
+	return <Card className={cx("flex min-h-64 flex-col overflow-hidden p-0", items.some((item) => item.unassigned_overdue) && "border-tec-red/45")}>
+		<header className="border-b border-tec-amber/25 bg-tec-amber/5 p-4"><div className="flex justify-between gap-3"><div><h2 className="text-lg font-bold text-white">{canClaim ? "Disponíveis para assumir" : "Sem técnico"}</h2><p className="mt-1 text-xs text-tec-muted">{canClaim ? "Escolha uma OS livre e assuma a responsabilidade." : "Distribua as OS antes que parem na entrada."}</p></div><span className="rounded-full bg-tec-amber/15 px-2.5 py-1 text-xs font-bold text-tec-amber">{items.length}</span></div></header>
+		<div className="flex-1 space-y-2 p-3">{items.slice(0, 8).map((order) => <article className={cx("rounded-control border bg-tec-field/45 p-3", order.unassigned_overdue ? "border-tec-red/45" : "border-tec-border/15")} key={order.name}><button className="text-left" onClick={() => onOpenOrder(order.name)} type="button"><strong className="block text-sm text-white">{order.name}</strong><span className="text-xs text-tec-muted">{order.customer ?? "Cliente não informado"} · Técnico: Sem técnico</span></button><div className="mt-2 flex justify-between text-xs"><span className="text-tec-muted">Recebido por: {order.attendant ?? "Não informado"}</span>{order.unassigned_overdue ? <strong className="text-tec-red">{order.unassigned_waiting_hours}h úteis</strong> : null}</div>{canClaim ? <Button className="mt-3 w-full" onClick={() => void serviceOrders.claim(order.name).then(() => { onToast("OS assumida por você.", "success"); return onChanged(); }).catch((error) => onToast(error instanceof Error ? error.message : "Não foi possível assumir a OS.", "error"))}>Assumir esta OS</Button> : null}{canAssignTechnician ? <TechnicianAssignmentControl mode="assign" onChanged={onChanged} onToast={onToast} order={order.name} technicians={technicians} /> : null}</article>)}</div>
+	</Card>;
+}
+
+function TechnicianAssignmentControl({ current, mode, onChanged, onToast, order, technicians }: { current?: string; mode: "assign" | "transfer"; onChanged: () => Promise<void>; onToast: (message: string, tone?: ToastState["tone"]) => void; order: string; technicians: TechnicianWorkloadItem[] }) {
+	const [technician, setTechnician] = useState("");
+	const [observation, setObservation] = useState("");
+	const [busy, setBusy] = useState(false);
+	const options = technicians.filter((item) => item.technician !== current);
+	return <div className="mt-3 space-y-2 border-t border-tec-border/15 pt-3"><select aria-label={mode === "assign" ? "Técnico para atribuir" : "Novo técnico"} className="tp-input" onChange={(event) => setTechnician(event.target.value)} value={technician}><option value="">{mode === "assign" ? "Escolher técnico" : "Transferir para..."}</option>{options.map((item) => <option key={item.technician} value={item.technician}>{item.technician_name || item.technician}</option>)}</select>{mode === "transfer" && technician ? <input className="tp-input" onChange={(event) => setObservation(event.target.value)} placeholder="Motivo da transferência (obrigatório)" value={observation} /> : null}<Button className="w-full" disabled={busy || !technician || (mode === "transfer" && !observation.trim())} onClick={() => { setBusy(true); const action = mode === "assign" ? serviceOrders.assign(order, technician) : serviceOrders.transfer(order, technician, observation); void action.then(() => { onToast(mode === "assign" ? "Técnico atribuído." : "OS transferida.", "success"); setTechnician(""); setObservation(""); return onChanged(); }).catch((error) => onToast(error instanceof Error ? error.message : "Não foi possível alterar o técnico.", "error")).finally(() => setBusy(false)); }} variant="secondary">{busy ? "Salvando..." : mode === "assign" ? "Atribuir" : "Confirmar transferência"}</Button></div>;
 }
 
 function ServiceOrderFilterBar({
@@ -2933,13 +2980,19 @@ function OperationsTable({
       {
         className: "w-[160px]",
         key: "responsible",
-        label: "Responsável",
+        label: "Técnico",
         render: (row) => (
-          <span className="block truncate" title={row.technician ?? row.attendant ?? "Nao definido"}>
-            {row.technician ?? row.attendant ?? "Nao definido"}
+          <span className="block truncate" title={row.technician ?? "Sem técnico"}>
+            {row.technician ?? "Sem técnico"}
           </span>
         ),
       },
+	  {
+		className: "w-[150px]",
+		key: "attendant",
+		label: "Recebido por",
+		render: (row) => <span className="block truncate" title={row.attendant ?? "Não informado"}>{row.attendant ?? "Não informado"}</span>,
+	  },
       {
         className: "w-[102px] whitespace-nowrap",
         key: "updated",

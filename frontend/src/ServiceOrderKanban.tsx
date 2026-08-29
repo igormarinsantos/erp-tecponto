@@ -542,7 +542,8 @@ function KanbanCard({
 
       <div className="mt-3 space-y-2 text-xs text-tec-muted">
         <CardLine icon={<Wrench size={14} />} text={item.reported_defect ?? "Defeito não informado"} />
-        <CardLine icon={<UserRound size={14} />} text={item.technician ?? item.attendant ?? "Responsável não definido"} />
+        <CardLine icon={<UserRound size={14} />} text={`Técnico: ${item.technician ?? "Sem técnico"}`} />
+		<CardLine icon={<UserRound size={14} />} text={`Recebido por: ${item.attendant ?? "Não informado"}`} />
         <CardLine icon={<Clock3 size={14} />} text={formatDate(item.modified)} />
       </div>
 

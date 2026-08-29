@@ -11,6 +11,7 @@ from frappe.utils import cint, flt
 
 DEFAULT_OPERATION_CONFIG: dict[str, Any] = {
 	"pillars": {"repair": True, "buy": True, "tradein": True},
+	"technician_assignment": {"mode": "Dispatch", "alert_hours": 4.0},
 	"technician_commissions_enabled": False,
 	"diagnostic_fee": {"enabled": False, "amount": 0.0},
 	"storage_fee": {"enabled": False, "amount": 0.0, "start_days": 30, "abandonment_days": 90},
@@ -35,6 +36,10 @@ def get_operation_config() -> dict[str, Any]:
 			"repair": bool(cint(settings.get("enable_repair_pillar", 1))),
 			"buy": bool(cint(settings.get("enable_buy_pillar", 1))),
 			"tradein": bool(cint(settings.get("enable_tradein_pillar", 1))),
+		},
+		"technician_assignment": {
+			"mode": settings.get("technician_assignment_mode") or "Dispatch",
+			"alert_hours": max(0, flt(settings.get("unassigned_technician_alert_hours") or 4)),
 		},
 		"technician_commissions_enabled": bool(cint(settings.get("use_technician_commission"))),
 		"diagnostic_fee": {

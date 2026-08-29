@@ -1,0 +1,144 @@
+"""Narrow, atomic ownership hand-offs for Service Orders."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+from hashlib import sha1
+from typing import Any
+
+import frappe
+from frappe import _
+from frappe.utils import flt, get_datetime, now_datetime
+
+from tecponto_app.tecponto.operation_config import get_operation_config
+from tecponto_app.tecponto.service_order.stage_sla import BUSINESS_DAY_END, BUSINESS_DAY_START, _commercial_holiday_dates
+
+AUDIT_DOCTYPE = "Tecponto Service Order Assignment Event"
+MANAGER_ROLES = {"System Manager", "Tecponto Gestor"}
+TECHNICIAN_ROLE = "Tecponto Tecnico"
+TERMINAL_STATES = {"Entregue", "Cancelado", "Reprovado", "Orçamento expirado", "Sem conserto"}
+
+
+def assignment_config() -> dict[str, Any]:
+	return get_operation_config()["technician_assignment"]
+
+
+def claim(service_order: str, actor: str) -> dict[str, Any]:
+	_require_technician(actor)
+	_require_mode("Pull")
+	return _change(service_order, actor, actor, "Claim", expected_assigned=False)
+
+
+def assign(service_order: str, technician: str, actor: str, observation: str = "") -> dict[str, Any]:
+	_require_manager(actor)
+	_require_mode("Dispatch")
+	_require_technician(technician)
+	return _change(service_order, technician, actor, "Assign", observation=observation, expected_assigned=False)
+
+
+def transfer(service_order: str, technician: str, actor: str, observation: str) -> dict[str, Any]:
+	_require_manager(actor)
+	_require_technician(technician)
+	observation = (observation or "").strip()
+	if not observation:
+		frappe.throw(_("Informe o motivo da transferência."), frappe.ValidationError)
+	return _change(service_order, technician, actor, "Transfer", observation=observation, expected_assigned=True)
+
+
+def list_unassigned(actor: str, limit: int = 100) -> dict[str, Any]:
+	roles = set(frappe.get_roles(actor))
+	is_manager = actor == "Administrator" or bool(roles.intersection(MANAGER_ROLES))
+	is_technician = TECHNICIAN_ROLE in roles
+	mode = assignment_config()["mode"]
+	if not is_manager and not (is_technician and mode == "Pull"):
+		frappe.throw(_("Esta fila não está disponível para seu papel ou modo de atribuição."), frappe.PermissionError)
+	rows = frappe.get_all(
+		"Service Order",
+		filters={"technician": ["is", "not set"], "workflow_state": ["not in", list(TERMINAL_STATES)]},
+		fields=["name", "customer", "customer_device", "entry_date", "attendant", "technician", "priority", "workflow_state", "stage_entered_at", "reported_defect", "approval_status", "approval_deadline", "sales_invoice", "modified", "creation"],
+		order_by="creation asc",
+		limit_page_length=max(1, min(int(limit or 100), 100)),
+	)
+	threshold = flt(assignment_config()["alert_hours"])
+	for row in rows:
+		waiting = business_hours_between(row.creation, now_datetime())
+		row["unassigned_waiting_hours"] = waiting
+		row["unassigned_overdue"] = bool(threshold and waiting >= threshold)
+	return {"items": rows, "count": len(rows), "mode": mode, "alert_hours": threshold}
+
+
+def _change(service_order: str, technician: str, actor: str, event_type: str, observation: str = "", expected_assigned: bool = False) -> dict[str, Any]:
+	service_order = (service_order or "").strip()
+	if not service_order:
+		frappe.throw(_("Informe a ordem de serviço."), frappe.ValidationError)
+	savepoint = f"tp_assign_{sha1(f'{service_order}:{actor}'.encode()).hexdigest()[:12]}"
+	frappe.db.savepoint(savepoint)
+	try:
+		rows = frappe.db.sql(
+			"SELECT name, technician, workflow_state FROM `tabService Order` WHERE name=%s FOR UPDATE",
+			(service_order,), as_dict=True,
+		)
+		if not rows:
+			frappe.throw(_("Ordem de serviço não encontrada."), frappe.DoesNotExistError)
+		row = rows[0]
+		previous = (row.technician or "").strip()
+		if row.workflow_state in TERMINAL_STATES:
+			frappe.throw(_("Não é possível atribuir uma OS encerrada."), frappe.ValidationError)
+		if expected_assigned and not previous:
+			frappe.throw(_("A OS está sem técnico; use atribuir em vez de transferir."), frappe.ValidationError)
+		if not expected_assigned and previous:
+			frappe.throw(_("Esta OS já foi assumida por outro técnico."), frappe.ValidationError)
+		if previous == technician:
+			frappe.throw(_("A OS já está atribuída a este técnico."), frappe.ValidationError)
+		doc = frappe.get_doc("Service Order", service_order)
+		doc.technician = technician
+		doc.save(ignore_permissions=True)
+		audit = frappe.get_doc({
+			"doctype": AUDIT_DOCTYPE,
+			"service_order": service_order,
+			"event_type": event_type,
+			"previous_technician": previous,
+			"new_technician": technician,
+			"performed_by": actor,
+			"assignment_mode": assignment_config()["mode"],
+			"observation": (observation or "").strip(),
+			"occurred_at": now_datetime(),
+		})
+		audit.insert(ignore_permissions=True)
+		return {"service_order": service_order, "technician": technician, "event": audit.name}
+	except Exception:
+		frappe.db.rollback(save_point=savepoint)
+		raise
+
+
+def business_hours_between(start: Any, end: Any) -> float:
+	start_at, end_at = get_datetime(start), get_datetime(end)
+	if end_at <= start_at:
+		return 0.0
+	holidays = _commercial_holiday_dates()
+	total = 0.0
+	day = start_at.date()
+	while day <= end_at.date():
+		if day.weekday() < 5 and day not in holidays:
+			window_start = datetime.combine(day, BUSINESS_DAY_START)
+			window_end = datetime.combine(day, BUSINESS_DAY_END)
+			left, right = max(start_at, window_start), min(end_at, window_end)
+			if right > left:
+				total += (right - left).total_seconds() / 3600
+		day += timedelta(days=1)
+	return round(total, 2)
+
+
+def _require_mode(expected: str) -> None:
+	if assignment_config()["mode"] != expected:
+		frappe.throw(_("A operação está configurada no modo {0}.").format(assignment_config()["mode"]), frappe.PermissionError)
+
+
+def _require_manager(user: str) -> None:
+	if user != "Administrator" and not MANAGER_ROLES.intersection(set(frappe.get_roles(user))):
+		frappe.throw(_("Somente o Gestor pode distribuir ou transferir OS."), frappe.PermissionError)
+
+
+def _require_technician(user: str) -> None:
+	if not user or not frappe.db.exists("User", {"name": user, "enabled": 1}) or TECHNICIAN_ROLE not in frappe.get_roles(user):
+		frappe.throw(_("Selecione um técnico ativo."), frappe.ValidationError)
