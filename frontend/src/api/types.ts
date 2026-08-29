@@ -258,6 +258,7 @@ export interface UserAccountPayload {
   enabled: boolean;
   roles: string[];
   discount_limit: number;
+	password?: string;
   cashier?: { enabled: boolean; badge_code: string; pin?: string };
 }
 

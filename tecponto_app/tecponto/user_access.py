@@ -198,6 +198,16 @@ def audit_user_creation(doc, method=None) -> None:
 	)
 
 
+def audit_password_change(affected_user: str, *, creating: bool = False) -> None:
+	"""Record credential rotation without ever persisting the credential itself."""
+	_write_audit(
+		affected_user=affected_user,
+		change_type="Senha definida na criação" if creating else "Senha redefinida manualmente",
+		before={"credential": "withheld"},
+		after={"credential": "changed"},
+	)
+
+
 def validate_access_audit_immutable(doc, method=None) -> None:
 	if not doc.is_new():
 		frappe.throw("A trilha de auditoria de acesso é imutável.", frappe.PermissionError)

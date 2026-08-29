@@ -572,11 +572,39 @@ def save_user_account(payload: dict[str, Any] | str) -> dict[str, Any]:
 		doc.insert(ignore_permissions=True)
 	else:
 		doc.save(ignore_permissions=True)
+	password = str(payload.get("password") or "")
+	if password:
+		_set_user_password(doc.name, password, creating=creating)
 
 	_save_cashier_operator(doc.name, roles, payload.get("cashier"))
 	frappe.clear_cache(user=doc.name)
 	operator = frappe.db.get_value(CASHIER_OPERATOR_DOCTYPE, doc.name, ["active", "badge_code"], as_dict=True)
 	return {"item": _serialize_user_account(frappe.db.get_value("User", doc.name, ["name", "full_name", "email", "enabled", "last_login", user_access.INDIVIDUAL_DISCOUNT_LIMIT_FIELD], as_dict=True), operator)}
+
+
+@frappe.whitelist()
+def set_user_password(user: str, new_password: str) -> dict[str, bool]:
+	"""Set another user's password locally; deliberately sends no email."""
+	_require_user_management_role()
+	_set_user_password((user or "").strip(), new_password or "", creating=False)
+	return {"changed": True}
+
+
+def _set_user_password(user: str, new_password: str, *, creating: bool) -> None:
+	_require_user_management_role()
+	if not user or not frappe.db.exists("User", user):
+		frappe.throw("Pessoa não encontrada.", frappe.DoesNotExistError)
+	actor = frappe.session.user
+	owner = user_access.get_owner_user()
+	if user == owner and actor != owner:
+		frappe.throw("A senha da conta Proprietário só pode ser alterada pelo próprio Proprietário.", frappe.PermissionError)
+	if len(new_password) < 8:
+		frappe.throw("A senha precisa ter pelo menos 8 caracteres.", frappe.ValidationError)
+	from frappe.utils.password import update_password
+
+	update_password(user, new_password)
+	user_access.audit_password_change(user, creating=creating)
+	frappe.clear_cache(user=user)
 
 
 @frappe.whitelist()

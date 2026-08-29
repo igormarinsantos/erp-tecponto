@@ -12,7 +12,7 @@ export const userAccounts = {
   save(payload: UserAccountPayload) {
     return rpc<{ item: UserAccountListResponse["items"][number] }>(`${API}.save_user_account`, { body: { payload } });
   },
-  sendPasswordReset(user: string) {
-    return rpc<{ sent: boolean }>(`${API}.send_user_password_reset`, { body: { user } });
+  setPassword(user: string, newPassword: string) {
+	return rpc<{ changed: boolean }>(`${API}.set_user_password`, { body: { user, new_password: newPassword } });
   },
 };

@@ -106,7 +106,7 @@ from tecponto_app.tecponto.frontend.api import (
 	save_defect_service_mapping,
 	list_user_accounts,
 	save_user_account,
-	send_user_password_reset,
+	set_user_password,
 	submit_stock_transfer,
 	create_technical_part_request,
 	cancel_part_request,
@@ -3396,16 +3396,22 @@ def run_user_management_api_checks() -> dict:
 			for operator in frappe.get_all("Tecponto Cashier Operator", filters={"active": 1}, pluck="name")
 		}
 		cashier_pin = next(f"{number:04d}" for number in range(1000, 10000) if f"{number:04d}" not in used_pins)
-		created = save_user_account(
-			{
+		initial_password = f"Tp!{frappe.generate_hash(length=14)}"
+		with patch.object(frappe, "sendmail", side_effect=AssertionError("SMTP não pode ser acionado")):
+			created = save_user_account({
 				"full_name": "Operador Multipapel 3.15",
 				"email": f"user-management-{frappe.generate_hash(length=8)}@tecponto.local",
 				"enabled": True,
 				"roles": ["Tecponto Atendente", "Tecponto Tecnico"],
 				"discount_limit": 27.5,
 				"cashier": {"enabled": True, "badge_code": f"TP-USER-{frappe.generate_hash(length=6)}", "pin": cashier_pin},
-			}
-		)["item"]
+				"password": initial_password,
+			})["item"]
+		from frappe.utils.password import check_password
+		if check_password(created["name"], initial_password) != created["name"]:
+			raise AssertionError("A senha inicial definida sem SMTP não autenticou o usuário.")
+		if "password" in frappe.as_json(created).lower() or initial_password in frappe.as_json(created):
+			raise AssertionError("A criação de usuário devolveu a senha no payload.")
 		if set(created["business_roles"]) != {"Tecponto Atendente", "Tecponto Tecnico"}:
 			raise AssertionError("A tela/API não persistiu os múltiplos papéis da pessoa.")
 		if created["cashier"]["badge_code"] == "" or created["cashier"].get("pin"):
@@ -3419,9 +3425,26 @@ def run_user_management_api_checks() -> dict:
 		# the account under test avoids a pagination-dependent assertion.
 		listed = list_user_accounts(query=created["name"])
 		listed_item = next((item for item in listed["items"] if item["name"] == created["name"]), None)
-		if not listed_item or listed_item["discount_limit"] != 27.5 or '"pin":' in frappe.as_json(listed_item).lower():
+		listed_json = frappe.as_json(listed_item).lower() if listed_item else ""
+		if not listed_item or listed_item["discount_limit"] != 27.5 or '"pin":' in listed_json or '"password":' in listed_json:
 			raise AssertionError("A listagem de pessoas expôs credencial ou perdeu configuração individual.")
-		send_user_password_reset(created["name"])
+		reset_password = f"Tp!{frappe.generate_hash(length=15)}"
+		roles_before_reset = set(frappe.get_roles(created["name"]))
+		with patch.object(frappe, "sendmail", side_effect=AssertionError("SMTP não pode ser acionado")):
+			reset_result = set_user_password(created["name"], reset_password)
+		if not reset_result["changed"] or check_password(created["name"], reset_password) != created["name"]:
+			raise AssertionError("A redefinição manual não atualizou a credencial nativa.")
+		if set(frappe.get_roles(created["name"])) != roles_before_reset:
+			raise AssertionError("Redefinir senha alterou papéis ou escalou privilégios.")
+		access_event = frappe.get_all(
+			"Tecponto Access Audit",
+			filters={"affected_user": created["name"], "change_type": "Senha redefinida manualmente"},
+			fields=["before_state", "after_state"],
+			order_by="creation desc",
+			limit_page_length=1,
+		)
+		if not access_event or reset_password in frappe.as_json(access_event):
+			raise AssertionError("A redefinição não foi auditada com a credencial retida.")
 
 		admin = save_user_account(
 			{
@@ -3433,6 +3456,13 @@ def run_user_management_api_checks() -> dict:
 			}
 		)["item"]
 		frappe.set_user(admin["name"])
+		owner_password_blocked = False
+		try:
+			set_user_password(owner, f"Tp!{frappe.generate_hash(length=15)}")
+		except frappe.PermissionError:
+			owner_password_blocked = True
+		if not owner_password_blocked:
+			raise AssertionError("Administrador redefiniu a senha da conta Proprietário.")
 		director_blocked = False
 		try:
 			save_user_account(
@@ -3457,6 +3487,13 @@ def run_user_management_api_checks() -> dict:
 			attendant_blocked = True
 		if not attendant_blocked:
 			raise AssertionError("Usuário operacional acessou a lista de pessoas.")
+		password_reset_blocked = False
+		try:
+			set_user_password(admin["name"], f"Tp!{frappe.generate_hash(length=15)}")
+		except frappe.PermissionError:
+			password_reset_blocked = True
+		if not password_reset_blocked:
+			raise AssertionError("Usuário operacional redefiniu senha de terceiro.")
 		return {
 			"status": "ok",
 			"multi_role_user": created["name"],
@@ -3464,6 +3501,10 @@ def run_user_management_api_checks() -> dict:
 			"cashier_pin_withheld": True,
 			"director_grant_blocked_for_admin": director_blocked,
 			"operational_user_blocked": attendant_blocked,
+			"manual_password_without_smtp": True,
+			"password_does_not_change_roles": True,
+			"owner_password_protected": owner_password_blocked,
+			"operational_password_reset_blocked": password_reset_blocked,
 		}
 	finally:
 		frappe.set_user(previous_user)
