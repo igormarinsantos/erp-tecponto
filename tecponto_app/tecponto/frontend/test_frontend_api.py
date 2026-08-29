@@ -5987,7 +5987,7 @@ def run_technician_part_execution_checks() -> dict:
 		if not repair_warehouse:
 			raise AssertionError("Depósito de Reparo não configurado para validar execução técnica.")
 		frappe.set_user("Administrator")
-		_ensure_pos_demo_stock(part_item, repair_warehouse, valuation_rate=10)
+		_ensure_pos_demo_stock(part_item, repair_warehouse, valuation_rate=10.1237)
 		selfie = BytesIO()
 		Image.new("RGB", (24, 24), color=(22, 72, 110)).save(selfie, format="JPEG")
 		selfie_data = "data:image/jpeg;base64," + b64encode(selfie.getvalue()).decode()
@@ -6049,8 +6049,10 @@ def run_technician_part_execution_checks() -> dict:
 		qty_after_used = _bin_qty(part_item, repair_warehouse)
 		if not used_part.get("stock_entry") or used_part.get("outcome") != "Usada no reparo" or qty_after_used >= qty_before_used:
 			raise AssertionError("Uso técnico não baixou a peça no estoque de Reparo.")
-		if any(key in used_part for key in ("unit_price", "amount", "valuation_rate", "rate")):
-			raise AssertionError("Execução técnica expôs custo ou preço de peça.")
+		if not all(key in used_part for key in ("unit_price", "amount")):
+			raise AssertionError("Execução técnica não preservou o preço de venda da peça.")
+		if contains_sensitive_field(used_part, forbidden_values={10.1237}):
+			raise AssertionError("Execução técnica expôs o custo da peça.")
 		retry = set_service_order_part_outcome(used_doc.name, used_doc.parts[0].name, "Usada no reparo")
 		if retry["parts"][0].get("stock_entry") != used_part["stock_entry"] or _bin_qty(part_item, repair_warehouse) != qty_after_used:
 			raise AssertionError("Reenvio da baixa técnica duplicou a saída de estoque.")
