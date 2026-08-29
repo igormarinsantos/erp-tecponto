@@ -89,6 +89,9 @@ import {
   type ServiceOrderStatBarResponse,
 	type SaleSummary,
   type TrackingLinkResponse,
+	 type TechnicalBudgetCatalogItem,
+	 type TechnicalBudgetLine,
+	 type TechnicalBudgetResponse,
   type StockItemSummary,
 	 type CommercialCatalogItem,
 	 type ProductCategoryNode,
@@ -3895,10 +3898,10 @@ function TechnicalServiceOrderDetail({
             {detail.workflow_state === "Em diagnóstico" ? <div className="mt-4 rounded-control border border-tec-border/20 bg-tec-field/45 p-4">
 				<p className="text-sm font-bold text-white">Quem faz a precificação agora?</p>
 				<select className="tp-input mt-2" onChange={(event) => setPricingResponsibility(event.target.value as "Técnico" | "Balcão")} value={pricingResponsibility}>
-					<option disabled={!detail.diagnosis.technician_pricing_available} value="Técnico">Técnico continua{!detail.diagnosis.technician_pricing_available ? " — disponível na K.3" : ""}</option>
+					<option disabled={!detail.diagnosis.technician_pricing_available} value="Técnico">Técnico continua{!detail.diagnosis.technician_pricing_available ? " — papel técnico necessário" : ""}</option>
 					<option value="Balcão">Encaminhar ao Balcão</option>
 				</select>
-				{!detail.diagnosis.technician_pricing_available ? <p className="mt-2 text-xs text-tec-amber">Sem beco sem saída: até a K.3, o técnico restrito encaminha ao Balcão.</p> : null}
+				{!detail.diagnosis.technician_pricing_available ? <p className="mt-2 text-xs text-tec-amber">Este usuário não possui papel com capacidade de precificação técnica; encaminhe ao Balcão.</p> : null}
 			</div> : <HandoffStatus detail={detail} />}
             <div className="mt-3 flex flex-wrap justify-end gap-2">
               <Button disabled={!diagnosis.trim() || savingDiagnosis} icon={<FileText size={17} />} onClick={() => void saveDiagnosis()} variant="primary">
@@ -3907,6 +3910,7 @@ function TechnicalServiceOrderDetail({
 			  {detail.workflow_state === "Em diagnóstico" ? <Button disabled={!diagnosis.trim() || savingDiagnosis} icon={<ArrowRight size={17} />} onClick={() => void completeDiagnosis()} variant="primary">Concluir e repassar</Button> : null}
             </div>
           </Card>
+		  {detail.workflow_state === "Diagnosticado — aguardando orçamento" && detail.diagnosis.pricing_responsibility === "Técnico" ? <TechnicalBudgetEditor onCompleted={() => onRefresh("Orçamento concluído e encaminhado para aprovação.")} onToast={onToast} serviceOrder={detail.name} /> : null}
           <TimelineCard events={detail.timeline} />
           </> : null}
 
@@ -4006,6 +4010,57 @@ function TechnicalFinanceStageCard({ detail }: { detail: ServiceOrderDetailRespo
       </dl>
     </Card>
   );
+}
+
+function TechnicalBudgetEditor({ onCompleted, onToast, serviceOrder }: { onCompleted: () => Promise<void>; onToast: (message: string, tone?: ToastState["tone"]) => void; serviceOrder: string }) {
+	const [budget, setBudget] = useState<TechnicalBudgetResponse | null>(null);
+	const [catalog, setCatalog] = useState<TechnicalBudgetCatalogItem[]>([]);
+	const [kind, setKind] = useState<BudgetLineType>("service");
+	const [query, setQuery] = useState("");
+	const [customerPartDescription, setCustomerPartDescription] = useState("");
+	const [busy, setBusy] = useState(false);
+
+	const load = useCallback(async () => {
+		try { setBudget(await serviceOrders.technicalBudget(serviceOrder)); }
+		catch (caught) { onToast(caught instanceof Error ? caught.message : "Não foi possível carregar o orçamento.", "error"); }
+	}, [onToast, serviceOrder]);
+
+	useEffect(() => { void load(); }, [load]);
+	useEffect(() => {
+		let active = true;
+		const timer = window.setTimeout(async () => {
+			try {
+				const response = kind === "service" ? await serviceOrders.searchTechnicalBudgetServices(query) : await serviceOrders.searchTechnicalBudgetParts(query);
+				if (active) setCatalog(response.items);
+			} catch (caught) { if (active) onToast(caught instanceof Error ? caught.message : "Não foi possível buscar o catálogo.", "error"); }
+		}, 180);
+		return () => { active = false; window.clearTimeout(timer); };
+	}, [kind, onToast, query]);
+
+	async function add(item: TechnicalBudgetCatalogItem) {
+		setBusy(true);
+		try {
+			setBudget(await serviceOrders.addTechnicalBudgetLine(serviceOrder, kind === "service" ? { type: kind, catalog_service: item.name, description: item.description, qty: 1, selling_price: item.selling_price, duration: item.duration, duration_unit: item.duration_unit } : { type: kind, item_code: item.item_code, description: item.description, qty: 1, selling_price: item.selling_price, source: "Loja" }));
+			onToast("Linha adicionada ao orçamento.");
+		} catch (caught) { onToast(caught instanceof Error ? caught.message : "Não foi possível adicionar a linha.", "error"); }
+		finally { setBusy(false); }
+	}
+
+	return <Card className="p-5">
+		<div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wide text-tec-orange">Precificação técnica</p><h3 className="mt-1 text-xl font-bold text-white">Montar orçamento</h3><p className="mt-1 text-sm text-tec-muted">Somente preço de venda e disponibilidade do depósito Reparo.</p></div><span className="rounded-full bg-tec-field px-3 py-1 text-sm font-bold text-white">{formatCurrency(budget?.selling_total ?? 0)}</span></div>
+		<div className="mt-4 grid gap-2 sm:grid-cols-2"><Button onClick={() => setKind("service")} variant={kind === "service" ? "primary" : "secondary"}>Serviços</Button><Button onClick={() => setKind("part")} variant={kind === "part" ? "primary" : "secondary"}>Peças</Button></div>
+		<input className="tp-input mt-3" onChange={(event) => setQuery(event.target.value)} placeholder={`Buscar ${kind === "service" ? "serviço" : "peça"}`} value={query} />
+		{kind === "part" ? <div className="mt-2 flex gap-2"><input className="tp-input" onChange={(event) => setCustomerPartDescription(event.target.value)} placeholder="Ou descreva uma peça fornecida pelo cliente" value={customerPartDescription} /><Button disabled={busy || !customerPartDescription.trim()} onClick={async () => { setBusy(true); try { setBudget(await serviceOrders.addTechnicalBudgetLine(serviceOrder, { type: "part", description: customerPartDescription, qty: 1, selling_price: 0, source: "Cliente" })); setCustomerPartDescription(""); } catch (caught) { onToast(caught instanceof Error ? caught.message : "Não foi possível adicionar a peça do cliente.", "error"); } finally { setBusy(false); } }}>Adicionar do cliente</Button></div> : null}
+		<div className="mt-3 max-h-56 space-y-2 overflow-auto">{catalog.map((item) => <button className="flex w-full items-center justify-between gap-3 rounded-control border border-tec-border/15 bg-tec-field/45 p-3 text-left hover:border-tec-orange/45" disabled={busy} key={item.name ?? item.item_code} onClick={() => void add(item)} type="button"><span><span className="block text-sm font-bold text-white">{item.description}</span><span className="text-xs text-tec-muted">{item.category ?? "Sem categoria"}{item.available_qty !== undefined ? ` · Disponível ${item.available_qty}` : item.duration ? ` · ${item.duration} ${item.duration_unit}` : ""}</span></span><span className="shrink-0 font-bold text-tec-orange">{formatCurrency(item.selling_price)}</span></button>)}</div>
+		<div className="mt-5 space-y-2">{[...(budget?.services ?? []), ...(budget?.parts ?? [])].map((line) => <TechnicalBudgetLineEditor disabled={busy} key={line.name} line={line} onChanged={setBudget} onToast={onToast} serviceOrder={serviceOrder} />)}{budget && !budget.services.length && !budget.parts.length ? <p className="rounded-control border border-dashed border-tec-border/20 p-4 text-sm text-tec-muted">Inclua ao menos uma linha.</p> : null}</div>
+		<div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-tec-border/15 pt-4"><p className="text-xs text-tec-muted">Versão {budget?.budget_version ?? 1} · {budget?.quote_locked ? "travado" : "em edição"}</p><div className="flex flex-wrap gap-2"><Button disabled={!budget} icon={<Printer size={16} />} onClick={async () => { const preview = window.open("", "_blank"); try { const response = await serviceOrders.technicalBudgetPrint(serviceOrder); if (preview) { preview.document.write(response.html); preview.document.close(); preview.focus(); preview.print(); } } catch (caught) { preview?.close(); onToast(caught instanceof Error ? caught.message : "Não foi possível imprimir.", "error"); } }}>Imprimir</Button><Button disabled={!budget} onClick={async () => { try { const response = await serviceOrders.exportTechnicalBudget(serviceOrder); const url = URL.createObjectURL(new Blob([response.content], { type: "text/csv;charset=utf-8" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = response.filename; anchor.click(); URL.revokeObjectURL(url); } catch (caught) { onToast(caught instanceof Error ? caught.message : "Não foi possível exportar.", "error"); } }}>Exportar</Button><Button disabled={busy || !budget || budget.services.length + budget.parts.length === 0} icon={<CheckCircle2 size={17} />} onClick={async () => { setBusy(true); try { await serviceOrders.completeTechnicalBudget(serviceOrder); await onCompleted(); } catch (caught) { onToast(caught instanceof Error ? caught.message : "Não foi possível concluir o orçamento.", "error"); } finally { setBusy(false); } }} variant="primary">Concluir orçamento</Button></div></div>
+	</Card>;
+}
+
+function TechnicalBudgetLineEditor({ disabled, line, onChanged, onToast, serviceOrder }: { disabled: boolean; line: TechnicalBudgetLine; onChanged: (budget: TechnicalBudgetResponse) => void; onToast: (message: string, tone?: ToastState["tone"]) => void; serviceOrder: string }) {
+	const [qty, setQty] = useState(String(line.qty));
+	const [price, setPrice] = useState(String(line.selling_price));
+	return <div className="grid gap-2 rounded-control border border-tec-border/15 bg-tec-field/45 p-3 sm:grid-cols-[minmax(0,1fr)_90px_120px_auto] sm:items-end"><div><p className="text-sm font-bold text-white">{line.description}</p><p className="text-xs text-tec-muted">{line.type === "part" ? `${line.source} · disponível ${line.available_qty ?? 0}` : line.category ?? "Serviço"}</p></div><label><span className="text-[10px] font-bold uppercase text-tec-muted">Qtd.</span><input className="tp-input mt-1" min="0.01" onChange={(event) => setQty(event.target.value)} step="0.01" type="number" value={qty} /></label><label><span className="text-[10px] font-bold uppercase text-tec-muted">Venda</span><input className="tp-input mt-1" min="0" onChange={(event) => setPrice(event.target.value)} step="0.01" type="number" value={price} /></label><div className="flex gap-1"><Button disabled={disabled} onClick={async () => { try { onChanged(await serviceOrders.updateTechnicalBudgetLine(serviceOrder, line.type, line.name, { qty: Number(qty), selling_price: Number(price) })); } catch (caught) { onToast(caught instanceof Error ? caught.message : "Não foi possível editar.", "error"); } }}>Salvar</Button><Button disabled={disabled} onClick={async () => { try { onChanged(await serviceOrders.removeTechnicalBudgetLine(serviceOrder, line.type, line.name)); } catch (caught) { onToast(caught instanceof Error ? caught.message : "Não foi possível remover.", "error"); } }}><XCircle size={16} /></Button></div></div>;
 }
 
 function TechnicalLineList({
@@ -4402,7 +4457,7 @@ function DiagnosisCompletionCard({ detail, onComplete }: { detail: ServiceOrderD
 		<h3 className="text-lg font-bold text-white">Concluir diagnóstico e repassar</h3>
 		<p className="mt-1 text-sm text-tec-muted">A conclusão cria a fila de precificação e registra claramente quem recebeu o próximo passo.</p>
 		<select className="tp-input mt-4" onChange={(event) => setResponsibility(event.target.value as "Técnico" | "Balcão")} value={responsibility}>
-			<option disabled={!detail.diagnosis.technician_pricing_available} value="Técnico">Técnico continua{!detail.diagnosis.technician_pricing_available ? " — disponível na K.3" : ""}</option>
+			<option disabled={!detail.diagnosis.technician_pricing_available} value="Técnico">Técnico continua{!detail.diagnosis.technician_pricing_available ? " — papel técnico necessário" : ""}</option>
 			<option value="Balcão">Encaminhar ao Balcão</option>
 		</select>
 		<Button className="mt-4" disabled={busy || !detail.diagnosis.problem_found?.trim()} icon={<ArrowRight size={17} />} onClick={async () => { setBusy(true); try { await onComplete(detail.diagnosis.problem_found ?? "", responsibility); } finally { setBusy(false); } }} variant="primary">{busy ? "Concluindo..." : "Concluir e repassar"}</Button>

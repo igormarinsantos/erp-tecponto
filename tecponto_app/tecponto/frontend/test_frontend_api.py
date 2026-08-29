@@ -143,6 +143,7 @@ from tecponto_app.tecponto.tracking import (
 	start_public_portal_action,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
+from tecponto_app.tecponto import technical_budget
 from tecponto_app.tecponto.hr import ensure_hr_foundation
 from tecponto_app.tecponto.product_categories import ensure_product_category_foundation
 from tecponto_app.tecponto.product_variants import ensure_product_variant_attributes
@@ -310,6 +311,9 @@ def run_foundation_checks() -> dict:
 		diagnosis_handoff_check = run_diagnosis_handoff_checks(
 			users["Tecponto Gestor"], users["Tecponto Atendente"], users["Tecponto Tecnico"]
 		)
+		technician_budget_leak_check = run_technician_budget_leak_checks(
+			users["Tecponto Diretor"], users["Tecponto Atendente"], users["Tecponto Tecnico"]
+		)
 		cash_session_check = run_cash_session_checks()
 		pos_cash_integration_check = run_pos_cash_integration_checks()
 		cash_closing_check = run_cash_closing_checks()
@@ -378,6 +382,7 @@ def run_foundation_checks() -> dict:
 			"director_risk_agenda_guard": director_risk_agenda_guard,
 			"manager_operation_scope": manager_operation_check,
 			"diagnosis_handoff": diagnosis_handoff_check,
+			"technician_budget_leak": technician_budget_leak_check,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
 			"technician_part_execution": technician_part_execution_check,
@@ -638,16 +643,6 @@ def run_diagnosis_handoff_checks(manager: str, attendant: str, technician: str) 
 			update_modified=False,
 		)
 		frappe.set_user(technician)
-		try:
-			complete_technical_diagnosis(restricted_order, "Falha confirmada na alimentação.", "Técnico")
-		except frappe.PermissionError as error:
-			if "K.3" not in str(error):
-				raise
-		else:
-			raise AssertionError("Técnico restrito recebeu precificação inexequível antes da K.3.")
-		if frappe.db.get_value("Service Order", restricted_order, "workflow_state") != "Em diagnóstico":
-			raise AssertionError("Tentativa inexequível alterou parcialmente o estado da OS.")
-
 		handoff = complete_technical_diagnosis(restricted_order, "Falha confirmada na alimentação.", "Balcão")
 		if handoff["workflow_state"] != "Diagnosticado — aguardando orçamento":
 			raise AssertionError("Conclusão não criou a etapa intermediária de precificação.")
@@ -690,9 +685,134 @@ def run_diagnosis_handoff_checks(manager: str, attendant: str, technician: str) 
 			raise AssertionError("Reabrir diagnóstico não marcou a revisão do orçamento.")
 		if reopened.pricing_responsibility != "Balcão":
 			raise AssertionError("Reabertura apagou o histórico do repasse anterior.")
-		return {"restricted_default": "Balcão", "multi_role": "Técnico", "review_warning": True}
+		return {"separate_operation": "Balcão", "multi_role": "Técnico", "review_warning": True}
 	finally:
 		frappe.set_user(previous_user)
+
+
+def run_technician_budget_leak_checks(director: str, attendant: str, technician: str) -> dict:
+	"""Prove all ten K.3 technician channels carry sale values and no cost sentinel."""
+	previous_user = frappe.session.user
+	settings = frappe.get_single("Tecponto Settings")
+	previous_floor = settings.get("price_floor_block")
+	cost_sentinels = {113.37, 127.41, 139.53}
+	service_sale = 287.65
+	part_sale = 431.29
+	low_sale = 17.29
+	forbidden_names = {
+		"valuation_rate", "incoming_rate", "purchase_rate", "last_purchase_rate", "cost", "cost_price",
+		"margin", "markup", "profit", "gross_profit", "supplier_rate",
+	}
+	part_item = None
+	catalog_name = None
+	warehouse = None
+	original_item_rates = None
+	original_catalog_price = None
+	original_bin_valuation = None
+	try:
+		frappe.set_user("Administrator")
+		order_name = _create_action_request_service_order(attendant)
+		part_item = _get_demo_item(is_stock_item=1)
+		warehouse = frappe.db.get_single_value("Tecponto Settings", "repair_warehouse")
+		original_item_rates = frappe.db.get_value("Item", part_item, ["standard_rate", "valuation_rate"], as_dict=True)
+		original_bin_valuation = frappe.db.get_value("Bin", {"item_code": part_item, "warehouse": warehouse}, "valuation_rate")
+		_ensure_pos_demo_stock(part_item, warehouse, valuation_rate=113.37)
+		frappe.db.set_value("Item", part_item, {"standard_rate": part_sale, "valuation_rate": 127.41}, update_modified=False)
+		frappe.db.set_value("Bin", {"item_code": part_item, "warehouse": warehouse}, "valuation_rate", 139.53, update_modified=False)
+		catalog = frappe.db.get_value("Tecponto Service", {"active": 1}, ["name", "service_name"], as_dict=True)
+		if not catalog:
+			raise AssertionError("Catálogo técnico não possui serviço ativo para a prova K.3.")
+		catalog_name = catalog.name
+		original_catalog_price = frappe.db.get_value("Tecponto Service", catalog.name, "default_labor_price")
+		frappe.db.set_value("Tecponto Service", catalog.name, "default_labor_price", service_sale, update_modified=False)
+		order = frappe.get_doc("Service Order", order_name)
+		order.set("services", [])
+		order.set("parts", [])
+		order.workflow_state = "Em diagnóstico"
+		order.technician = technician
+		order.save(ignore_permissions=True)
+
+		frappe.set_user(technician)
+		complete_technical_diagnosis(order_name, "Falha de placa confirmada para orçamento técnico.", "Técnico")
+
+		channels: dict[str, Any] = {}
+		channels["1_service_search"] = technical_budget.search_services(catalog.service_name, 10)
+		_assert_technician_sale_safe("busca de serviços", channels["1_service_search"], {service_sale}, cost_sentinels, forbidden_names)
+		channels["2_part_search"] = technical_budget.search_parts(part_item, 10)
+		_assert_technician_sale_safe("busca de peças", channels["2_part_search"], {part_sale}, cost_sentinels, forbidden_names)
+
+		created_service = technical_budget.add_line(order_name, {"type": "service", "catalog_service": catalog.name, "description": catalog.service_name, "qty": 1, "selling_price": service_sale, "duration": 2, "duration_unit": "Horas"})
+		created_part = technical_budget.add_line(order_name, {"type": "part", "item_code": part_item, "description": "Peça segura K.3", "qty": 1, "selling_price": part_sale, "source": "Loja"})
+		part_line = created_part["parts"][-1]
+		channels["4_create_edit"] = technical_budget.update_line(order_name, "part", part_line["name"], {"qty": 1, "selling_price": part_sale})
+		_assert_technician_sale_safe("criação e edição", channels["4_create_edit"], {service_sale, part_sale}, cost_sentinels, forbidden_names)
+		channels["5_saved_response"] = technical_budget.get_budget(order_name)
+		_assert_technician_sale_safe("resposta após salvar", channels["5_saved_response"], {service_sale, part_sale}, cost_sentinels, forbidden_names)
+
+		channels["3_order_detail"] = get_service_order_detail(order_name)
+		_assert_technician_sale_safe("detalhe da OS", channels["3_order_detail"], {service_sale, part_sale}, cost_sentinels, forbidden_names)
+		channels["6_mesa"] = list_service_orders(limit=100)
+		_assert_technician_sale_safe("Mesa", channels["6_mesa"], {service_sale + part_sale}, cost_sentinels, forbidden_names)
+		channels["7_agenda"] = list_daily_actions("tecnico")
+		_assert_technician_sale_safe("agenda", channels["7_agenda"], {service_sale + part_sale}, cost_sentinels, forbidden_names)
+
+		frappe.db.set_single_value("Tecponto Settings", "price_floor_block", 1)
+		frappe.clear_cache(doctype="Tecponto Settings")
+		try:
+			technical_budget.update_line(order_name, "part", part_line["name"], {"qty": 1, "selling_price": low_sale})
+		except frappe.ValidationError as error:
+			channels["8_validation_error"] = str(error)
+		else:
+			raise AssertionError("Preço técnico abaixo do piso não foi bloqueado pelo motor.")
+		_assert_technician_sale_safe("erro de validação", channels["8_validation_error"], {low_sale}, cost_sentinels, forbidden_names)
+		frappe.db.set_single_value("Tecponto Settings", "price_floor_block", 0)
+		frappe.clear_cache(doctype="Tecponto Settings")
+
+		channels["9_print"] = technical_budget.get_print_html(order_name)
+		_assert_technician_sale_safe("impressão", channels["9_print"], {service_sale, part_sale}, cost_sentinels, forbidden_names)
+		channels["10_export_list"] = {"export": technical_budget.export_budget(order_name), "list": list_service_orders(limit=100, query=order_name)}
+		_assert_technician_sale_safe("exportação/listagem", channels["10_export_list"], {service_sale + part_sale}, cost_sentinels, forbidden_names)
+
+		financial_blocked = False
+		try:
+			get_service_order_director_financial_summary(order_name)
+		except frappe.PermissionError:
+			financial_blocked = True
+		if not financial_blocked:
+			raise AssertionError("Técnico acessou o endpoint financeiro exclusivo do Diretor.")
+
+		frontend_source = (Path(__file__).resolve().parents[3] / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+		technical_state = frontend_source.split("function TechnicalBudgetEditor", 1)[1].split("function TechnicalFinanceStageCard", 1)[0] if "function TechnicalFinanceStageCard" in frontend_source.split("function TechnicalBudgetEditor", 1)[1] else frontend_source.split("function TechnicalBudgetEditor", 1)[1].split("function TechnicalLineList", 1)[0]
+		lower_state = technical_state.lower()
+		if any(name in lower_state for name in forbidden_names) or any(str(value) in lower_state for value in cost_sentinels):
+			raise AssertionError("Estado React do orçamento técnico referencia campo interno de custo.")
+
+		technical_budget.complete_budget(order_name)
+		if frappe.db.get_value("Service Order", order_name, "workflow_state") != "Aguardando aprovação":
+			raise AssertionError("Conclusão técnica não encaminhou o orçamento para aprovação.")
+		return {"status": "ok", "channels": sorted(channels), "sentinels": sorted(cost_sentinels), "director_endpoint_blocked": True, "react_state_safe": True}
+	finally:
+		frappe.set_user("Administrator")
+		frappe.db.set_single_value("Tecponto Settings", "price_floor_block", previous_floor or 0)
+		if part_item and original_item_rates:
+			frappe.db.set_value("Item", part_item, dict(original_item_rates), update_modified=False)
+		if part_item and warehouse and frappe.db.exists("Bin", {"item_code": part_item, "warehouse": warehouse}):
+			frappe.db.set_value("Bin", {"item_code": part_item, "warehouse": warehouse}, "valuation_rate", original_bin_valuation or 0, update_modified=False)
+		if catalog_name and original_catalog_price is not None:
+			frappe.db.set_value("Tecponto Service", catalog_name, "default_labor_price", original_catalog_price, update_modified=False)
+		frappe.clear_cache(doctype="Tecponto Settings")
+		frappe.set_user(previous_user)
+
+
+def _assert_technician_sale_safe(label: str, payload: Any, sale_values: set[float], cost_sentinels: set[float], forbidden_names: set[str]) -> None:
+	serialized = frappe.as_json(payload).lower()
+	for value in sale_values:
+		variants = {str(value).lower(), f"{value:.2f}".lower(), f"{value:.2f}".replace(".", ",").lower()}
+		if not any(variant in serialized for variant in variants):
+			raise AssertionError(f"{label} não expôs o preço de venda esperado {value:.2f}.")
+	leaks = contains_sensitive_field(payload, forbidden_values=cost_sentinels)
+	if leaks or any(name in serialized for name in forbidden_names):
+		raise AssertionError(f"{label} vazou custo/sensível: {leaks or 'nome de campo proibido'}")
 
 
 def run_budget_presentation_checks() -> dict:
@@ -5666,10 +5786,12 @@ def run_technician_scope_checks() -> dict:
 			raise AssertionError("Detalhe de OS do técnico devolveu dados fiscais ou e-mail do cliente.")
 		if not detail.get("technical_view"):
 			raise AssertionError("Detalhe técnico não sinalizou o contrato reduzido para a interface.")
-		if any(key in detail["parts"][0] for key in ("unit_price", "amount")):
-			raise AssertionError("Detalhe de OS do técnico devolveu preço de peça.")
-		if detail["totals"]["parts_price_total"] or detail["totals"]["discount"] or detail["totals"]["grand_total"]:
-			raise AssertionError("Detalhe de OS do técnico devolveu total comercial ou desconto.")
+		if not all(key in detail["parts"][0] for key in ("unit_price", "amount")):
+			raise AssertionError("Detalhe de OS do técnico não devolveu o preço de venda da peça.")
+		if detail["totals"]["discount"]:
+			raise AssertionError("Detalhe de OS do técnico devolveu desconto interno em vez da projeção de venda.")
+		if detail["totals"]["grand_total"] != detail["totals"]["service_total"] + detail["totals"]["parts_price_total"]:
+			raise AssertionError("Detalhe de OS do técnico não totalizou os preços de venda.")
 		diagnosed = save_technical_diagnosis(own_order, "Diagnóstico técnico restrito validado pela suíte.")
 		if diagnosed["diagnosis"]["problem_found"] != "Diagnóstico técnico restrito validado pela suíte.":
 			raise AssertionError("Técnico não conseguiu registrar diagnóstico na própria OS.")

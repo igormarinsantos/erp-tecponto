@@ -423,6 +423,7 @@ export interface ServiceOrderSummary {
   technician: string | null;
 	pricing_responsibility?: "Técnico" | "Balcão" | null;
 	budget_review_required?: boolean;
+	selling_total?: number;
   priority: string | null;
   workflow_state: string | null;
   stage_clock?: {
@@ -664,6 +665,37 @@ export interface BudgetItemSummary {
 
 export interface BudgetItemSearchResponse {
   items: BudgetItemSummary[];
+}
+
+export interface TechnicalBudgetCatalogItem {
+	name?: string;
+	item_code?: string;
+	description: string;
+	category: string | null;
+	selling_price: number;
+	available_qty?: number;
+	warehouse?: string;
+	duration?: number;
+	duration_unit?: "Horas" | "Dias úteis";
+	source?: "Loja" | "Cliente";
+}
+
+export interface TechnicalBudgetLine extends TechnicalBudgetCatalogItem {
+	name: string;
+	type: BudgetLineType;
+	qty: number;
+	selling_total: number;
+}
+
+export interface TechnicalBudgetResponse {
+	name: string;
+	workflow_state: string;
+	pricing_responsibility: "Técnico" | "Balcão" | null;
+	quote_locked: boolean;
+	budget_version: number;
+	services: TechnicalBudgetLine[];
+	parts: TechnicalBudgetLine[];
+	selling_total: number;
 }
 
 export interface PosItemSummary {

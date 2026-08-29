@@ -19,10 +19,13 @@ import type {
 	ServiceOrderPaymentResponse,
 	ServiceOrderTradeinCandidate,
   TrackingLinkResponse,
+	TechnicalBudgetCatalogItem,
+	TechnicalBudgetResponse,
 } from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
 const TRACKING_API = "tecponto_app.tecponto.tracking";
+const TECHNICAL_BUDGET_API = "tecponto_app.tecponto.technical_budget";
 
 export interface ServiceOrderQueryParams extends Record<string, string | number | boolean | undefined> {
   from_date?: string;
@@ -33,6 +36,33 @@ export interface ServiceOrderQueryParams extends Record<string, string | number 
 }
 
 export const serviceOrders = {
+	technicalBudget(name: string) {
+		return rpc<TechnicalBudgetResponse>(`${TECHNICAL_BUDGET_API}.get_budget`, { query: { name } });
+	},
+	searchTechnicalBudgetServices(query = "") {
+		return rpc<{ items: TechnicalBudgetCatalogItem[]; count: number }>(`${TECHNICAL_BUDGET_API}.search_services`, { query: { query } });
+	},
+	searchTechnicalBudgetParts(query = "") {
+		return rpc<{ items: TechnicalBudgetCatalogItem[]; count: number; warehouse: string }>(`${TECHNICAL_BUDGET_API}.search_parts`, { query: { query } });
+	},
+	addTechnicalBudgetLine(name: string, payload: Record<string, unknown>) {
+		return rpc<TechnicalBudgetResponse>(`${TECHNICAL_BUDGET_API}.add_line`, { body: { name, payload } });
+	},
+	updateTechnicalBudgetLine(name: string, lineType: BudgetLineType, lineName: string, payload: Record<string, unknown>) {
+		return rpc<TechnicalBudgetResponse>(`${TECHNICAL_BUDGET_API}.update_line`, { body: { name, line_type: lineType, line_name: lineName, payload } });
+	},
+	removeTechnicalBudgetLine(name: string, lineType: BudgetLineType, lineName: string) {
+		return rpc<TechnicalBudgetResponse>(`${TECHNICAL_BUDGET_API}.remove_line`, { body: { name, line_type: lineType, line_name: lineName } });
+	},
+	completeTechnicalBudget(name: string) {
+		return rpc<TechnicalBudgetResponse>(`${TECHNICAL_BUDGET_API}.complete_budget`, { body: { name } });
+	},
+	technicalBudgetPrint(name: string) {
+		return rpc<{ html: string }>(`${TECHNICAL_BUDGET_API}.get_print_html`, { query: { name } });
+	},
+	exportTechnicalBudget(name: string) {
+		return rpc<{ filename: string; content: string }>(`${TECHNICAL_BUDGET_API}.export_budget`, { query: { name } });
+	},
 	listUnassigned(limit = 100) {
 		return rpc<UnassignedServiceOrderResponse>(`${API}.list_unassigned_service_orders`, { query: { limit } });
 	},

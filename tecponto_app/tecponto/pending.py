@@ -288,6 +288,7 @@ def _service_order_action(row: Any, panel: str) -> dict[str, Any]:
 		reference_doctype="Service Order",
 		reference_name=row.name,
 		tone="orange" if urgency == "overdue" else state_action["tone"],
+		selling_total=flt(row.get("labor_total")) + flt(row.get("parts_total")),
 	)
 
 
@@ -339,7 +340,7 @@ def _sort_actions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _clock_fields() -> list[str]:
-	return ["name", "workflow_state", "customer", "modified", "entry_date", "stage_entered_at", "estimated_deadline"]
+	return ["name", "workflow_state", "customer", "modified", "entry_date", "stage_entered_at", "estimated_deadline", "labor_total", "parts_total"]
 
 
 def _clock_urgency(clock: dict[str, Any]) -> str:

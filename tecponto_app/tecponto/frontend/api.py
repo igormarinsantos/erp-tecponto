@@ -149,6 +149,8 @@ SAFE_SERVICE_ORDER_FIELDS = (
 	"technician",
 	"pricing_responsibility",
 	"budget_review_required",
+	"labor_total",
+	"parts_total",
 	"priority",
 	"workflow_state",
 	"stage_entered_at",
@@ -1420,17 +1422,14 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 	technical_view = is_restricted_technician()
 	services = [_serialize_service_row(row) for row in (doc.get("services") or [])]
 	parts = [_serialize_part_row(row) for row in (doc.get("parts") or [])]
-	if technical_view:
-		# A technician can execute a part, but never needs the customer-facing part price.
-		parts = [{key: value for key, value in row.items() if key not in {"unit_price", "amount"}} for row in parts]
 	service_total = sum(row["amount"] for row in services)
-	parts_price_total = sum(row["amount"] for row in parts) if not technical_view else 0
+	parts_price_total = sum(row["amount"] for row in parts)
 	discount = flt(doc.get("discount") or 0)
 	grand_total = flt(doc.get("grand_total") or (service_total + parts_price_total - discount))
 	closed_lines = _build_closed_budget_lines(services, parts)
 
 	finance = _service_order_finance_payload(doc, technical_view=technical_view, fallback_total=grand_total)
-	pricing_available = bool(set(frappe.get_roles(frappe.session.user)).intersection(ATTENDANT_FLOW_ALLOWED_ROLES))
+	pricing_available = bool(set(frappe.get_roles(frappe.session.user)).intersection(ATTENDANT_FLOW_ALLOWED_ROLES | {"Tecponto Tecnico"}))
 	pricing_default = "Técnico" if operation_shape()["single_operator"] and pricing_available else "Balcão"
 	return {
 		"name": doc.name,
@@ -1483,7 +1482,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"service_total": service_total,
 			"parts_price_total": parts_price_total,
 			"discount": discount if not technical_view else 0,
-			"grand_total": grand_total if not technical_view else 0,
+			"grand_total": grand_total if not technical_view else service_total + parts_price_total,
 			"budget_version": int(doc.get("budget_version") or 1),
 			"quote_locked": bool(doc.get("quote_locked")),
 		},
@@ -1586,8 +1585,8 @@ def complete_technical_diagnosis(name: str, problem_found: str, pricing_responsi
 	responsibility = (pricing_responsibility or "").strip()
 	if responsibility not in {"Técnico", "Balcão"}:
 		frappe.throw(_("Escolha quem fará a precificação."), frappe.ValidationError)
-	if responsibility == "Técnico" and not roles.intersection(ATTENDANT_FLOW_ALLOWED_ROLES):
-		frappe.throw(_("Orçamento pelo técnico será habilitado na K.3. Nesta versão, encaminhe ao Balcão."), frappe.PermissionError)
+	if responsibility == "Técnico" and "Tecponto Tecnico" not in roles and not roles.intersection(ATTENDANT_FLOW_ALLOWED_ROLES):
+		frappe.throw(_("Este usuário não possui capacidade para montar o orçamento."), frappe.PermissionError)
 
 	savepoint = f"complete_diagnosis_{frappe.generate_hash(length=8)}"
 	frappe.db.savepoint(savepoint)
@@ -3506,6 +3505,7 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 		"technician": item.get("technician"),
 		"pricing_responsibility": item.get("pricing_responsibility"),
 		"budget_review_required": bool(item.get("budget_review_required")),
+		"selling_total": flt(item.get("labor_total")) + flt(item.get("parts_total")),
 		"priority": item.get("priority"),
 		"workflow_state": item.get("workflow_state"),
 		"stage_clock": clock,
