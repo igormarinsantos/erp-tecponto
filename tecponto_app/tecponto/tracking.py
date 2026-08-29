@@ -25,6 +25,7 @@ INVALID_LINK_MESSAGE = "Este link de rastreio não está disponível. Peça um n
 TRACKING_STAGES = (
 	"Entrada criada",
 	"Em diagnóstico",
+	"Diagnosticado — aguardando orçamento",
 	"Aguardando aprovação",
 	"Aguardando peça",
 	"Em reparo",

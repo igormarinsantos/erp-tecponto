@@ -9,6 +9,13 @@
  {
   "docstatus": 0,
   "doctype": "Workflow Action Master",
+  "modified": "2026-08-29 00:00:00.000000",
+  "name": "Diagnosticado — aguardando orçamento",
+  "workflow_action_name": "Diagnosticado — aguardando orçamento"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
   "modified": "2026-07-02 17:58:20.330638",
   "name": "Aguardando peça",
   "workflow_action_name": "Aguardando peça"

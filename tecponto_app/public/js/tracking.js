@@ -21,6 +21,7 @@
   const statusMeta = (status) => ({
     "Entrada criada": { label: "Recebido", next: "Seu aparelho seguirá para diagnóstico." },
     "Em diagnóstico": { label: "Em diagnóstico", next: "Nossa equipe está avaliando o aparelho." },
+    "Diagnosticado — aguardando orçamento": { label: "Em análise técnica", next: "Estamos preparando o orçamento para sua avaliação." },
     "Aguardando aprovação": { label: "Aguardando aprovação", next: "Confira o orçamento e decida quando estiver pronto." },
     "Aprovado": { label: "Orçamento aprovado", next: "Seu aparelho seguirá para a etapa de reparo." },
     "Reprovado": { label: "Orçamento recusado", next: "Aguarde as instruções para retirada do aparelho." },

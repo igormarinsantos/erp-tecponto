@@ -16,6 +16,7 @@ frappe.listview_settings["Service Order"] = {
 		const colors = {
 			"Entrada criada": "gray",
 			"Em diagnóstico": "light-blue",
+			"Diagnosticado — aguardando orçamento": "yellow",
 			"Aguardando aprovação": "orange",
 			"Aguardando peça": "purple",
 			"Em reparo": "blue",

@@ -17,6 +17,7 @@ KANBAN_CARD_FIELDS = [
 KANBAN_COLUMNS = (
 	("Entrada criada", "Active", "Gray"),
 	("Em diagnóstico", "Active", "Light Blue"),
+	("Diagnosticado — aguardando orçamento", "Active", "Yellow"),
 	("Aguardando aprovação", "Active", "Orange"),
 	("Aguardando peça", "Active", "Purple"),
 	("Em reparo", "Active", "Blue"),

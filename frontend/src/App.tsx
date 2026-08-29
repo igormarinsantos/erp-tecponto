@@ -187,7 +187,7 @@ interface TecpontoContextMenuState {
   x: number;
   y: number;
 }
-type QueueFilter = "all" | "in_progress" | "Aguardando aprovação" | "Entrada criada" | "Em diagnóstico" | "Aguardando peça" | "Em reparo" | "Teste final" | "Pronto para retirada" | "Entregue" | "Reprovado";
+type QueueFilter = "all" | "in_progress" | "Aguardando aprovação" | "Entrada criada" | "Em diagnóstico" | "Diagnosticado — aguardando orçamento" | "Aguardando peça" | "Em reparo" | "Teste final" | "Pronto para retirada" | "Entregue" | "Reprovado";
 type DashboardPeriodMode = "7d" | "14d" | "custom";
 
 function commercialName() {
@@ -230,6 +230,7 @@ const QUEUE_FILTERS: Array<{ label: string; value: QueueFilter }> = [
   { label: "Em andamento", value: "in_progress" },
   { label: "Todos", value: "all" },
   { label: "Aguardando aprovação", value: "Aguardando aprovação" },
+  { label: "Aguardando orçamento", value: "Diagnosticado — aguardando orçamento" },
   { label: "Entrada criada", value: "Entrada criada" },
   { label: "Entregues", value: "Entregue" },
   { label: "Reprovados", value: "Reprovado" },
@@ -2604,6 +2605,7 @@ function NavigationContent({
 const MESA_FLOW_QUEUES = [
   { detail: "Entradas que precisam de conferência e encaminhamento.", states: ["Entrada criada"], title: "Receber e conferir" },
   { detail: "Aparelhos na bancada aguardando avaliação técnica.", states: ["Em diagnóstico", "Em diagnostico"], title: "Diagnosticar" },
+  { detail: "Diagnósticos concluídos com responsável explícito pela precificação.", states: ["Diagnosticado — aguardando orçamento"], title: "Precificar" },
   { detail: "Orçamentos que precisam de envio, retorno ou decisão.", states: ["Aguardando aprovação", "Aprovado"], title: "Orçamento" },
   { detail: "OS paradas por disponibilidade de componente.", states: ["Aguardando peça", "Aguardando peca"], title: "Peças" },
   { detail: "Execução, baixa de peça e teste final.", states: ["Em reparo", "Teste final"], title: "Executar e testar" },
@@ -3183,6 +3185,8 @@ function nextActionForOrder(order: ServiceOrderSummary): {
     case "Em diagnostico":
     case "Em diagnóstico":
       return { label: "Diagnosticar", tone: "blue" };
+    case "Diagnosticado — aguardando orçamento":
+      return { label: `Precificar · ${order.pricing_responsibility ?? "responsável pendente"}`, tone: "amber" };
     case "Aguardando aprovação":
     case "Aguardando aprovaÃ§Ã£o":
       return { label: "Cobrar aceite", tone: "amber" };
@@ -3384,6 +3388,11 @@ function ServiceOrderDetail({
 						throw caught;
 					}
 				}}
+				onCompleteDiagnosis={async (problemFound, pricingResponsibility) => {
+					const updated = await serviceOrders.completeDiagnosis(detail.name, problemFound, pricingResponsibility);
+					setState({ status: "ready", detail: updated });
+					onToast(`Diagnóstico concluído. Precificação: ${pricingResponsibility}.`);
+				}}
 				onSetPartOutcome={async (partName, outcome, lossReason) => {
 					try {
 						const updated = await serviceOrders.setPartOutcome(detail.name, partName, outcome, lossReason);
@@ -3430,6 +3439,11 @@ function ServiceOrderDetail({
             onOpenBudgetEditor={setBudgetLineType}
             onOpenHistory={() => setHistoryOpen(true)}
             onOpenQuoteSend={() => setQuoteSendOpen(true)}
+			onCompleteDiagnosis={async (problemFound, pricingResponsibility) => {
+				const updated = await serviceOrders.completeDiagnosis(detail.name, problemFound, pricingResponsibility);
+				setState({ status: "ready", detail: updated });
+				onToast(`Diagnóstico concluído. Precificação: ${pricingResponsibility}.`);
+			}}
             onToast={onToast}
             onUpdated={(updated) => setState({ status: "ready", detail: updated })}
             whatsappUrl={whatsappUrl}
@@ -3771,6 +3785,7 @@ function TechnicalServiceOrderDetail({
 	onToast,
   onRefresh,
   onSaveDiagnosis,
+	onCompleteDiagnosis,
 	 onSetPartOutcome,
 }: {
   detail: ServiceOrderDetailResponse;
@@ -3779,11 +3794,13 @@ function TechnicalServiceOrderDetail({
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   onRefresh: (message?: string) => Promise<void>;
   onSaveDiagnosis: (problemFound: string) => Promise<void>;
+	onCompleteDiagnosis: (problemFound: string, pricingResponsibility: "Técnico" | "Balcão") => Promise<void>;
 	 onSetPartOutcome: (partName: string, outcome: "Usada no reparo" | "Perdida", lossReason?: string) => Promise<void>;
 }) {
   const [diagnosis, setDiagnosis] = useState(detail.diagnosis.problem_found ?? "");
   const [activeStageScreen, setActiveStageScreen] = useState<ServiceOrderStageScreen>(() => serviceOrderStageScreenForState(detail.workflow_state));
   const [savingDiagnosis, setSavingDiagnosis] = useState(false);
+	const [pricingResponsibility, setPricingResponsibility] = useState<"Técnico" | "Balcão">(detail.diagnosis.default_pricing_responsibility);
   const [moving, setMoving] = useState(false);
 	const [moveApproval, setMoveApproval] = useState<{ targetState: string; requestType: "service_order_move" | "billed_service_order_cancel" } | null>(null);
   const [partRequestOpen, setPartRequestOpen] = useState(false);
@@ -3809,6 +3826,12 @@ function TechnicalServiceOrderDetail({
       setSavingDiagnosis(false);
     }
   }
+
+	async function completeDiagnosis() {
+		setSavingDiagnosis(true);
+		try { await onCompleteDiagnosis(diagnosis, pricingResponsibility); }
+		finally { setSavingDiagnosis(false); }
+	}
 
   async function move(action: ServiceOrderWorkflowAction) {
     setMoving(true);
@@ -3869,10 +3892,19 @@ function TechnicalServiceOrderDetail({
               placeholder="Descreva o defeito encontrado, causa provável e orientação técnica."
               value={diagnosis}
             />
-            <div className="mt-3 flex justify-end">
+            {detail.workflow_state === "Em diagnóstico" ? <div className="mt-4 rounded-control border border-tec-border/20 bg-tec-field/45 p-4">
+				<p className="text-sm font-bold text-white">Quem faz a precificação agora?</p>
+				<select className="tp-input mt-2" onChange={(event) => setPricingResponsibility(event.target.value as "Técnico" | "Balcão")} value={pricingResponsibility}>
+					<option disabled={!detail.diagnosis.technician_pricing_available} value="Técnico">Técnico continua{!detail.diagnosis.technician_pricing_available ? " — disponível na K.3" : ""}</option>
+					<option value="Balcão">Encaminhar ao Balcão</option>
+				</select>
+				{!detail.diagnosis.technician_pricing_available ? <p className="mt-2 text-xs text-tec-amber">Sem beco sem saída: até a K.3, o técnico restrito encaminha ao Balcão.</p> : null}
+			</div> : <HandoffStatus detail={detail} />}
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
               <Button disabled={!diagnosis.trim() || savingDiagnosis} icon={<FileText size={17} />} onClick={() => void saveDiagnosis()} variant="primary">
                 {savingDiagnosis ? "Salvando..." : "Salvar diagnóstico"}
               </Button>
+			  {detail.workflow_state === "Em diagnóstico" ? <Button disabled={!diagnosis.trim() || savingDiagnosis} icon={<ArrowRight size={17} />} onClick={() => void completeDiagnosis()} variant="primary">Concluir e repassar</Button> : null}
             </div>
           </Card>
           <TimelineCard events={detail.timeline} />
@@ -4198,7 +4230,7 @@ const SERVICE_ORDER_STAGE_SCREENS: Array<{
 
 function serviceOrderStageScreenForState(state: string | null): ServiceOrderStageScreen {
   if (["Entrada criada"].includes(state ?? "")) return "atendimento";
-  if (["Em diagnóstico", "Aguardando aprovação", "Aprovado", "Reprovado", "Orçamento expirado"].includes(state ?? "")) return "diagnostico";
+  if (["Em diagnóstico", "Diagnosticado — aguardando orçamento", "Aguardando aprovação", "Aprovado", "Reprovado", "Orçamento expirado"].includes(state ?? "")) return "diagnostico";
   if (["Aguardando peça", "Em reparo", "Teste final", "Sem conserto"].includes(state ?? "")) return "reparo";
   return "financeiro";
 }
@@ -4279,6 +4311,7 @@ function ServiceOrderStageScreenContent({
   onOpenBudgetEditor,
   onOpenHistory,
   onOpenQuoteSend,
+	onCompleteDiagnosis,
   onToast,
   onUpdated,
   whatsappUrl,
@@ -4292,6 +4325,7 @@ function ServiceOrderStageScreenContent({
   onOpenBudgetEditor: (type: BudgetLineType) => void;
   onOpenHistory: () => void;
   onOpenQuoteSend: () => void;
+	onCompleteDiagnosis: (problemFound: string, pricingResponsibility: "Técnico" | "Balcão") => Promise<void>;
   onToast: (message: string, tone?: ToastState["tone"]) => void;
   onUpdated: (detail: ServiceOrderDetailResponse) => void;
   whatsappUrl: string | null;
@@ -4332,6 +4366,7 @@ function ServiceOrderStageScreenContent({
             <span className="rounded-full bg-tec-field px-3 py-1 text-xs font-bold text-tec-subtle">{detail.diagnosis.diagnosis_date ? `Registrado em ${formatDate(detail.diagnosis.diagnosis_date)}` : "Pendente"}</span>
           </div>
         </Card>
+		{detail.workflow_state === "Em diagnóstico" ? <DiagnosisCompletionCard detail={detail} onComplete={onCompleteDiagnosis} /> : <HandoffStatus detail={detail} />}
         <BudgetCard detail={detail} onOpenBudgetEditor={onOpenBudgetEditor} />
         <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
           <div><h3 className="text-lg font-bold text-white">Enviar orçamento</h3><p className="mt-1 text-sm text-tec-muted">O motor exige diagnóstico salvo e ao menos um item antes de avançar.</p></div>
@@ -4358,6 +4393,30 @@ function ServiceOrderStageScreenContent({
       <Card className="p-5"><h3 className="text-lg font-bold text-white">Retirada</h3><dl className="mt-4 space-y-3 text-sm"><DetailLine label="Status" value={detail.pickup.without_repair ? "Retirada sem reparo" : detail.pickup.pickup_date ? "Entregue" : "Aguardando retirada"} /><DetailLine label="Data" value={detail.pickup.pickup_date ? formatDate(detail.pickup.pickup_date) : "Ainda não registrada"} /><DetailLine label="Aceite" value={detail.pickup.has_signature ? "Assinatura registrada" : "Pendente"} /></dl></Card>
     </div>
   );
+}
+
+function DiagnosisCompletionCard({ detail, onComplete }: { detail: ServiceOrderDetailResponse; onComplete: (problemFound: string, pricingResponsibility: "Técnico" | "Balcão") => Promise<void> }) {
+	const [responsibility, setResponsibility] = useState<"Técnico" | "Balcão">(detail.diagnosis.default_pricing_responsibility);
+	const [busy, setBusy] = useState(false);
+	return <Card className="p-5">
+		<h3 className="text-lg font-bold text-white">Concluir diagnóstico e repassar</h3>
+		<p className="mt-1 text-sm text-tec-muted">A conclusão cria a fila de precificação e registra claramente quem recebeu o próximo passo.</p>
+		<select className="tp-input mt-4" onChange={(event) => setResponsibility(event.target.value as "Técnico" | "Balcão")} value={responsibility}>
+			<option disabled={!detail.diagnosis.technician_pricing_available} value="Técnico">Técnico continua{!detail.diagnosis.technician_pricing_available ? " — disponível na K.3" : ""}</option>
+			<option value="Balcão">Encaminhar ao Balcão</option>
+		</select>
+		<Button className="mt-4" disabled={busy || !detail.diagnosis.problem_found?.trim()} icon={<ArrowRight size={17} />} onClick={async () => { setBusy(true); try { await onComplete(detail.diagnosis.problem_found ?? "", responsibility); } finally { setBusy(false); } }} variant="primary">{busy ? "Concluindo..." : "Concluir e repassar"}</Button>
+	</Card>;
+}
+
+function HandoffStatus({ detail }: { detail: ServiceOrderDetailResponse }) {
+	if (!detail.diagnosis.pricing_responsibility) return null;
+	return <Card className="border-tec-amber/30 bg-tec-amber/5 p-4">
+		<p className="text-xs font-bold uppercase tracking-wide text-tec-amber">Repasse explícito</p>
+		<p className="mt-2 text-sm font-bold text-white">Precificação com: {detail.diagnosis.pricing_responsibility}</p>
+		<p className="mt-1 text-xs text-tec-muted">Diagnóstico concluído por {detail.diagnosis.completed_by ?? "usuário não identificado"}{detail.diagnosis.completed_at ? ` em ${formatDate(detail.diagnosis.completed_at)}` : ""}.</p>
+		{detail.diagnosis.budget_review_required ? <p className="mt-2 text-xs font-bold text-tec-orange">Diagnóstico reaberto: revise o orçamento antes de enviar. A versão já enviada não foi invalidada.</p> : null}
+	</Card>;
 }
 
 function StageHeading({ description, title }: { description: string; title: string }) {
@@ -4468,6 +4527,7 @@ function serviceOrderStepIndex(state: string | null) {
   if (state === "Em diagnóstico") {
     return 1;
   }
+	if (state === "Diagnosticado — aguardando orçamento") return 2;
   if (["Aguardando aprovação", "Aprovado", "Reprovado", "Orçamento expirado"].includes(state ?? "")) {
     return 3;
   }

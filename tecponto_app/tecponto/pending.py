@@ -25,6 +25,7 @@ PANEL_ROLES = {
 STATE_ACTIONS = {
 	"Entrada criada": ("Aguardar tecnico", "muted"),
 	"Em diagn\u00f3stico": ("Diagnosticar", "blue"),
+	"Diagnosticado \u2014 aguardando or\u00e7amento": ("Precificar", "amber"),
 	"Aguardando aprova\u00e7\u00e3o": ("Cobrar aceite", "amber"),
 	"Aguardando pe\u00e7a": ("Acompanhar peca", "orange"),
 	"Em reparo": ("Acompanhar reparo", "blue"),
@@ -193,7 +194,7 @@ def _attendant_actions() -> list[dict[str, Any]]:
 	user = frappe.session.user
 	rows = frappe.get_all(
 		"Service Order",
-		filters={"attendant": user, "workflow_state": ["in", ["Aguardando aprova\u00e7\u00e3o", "Pronto para retirada", "Reprovado", "Or\u00e7amento expirado"]]},
+		filters={"attendant": user, "workflow_state": ["in", ["Diagnosticado \u2014 aguardando or\u00e7amento", "Aguardando aprova\u00e7\u00e3o", "Pronto para retirada", "Reprovado", "Or\u00e7amento expirado"]]},
 		fields=_clock_fields(),
 		order_by="modified desc",
 		limit_page_length=50,
@@ -207,7 +208,7 @@ def _technician_actions() -> list[dict[str, Any]]:
 	user = frappe.session.user
 	rows = frappe.get_all(
 		"Service Order",
-		filters={"technician": user, "workflow_state": ["in", ["Em diagn\u00f3stico", "Aguardando pe\u00e7a", "Em reparo"]]},
+		filters={"technician": user, "workflow_state": ["in", ["Em diagn\u00f3stico", "Diagnosticado \u2014 aguardando or\u00e7amento", "Aguardando pe\u00e7a", "Em reparo"]]},
 		fields=_clock_fields(),
 		order_by="modified asc",
 		limit_page_length=50,

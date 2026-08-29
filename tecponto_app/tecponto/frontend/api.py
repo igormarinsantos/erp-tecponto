@@ -118,6 +118,7 @@ DIRECTOR_FINANCIAL_ROLES = {"Tecponto Diretor"}
 APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp", "Link"}
 STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
 STATE_EM_DIAGNOSTICO = "Em diagnóstico"
+STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO = "Diagnosticado — aguardando orçamento"
 STATE_APROVADO = "Aprovado"
 STATE_REPROVADO = "Reprovado"
 STATE_PRONTO_RETIRADA = "Pronto para retirada"
@@ -126,6 +127,7 @@ APPROVAL_STATUS_APROVADO = "Aprovado"
 PART_EXECUTION_STATES = {"Aprovado", "Aguardando peça", "Em reparo", "Teste final"}
 APPROVAL_STATUS_REPROVADO = "Reprovado"
 KANBAN_BLOCKED_TARGETS = {
+	STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO: "Use Concluir diagnóstico para escolher quem fará a precificação.",
 	STATE_APROVADO: "Use o fluxo de aprovação para registrar canal, atendente e observação.",
 	STATE_REPROVADO: "Use o fluxo de reprovação para registrar canal e motivo.",
 	STATE_ENTREGUE: "Use o fluxo de retirada para coletar assinatura e validar pagamento.",
@@ -145,6 +147,8 @@ SAFE_SERVICE_ORDER_FIELDS = (
 	"entry_date",
 	"attendant",
 	"technician",
+	"pricing_responsibility",
+	"budget_review_required",
 	"priority",
 	"workflow_state",
 	"stage_entered_at",
@@ -968,9 +972,9 @@ def get_service_order_statbar() -> dict[str, Any]:
 	_require_frontend_role()
 	technical_view = is_restricted_technician()
 	states = (
-		["Em diagnóstico", "Aguardando peça", "Teste final"]
+		["Em diagnóstico", STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO, "Aguardando peça", "Teste final"]
 		if technical_view
-		else ["Entrada criada", "Em diagnóstico", "Aguardando aprovação", "Aguardando peça", "Em reparo", "Pronto para retirada"]
+		else ["Entrada criada", "Em diagnóstico", STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO, "Aguardando aprovação", "Aguardando peça", "Em reparo", "Pronto para retirada"]
 	)
 	scope = service_order_scope_filters()
 	items = []
@@ -1426,6 +1430,8 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 	closed_lines = _build_closed_budget_lines(services, parts)
 
 	finance = _service_order_finance_payload(doc, technical_view=technical_view, fallback_total=grand_total)
+	pricing_available = bool(set(frappe.get_roles(frappe.session.user)).intersection(ATTENDANT_FLOW_ALLOWED_ROLES))
+	pricing_default = "Técnico" if operation_shape()["single_operator"] and pricing_available else "Balcão"
 	return {
 		"name": doc.name,
 		"workflow_state": doc.get("workflow_state"),
@@ -1459,6 +1465,12 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"problem_found": doc.get("problem_found"),
 			"diagnosis_date": str(doc.get("diagnosis_date") or ""),
 			"diagnosis_deadline": str(doc.get("diagnosis_deadline") or ""),
+			"completed_at": str(doc.get("diagnosis_completed_at") or ""),
+			"completed_by": doc.get("diagnosis_completed_by"),
+			"pricing_responsibility": doc.get("pricing_responsibility"),
+			"budget_review_required": bool(doc.get("budget_review_required")),
+			"technician_pricing_available": pricing_available,
+			"default_pricing_responsibility": pricing_default,
 		},
 		"services": services,
 		"parts": parts,
@@ -1558,6 +1570,48 @@ def save_technical_diagnosis(name: str, problem_found: str) -> dict[str, Any]:
 	doc.problem_found = clean_problem
 	doc.diagnosis_date = now_datetime().date()
 	doc.save()
+	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def complete_technical_diagnosis(name: str, problem_found: str, pricing_responsibility: str) -> dict[str, Any]:
+	"""Complete diagnosis and make the pricing hand-off explicit in one transaction."""
+	_require_frontend_role()
+	roles = set(frappe.get_roles(frappe.session.user))
+	if not roles.intersection({"Tecponto Tecnico", "Tecponto Gestor", "System Manager"}):
+		frappe.throw(_("Somente a equipe técnica pode concluir o diagnóstico."), frappe.PermissionError)
+	clean_problem = strip_html(problem_found or "").strip()
+	if not clean_problem:
+		frappe.throw(_("Informe o diagnóstico encontrado."), frappe.ValidationError)
+	responsibility = (pricing_responsibility or "").strip()
+	if responsibility not in {"Técnico", "Balcão"}:
+		frappe.throw(_("Escolha quem fará a precificação."), frappe.ValidationError)
+	if responsibility == "Técnico" and not roles.intersection(ATTENDANT_FLOW_ALLOWED_ROLES):
+		frappe.throw(_("Orçamento pelo técnico será habilitado na K.3. Nesta versão, encaminhe ao Balcão."), frappe.PermissionError)
+
+	savepoint = f"complete_diagnosis_{frappe.generate_hash(length=8)}"
+	frappe.db.savepoint(savepoint)
+	try:
+		clean_name = (name or "").strip()
+		frappe.db.sql("SELECT name FROM `tabService Order` WHERE name=%s FOR UPDATE", (clean_name,))
+		doc = frappe.get_doc("Service Order", clean_name)
+		doc.check_permission("write")
+		if doc.workflow_state != STATE_EM_DIAGNOSTICO:
+			frappe.throw(_("A OS precisa estar Em diagnóstico para concluir esta etapa."), frappe.ValidationError)
+		if is_restricted_technician() and doc.technician != frappe.session.user:
+			frappe.throw(_("Você só pode concluir diagnóstico nas suas OS."), frappe.PermissionError)
+		doc.problem_found = clean_problem
+		doc.diagnosis_date = now_datetime().date()
+		doc.diagnosis_completed_at = now_datetime()
+		doc.diagnosis_completed_by = frappe.session.user
+		doc.pricing_responsibility = responsibility
+		doc.budget_review_required = 0
+		doc.save()
+		action = _get_allowed_kanban_action(STATE_EM_DIAGNOSTICO, STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO)
+		apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), action)
+	except Exception:
+		frappe.db.rollback(save_point=savepoint)
+		raise
 	return get_service_order_detail(doc.name)
 
 
@@ -3450,6 +3504,8 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 		"entry_date": str(item.get("entry_date") or ""),
 		"attendant": item.get("attendant"),
 		"technician": item.get("technician"),
+		"pricing_responsibility": item.get("pricing_responsibility"),
+		"budget_review_required": bool(item.get("budget_review_required")),
 		"priority": item.get("priority"),
 		"workflow_state": item.get("workflow_state"),
 		"stage_clock": clock,
@@ -3468,7 +3524,7 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 def _get_workflow_blockers(order: Any) -> dict[str, str]:
 	"""Expose safe, actionable preflight guidance for workflow controls."""
 	blockers = _get_workflow_role_blockers(order)
-	if order.get("workflow_state") != STATE_EM_DIAGNOSTICO:
+	if order.get("workflow_state") not in {STATE_EM_DIAGNOSTICO, STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO}:
 		return blockers
 
 	name = order.get("name")
@@ -3483,7 +3539,9 @@ def _get_workflow_blockers(order: Any) -> dict[str, str]:
 	diagnosis = (values.get("problem_found") or "").strip()
 	diagnosis_date = values.get("diagnosis_date")
 	if not diagnosis or not diagnosis_date:
-		blockers[STATE_AGUARDANDO_APROVACAO] = "Registre e salve o diagnóstico técnico antes de enviar o orçamento."
+		blockers[STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO] = "Registre o diagnóstico técnico antes de concluir esta etapa."
+		return blockers
+	if order.get("workflow_state") == STATE_EM_DIAGNOSTICO:
 		return blockers
 	if not (
 		frappe.db.count("Service Order Service", {"parent": name})
@@ -4302,6 +4360,15 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 				"title": "Diagnóstico",
 				"detail": doc.get("problem_found") or "Diagnóstico registrado",
 				"date": str(doc.get("diagnosis_date") or ""),
+				"tone": "amber",
+			}
+		)
+	if doc.get("diagnosis_completed_at") and doc.get("pricing_responsibility"):
+		timeline.append(
+			{
+				"title": "Diagnóstico concluído e repassado",
+				"detail": f"Precificação: {doc.get('pricing_responsibility')} · por {doc.get('diagnosis_completed_by') or 'usuário não identificado'}",
+				"date": str(doc.get("diagnosis_completed_at") or ""),
 				"tone": "amber",
 			}
 		)

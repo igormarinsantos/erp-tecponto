@@ -421,6 +421,8 @@ export interface ServiceOrderSummary {
   entry_date: string;
   attendant: string | null;
   technician: string | null;
+	pricing_responsibility?: "Técnico" | "Balcão" | null;
+	budget_review_required?: boolean;
   priority: string | null;
   workflow_state: string | null;
   stage_clock?: {
@@ -525,6 +527,12 @@ export interface ServiceOrderDetailResponse {
     problem_found: string | null;
     diagnosis_date: string;
     diagnosis_deadline: string;
+	completed_at: string;
+	completed_by: string | null;
+	pricing_responsibility: "Técnico" | "Balcão" | null;
+	budget_review_required: boolean;
+	technician_pricing_available: boolean;
+	default_pricing_responsibility: "Técnico" | "Balcão";
   };
   services: ServiceOrderBudgetLine[];
   parts: ServiceOrderBudgetLine[];

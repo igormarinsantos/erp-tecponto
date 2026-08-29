@@ -19,6 +19,7 @@ BUSINESS_DAY_END = time(18, 0)
 DEFAULT_STAGE_SLAS = (
 	("Entrada criada", 4, "Tempo para iniciar o diagnóstico."),
 	("Em diagnóstico", 48, "Tempo interno para concluir o diagnóstico."),
+	("Diagnosticado — aguardando orçamento", 8, "Tempo para montar e conferir o orçamento."),
 	("Aguardando aprovação", 48, "Prazo de resposta do cliente."),
 	("Aguardando peça", 0, "Preencha apenas quando houver prazo do fornecedor."),
 	("Pronto para retirada", 16, "Lembrete operacional após dois dias úteis."),
@@ -83,7 +84,7 @@ def calculate_suggested_delivery(
 	ensure_stage_slas()
 	start = get_datetime(start_datetime) if start_datetime else frappe.utils.now_datetime()
 	slas = {row.workflow_state: flt(row.business_hours) for row in get_stage_slas() if cint(row.active)}
-	base_stages = ("Entrada criada", "Em diagnóstico", "Aguardando aprovação")
+	base_stages = ("Entrada criada", "Em diagnóstico", "Diagnosticado — aguardando orçamento", "Aguardando aprovação")
 	stage_hours = sum(slas.get(state, 0) for state in base_stages)
 	service_hours = _duration_as_business_hours(service_duration, service_duration_unit)
 	lead_time = max(0, flt(lead_time_business_hours))

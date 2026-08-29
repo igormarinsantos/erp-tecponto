@@ -85,6 +85,7 @@ fixtures = [
 				[
 					"Entrada criada",
 					"Em diagnóstico",
+					"Diagnosticado — aguardando orçamento",
 					"Aguardando aprovação",
 					"Aprovado",
 					"Reprovado",
@@ -110,6 +111,7 @@ fixtures = [
 				"in",
 				[
 					"Aguardando aprovação",
+					"Diagnosticado — aguardando orçamento",
 					"Aguardando peça",
 					"Aprovado",
 					"Cancelado",

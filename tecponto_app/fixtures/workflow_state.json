@@ -21,6 +21,15 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
+  "modified": "2026-08-29 00:00:00.000000",
+  "name": "Diagnosticado — aguardando orçamento",
+  "style": "Warning",
+  "workflow_state_name": "Diagnosticado — aguardando orçamento"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
   "modified": "2026-07-03 15:08:51.914149",
   "name": "Aguardando aprovação",
   "style": "Warning",

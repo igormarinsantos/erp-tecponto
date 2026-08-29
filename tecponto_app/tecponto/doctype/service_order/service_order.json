@@ -35,6 +35,10 @@
   "diagnosis_column_break",
   "diagnosis_notes",
   "diagnosis_date",
+  "diagnosis_completed_at",
+  "diagnosis_completed_by",
+  "pricing_responsibility",
+  "budget_review_required",
   "diagnosis_fee_enabled",
   "diagnosis_fee_value",
   "budget_section",
@@ -259,6 +263,33 @@
    "fieldname": "diagnosis_date",
    "fieldtype": "Date",
    "label": "Data do diagnóstico"
+  },
+  {
+   "fieldname": "diagnosis_completed_at",
+   "fieldtype": "Datetime",
+   "label": "Diagnóstico concluído em",
+   "read_only": 1
+  },
+  {
+   "fieldname": "diagnosis_completed_by",
+   "fieldtype": "Link",
+   "label": "Diagnóstico concluído por",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pricing_responsibility",
+   "fieldtype": "Select",
+   "label": "Responsável pela precificação",
+   "options": "Técnico\nBalcão",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "budget_review_required",
+   "fieldtype": "Check",
+   "label": "Revisar orçamento após reabertura",
+   "read_only": 1
   },
   {
    "default": "0",

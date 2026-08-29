@@ -5,6 +5,7 @@ type BadgeTone = "orange" | "green" | "blue" | "purple" | "amber" | "red" | "sla
 const statusTone: Record<string, BadgeTone> = {
   "Entrada criada": "blue",
   "Em diagnóstico": "orange",
+  "Diagnosticado — aguardando orçamento": "amber",
   "Aguardando aprovação": "amber",
   Aprovado: "green",
   Reprovado: "red",

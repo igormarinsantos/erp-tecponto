@@ -6,6 +6,7 @@ from frappe.utils import flt, getdate, nowdate
 
 STATE_CANCELADO = "Cancelado"
 STATE_EM_DIAGNOSTICO = "Em diagnóstico"
+STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO = "Diagnosticado — aguardando orçamento"
 STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
 MANAGER_ROLES = {"Tecponto Gestor", "System Manager"}
 
@@ -14,7 +15,22 @@ def validate_repare_rules(doc, method=None) -> None:
 	_validate_warranty(doc)
 	_validate_sinal(doc)
 	_validate_billed_cancellation(doc)
+	_validate_diagnosis_handoff(doc)
 	_validate_budget_submission(doc)
+
+
+def _validate_diagnosis_handoff(doc) -> None:
+	if doc.get("workflow_state") != STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO:
+		return
+	previous = doc.get_doc_before_save() if not doc.is_new() else None
+	if not previous or previous.get("workflow_state") != STATE_EM_DIAGNOSTICO:
+		return
+	if not (doc.get("problem_found") or "").strip() or not doc.get("diagnosis_date"):
+		frappe.throw("Registre o diagnóstico antes de concluir esta etapa.")
+	if doc.get("pricing_responsibility") not in {"Técnico", "Balcão"}:
+		frappe.throw("Escolha quem fará a precificação ao concluir o diagnóstico.")
+	if not doc.get("diagnosis_completed_at") or not doc.get("diagnosis_completed_by"):
+		frappe.throw("Use Concluir diagnóstico para registrar o repasse auditável.")
 
 
 def _validate_budget_submission(doc) -> None:
@@ -30,7 +46,7 @@ def _validate_budget_submission(doc) -> None:
 	previous = doc.get_doc_before_save() if not doc.is_new() else None
 	if previous and previous.get("workflow_state") == STATE_AGUARDANDO_APROVACAO:
 		return
-	if previous and previous.get("workflow_state") != STATE_EM_DIAGNOSTICO:
+	if previous and previous.get("workflow_state") != STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO:
 		return
 
 	if not (doc.get("problem_found") or "").strip() or not doc.get("diagnosis_date"):

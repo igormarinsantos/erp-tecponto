@@ -37,6 +37,7 @@ export function getStatBarVisual(scope: string, key: string): Visual {
 	  overdue: visual(AlertTriangle, "orange"),
       "Entrada criada": visual(Archive, "blue"),
       "Em diagnóstico": visual(SearchCheck, "blue"),
+      "Diagnosticado — aguardando orçamento": visual(Clock3, "amber"),
       "Aguardando aprovação": visual(Clock3, "amber"),
       "Aguardando peça": visual(PackageSearch, "blue"),
       "Em reparo": visual(Wrench, "orange"),

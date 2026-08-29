@@ -50,6 +50,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_service_order_statbar,
 	get_service_order_detail,
 	save_technical_diagnosis,
+	complete_technical_diagnosis,
 	set_service_order_part_outcome,
 	get_service_order_kanban,
 	issue_os_acceptance,
@@ -306,6 +307,9 @@ def run_foundation_checks() -> dict:
 		technician_assignment_check = run_technician_assignment_checks(
 			users["Tecponto Gestor"], users["Tecponto Atendente"], users["Tecponto Tecnico"]
 		)
+		diagnosis_handoff_check = run_diagnosis_handoff_checks(
+			users["Tecponto Gestor"], users["Tecponto Atendente"], users["Tecponto Tecnico"]
+		)
 		cash_session_check = run_cash_session_checks()
 		pos_cash_integration_check = run_pos_cash_integration_checks()
 		cash_closing_check = run_cash_closing_checks()
@@ -373,6 +377,7 @@ def run_foundation_checks() -> dict:
 			"director_report_guard": director_report_guard,
 			"director_risk_agenda_guard": director_risk_agenda_guard,
 			"manager_operation_scope": manager_operation_check,
+			"diagnosis_handoff": diagnosis_handoff_check,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
 			"technician_part_execution": technician_part_execution_check,
@@ -617,6 +622,75 @@ def _run_concurrent_claim_check(service_order: str, first_technician: str, secon
 	if results.get("loser_blocked_seconds", 0) < 1.5:
 		raise AssertionError(f"A consulta perdedora não ficou bloqueada pelo row lock: {results}")
 	return results["winner"]
+
+
+def run_diagnosis_handoff_checks(manager: str, attendant: str, technician: str) -> dict:
+	"""Prove the K.2 hand-off, including the safe K.2/K.3 capability boundary."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		restricted_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order", restricted_order,
+			{"workflow_state": "Em diagnóstico", "technician": technician},
+			update_modified=False,
+		)
+		frappe.set_user(technician)
+		try:
+			complete_technical_diagnosis(restricted_order, "Falha confirmada na alimentação.", "Técnico")
+		except frappe.PermissionError as error:
+			if "K.3" not in str(error):
+				raise
+		else:
+			raise AssertionError("Técnico restrito recebeu precificação inexequível antes da K.3.")
+		if frappe.db.get_value("Service Order", restricted_order, "workflow_state") != "Em diagnóstico":
+			raise AssertionError("Tentativa inexequível alterou parcialmente o estado da OS.")
+
+		handoff = complete_technical_diagnosis(restricted_order, "Falha confirmada na alimentação.", "Balcão")
+		if handoff["workflow_state"] != "Diagnosticado — aguardando orçamento":
+			raise AssertionError("Conclusão não criou a etapa intermediária de precificação.")
+		if handoff["diagnosis"]["pricing_responsibility"] != "Balcão" or not handoff["diagnosis"]["completed_by"]:
+			raise AssertionError("Repasse não registrou responsável e autoria explicitamente.")
+		if contains_sensitive_field(handoff):
+			raise AssertionError("Repasse K.2 vazou campo sensível para o técnico.")
+
+		frappe.set_user("Administrator")
+		multi_role_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order", multi_role_order,
+			{"workflow_state": "Em diagnóstico", "technician": technician},
+			update_modified=False,
+		)
+		frappe.set_user(manager)
+		continued = complete_technical_diagnosis(multi_role_order, "Conector danificado; substituição indicada.", "Técnico")
+		if continued["diagnosis"]["pricing_responsibility"] != "Técnico":
+			raise AssertionError("Usuário multipapel perdeu o caminho de orçamento já autorizado.")
+
+		service_item = _get_demo_item(is_stock_item=0)
+		add_service_order_budget_line(
+			multi_role_order,
+			{"type": "service", "item_code": service_item, "description": "Substituição do conector", "qty": 1, "rate": 180},
+		)
+		apply_workflow(
+			frappe.as_json({"doctype": "Service Order", "name": multi_role_order}),
+			"Aguardando aprovação",
+		)
+		if frappe.db.get_value("Service Order", multi_role_order, "workflow_state") != "Aguardando aprovação":
+			raise AssertionError("OS precificada não avançou para aprovação.")
+
+		frappe.set_user(technician)
+		apply_workflow(
+			frappe.as_json({"doctype": "Service Order", "name": restricted_order}),
+			"Em diagnóstico",
+		)
+		reopened = frappe.get_doc("Service Order", restricted_order)
+		if not reopened.budget_review_required:
+			raise AssertionError("Reabrir diagnóstico não marcou a revisão do orçamento.")
+		if reopened.pricing_responsibility != "Balcão":
+			raise AssertionError("Reabertura apagou o histórico do repasse anterior.")
+		return {"restricted_default": "Balcão", "multi_role": "Técnico", "review_warning": True}
+	finally:
+		frappe.set_user(previous_user)
 
 
 def run_budget_presentation_checks() -> dict:
@@ -3622,13 +3696,13 @@ def run_workflow_metadata_gate_checks() -> dict:
 		)
 		frappe.set_user(manager)
 		missing_diagnosis_frontend = get_service_order_detail(submission_order)
-		if "Aguardando aprovação" not in missing_diagnosis_frontend["workflow_blockers"]:
+		if "Diagnosticado — aguardando orçamento" not in missing_diagnosis_frontend["workflow_blockers"]:
 			raise AssertionError("A interface não recebeu a orientação de diagnóstico pendente.")
 		missing_diagnosis_blocked = False
 		try:
 			apply_workflow(
 				frappe.as_json({"doctype": "Service Order", "name": submission_order}),
-				"Aguardando aprovação",
+				"Diagnosticado — aguardando orçamento",
 			)
 		except frappe.ValidationError:
 			missing_diagnosis_blocked = True
@@ -3641,6 +3715,11 @@ def run_workflow_metadata_gate_checks() -> dict:
 		submission_doc.set("services", [])
 		submission_doc.set("parts", [])
 		submission_doc.save(ignore_permissions=True)
+		complete_technical_diagnosis(
+			submission_order,
+			"Diagnóstico preenchido para a trava de orçamento.",
+			"Balcão",
+		)
 		missing_budget_frontend = get_service_order_detail(submission_order)
 		if "Aguardando aprovação" not in missing_budget_frontend["workflow_blockers"]:
 			raise AssertionError("A interface não recebeu a orientação de orçamento pendente.")

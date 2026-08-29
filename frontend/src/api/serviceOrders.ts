@@ -104,6 +104,11 @@ export const serviceOrders = {
       body: { name, problem_found: problemFound },
     });
   },
+	completeDiagnosis(name: string, problemFound: string, pricingResponsibility: "Técnico" | "Balcão") {
+		return rpc<ServiceOrderDetailResponse>(`${API}.complete_technical_diagnosis`, {
+			body: { name, problem_found: problemFound, pricing_responsibility: pricingResponsibility },
+		});
+	},
   setPartOutcome(name: string, partName: string, outcome: "Usada no reparo" | "Perdida", lossReason = "") {
     return rpc<ServiceOrderDetailResponse>(`${API}.set_service_order_part_outcome`, {
       body: { name, part_name: partName, outcome, loss_reason: lossReason },
