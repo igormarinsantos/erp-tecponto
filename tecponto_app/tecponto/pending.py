@@ -4,7 +4,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, get_datetime, getdate, now_datetime, today
+from frappe.utils import add_days, flt, get_datetime, getdate, now_datetime, today
 
 from tecponto_app.tecponto.service_order import stage_clock
 
