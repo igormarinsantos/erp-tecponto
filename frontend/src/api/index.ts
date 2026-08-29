@@ -30,6 +30,8 @@ export type {
   CheckinResponse,
 	WarrantyCandidate,
 	WarrantyCandidateResponse,
+	ServiceWarrantyResult,
+	ServiceWarrantySearchResponse,
 	CashierOperatorIdentity,
 	CashSessionSummary,
 	CashStatementResponse,

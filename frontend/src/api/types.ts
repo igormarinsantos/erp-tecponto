@@ -4,6 +4,7 @@ export type NavigationTarget =
   | "mesa-flow"
   | "service-orders"
   | "service-order-detail"
+	| "warranties"
   | "customers"
   | "devices"
   | "services"
@@ -978,6 +979,28 @@ export interface WarrantyCandidate {
 
 export interface WarrantyCandidateResponse {
   items: WarrantyCandidate[];
+}
+
+export interface ServiceWarrantyResult {
+	service_order: string;
+	customer: string;
+	customer_device: string;
+	device_label: string;
+	imei_serial: string | null;
+	reported_defect: string | null;
+	delivery_date: string;
+	warranty_expiry: string;
+	warranty_days: number;
+	remaining_days: number;
+	status: "vigente" | "expirada";
+	covered_services: string[];
+	coverage: string;
+}
+
+export interface ServiceWarrantySearchResponse {
+	items: ServiceWarrantyResult[];
+	count: number;
+	can_start_service: boolean;
 }
 
 export interface CheckinResponse {

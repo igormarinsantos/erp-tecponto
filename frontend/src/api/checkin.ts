@@ -1,5 +1,5 @@
 import { rpc } from "./client";
-import type { CheckinPayload, CheckinResponse, DeliverySuggestion, WarrantyCandidateResponse } from "./types";
+import type { CheckinPayload, CheckinResponse, DeliverySuggestion, ServiceWarrantySearchResponse, WarrantyCandidateResponse } from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
 
@@ -14,6 +14,9 @@ export const checkin = {
       body: { customer: customer ?? "", customer_device: customerDevice ?? "" },
     });
   },
+	searchWarranties(query: string, searchBy: "os" | "imei" | "customer") {
+		return rpc<ServiceWarrantySearchResponse>(`${API}.search_service_order_warranties`, { query: { query, search_by: searchBy } });
+	},
   getDeliverySuggestion(defects: string[] = [], leadTimeBusinessHours = 0) {
     return rpc<DeliverySuggestion>(`${API}.get_checkin_delivery_suggestion`, {
       body: { payload: { defects, lead_time_business_hours: leadTimeBusinessHours } },

@@ -62,6 +62,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_checkin_delivery_suggestion,
 	list_defect_service_mappings,
 	list_warranty_candidates,
+	search_service_order_warranties,
 	open_store_cash_session,
 	create_customer,
 	create_customer_device,
@@ -2042,6 +2043,23 @@ def run_warranty_delivery_checks() -> dict:
 			raise AssertionError("Garantia normal não foi calculada a partir da data de entrega configurada.")
 		if str(original.warranty_expiry) == str(add_days(original.entry_date, 90)):
 			raise AssertionError("Garantia foi calculada a partir da criação, e não da entrega.")
+		device_imei = f"K5{frappe.generate_hash(length=12)}"
+		frappe.db.set_value("Customer Device", original.customer_device, "imei_serial", device_imei, update_modified=False)
+		frappe.set_user(attendant)
+		queries = {
+			"os": search_service_order_warranties(original.name, "os"),
+			"imei": search_service_order_warranties(device_imei, "imei"),
+			"customer": search_service_order_warranties(original.customer, "customer"),
+		}
+		for mode, result in queries.items():
+			candidate = next((item for item in result["items"] if item["service_order"] == original.name), None)
+			if not candidate:
+				raise AssertionError(f"Tela de garantia não encontrou a OS por {mode}.")
+			if candidate["status"] != "vigente" or candidate["remaining_days"] != 90 or not candidate["covered_services"]:
+				raise AssertionError("Consulta vigente não mostrou prazo restante, status e cobertura.")
+			leaks = contains_sensitive_field(result, forbidden_values={BUDGET_COST_GUARD_VALUATION})
+			if leaks:
+				raise AssertionError(f"Consulta de garantia vazou custo/margem: {', '.join(leaks)}")
 
 		frappe.set_user(manager)
 		catalog_references = list_catalog_references()
@@ -2141,6 +2159,25 @@ def run_warranty_delivery_checks() -> dict:
 		if normal_quote["services"][-1].get("unit_price") != 199.9:
 			raise AssertionError("Defeito diferente não abriu OS normal com cobrança regular.")
 
+		expired_name = _create_action_request_service_order(attendant)
+		expired = frappe.get_doc("Service Order", expired_name)
+		expired.db_set({"workflow_state": "Entregue", "pickup_date": add_days(nowdate(), -100), "warranty_expiry": add_days(nowdate(), -10)}, update_modified=False)
+		expired_result = search_service_order_warranties(expired.name, "os")
+		expired_item = next((item for item in expired_result["items"] if item["service_order"] == expired.name), None)
+		if not expired_item or expired_item["status"] != "expirada" or expired_item["remaining_days"] != 0:
+			raise AssertionError("Tela não mostrou claramente a garantia expirada.")
+		expired_warranty_blocked = False
+		try:
+			create_service_order_checkin({"customer": {"existing_name": expired.customer}, "device": {"existing_name": expired.customer_device}, "service_order": {"reported_defect": expired.reported_defect, "physical_state": "Sem danos adicionais.", "is_warranty": 1, "original_service_order": expired.name}, "entry_photo": {"data_url": photo_data, "filename": "expired-warranty.jpg"}})
+		except frappe.ValidationError:
+			expired_warranty_blocked = True
+		if not expired_warranty_blocked:
+			raise AssertionError("Motor aceitou retrabalho com garantia expirada.")
+		expired_normal = create_service_order_checkin({"customer": {"existing_name": expired.customer}, "device": {"existing_name": expired.customer_device}, "service_order": {"reported_defect": expired.reported_defect, "physical_state": "Sem danos adicionais."}, "entry_photo": {"data_url": photo_data, "filename": "expired-normal.jpg"}})
+		expired_quote = add_catalog_service_to_service_order(expired_normal["service_order"]["name"], created_catalog_service, {"qty": 1, "rate": 199.9, "duration": 2, "duration_unit": "Horas"})
+		if expired_quote["services"][-1].get("unit_price") != 199.9:
+			raise AssertionError("Garantia expirada não seguiu como OS normal com cobrança.")
+
 		frappe.db.set_single_value("Tecponto Settings", "default_warranty_days", 30)
 		if str(frappe.db.get_value("Service Order", original.name, "warranty_expiry")) != expected_original_expiry:
 			raise AssertionError("Alterar a configuração reescreveu a garantia de uma OS já entregue.")
@@ -2151,6 +2188,10 @@ def run_warranty_delivery_checks() -> dict:
 		_deliver_warranty_test_order(second)
 		if str(second.warranty_expiry) != add_days(nowdate(), 30):
 			raise AssertionError("Nova OS não respeitou o prazo de garantia configurável.")
+		warranty_screen_source = (Path(__file__).parents[3] / "frontend" / "src" / "WarrantyScreen.tsx").read_text(encoding="utf-8")
+		for marker in ("Garantia vigente", "Garantia expirada", "Abrir nova OS normal", 'item.status === "vigente" ? item.service_order : ""'):
+			if marker not in warranty_screen_source:
+				raise AssertionError(f"Tela dedicada de garantia perdeu a amarra visual {marker!r}.")
 
 		return {
 			"status": "ok",
@@ -2160,6 +2201,8 @@ def run_warranty_delivery_checks() -> dict:
 			"different_defect_blocked": different_defect_blocked,
 			"customer_part_excluded_from_warranty": True,
 			"new_configured_warranty_expiry": str(second.warranty_expiry),
+			"screen_queries": sorted(queries),
+			"expired_opens_normal_charged": expired_warranty_blocked,
 		}
 	finally:
 		frappe.db.set_single_value("Tecponto Settings", "default_warranty_days", previous_days or 90)

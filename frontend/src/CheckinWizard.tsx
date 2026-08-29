@@ -68,6 +68,7 @@ const stepDescriptions = [
   "Revise os dados, confirme as declarações e colete a assinatura.",
 ];
 const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname) || window.location.hostname.endsWith(".localhost");
+const WARRANTY_CHECKIN_CONTEXT_KEY = "tecponto.warranty.checkin-context";
 
 type NewCustomerForm = {
   customer_name: string;
@@ -286,6 +287,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
   const [warrantyCandidates, setWarrantyCandidates] = useState<WarrantyCandidate[]>([]);
   const [warrantyLoading, setWarrantyLoading] = useState(false);
   const [originalServiceOrder, setOriginalServiceOrder] = useState("");
+	const [forceNormalWarrantyReturn, setForceNormalWarrantyReturn] = useState(false);
   const [deliverySuggestion, setDeliverySuggestion] = useState<DeliverySuggestion | null>(null);
   const [autoSuggestedDeadline, setAutoSuggestedDeadline] = useState("");
   const [photo, setPhoto] = useState<{ dataUrl: string; filename: string } | null>(null);
@@ -310,6 +312,32 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
     setCustomerMicrostep("choice");
     setDeviceMicrostep("choice");
   }, [open]);
+
+	useEffect(() => {
+		let context: { customer?: string; customer_device?: string; original_service_order?: string; source_service_order?: string; status?: "vigente" | "expirada" } | null = null;
+		try {
+			const raw = window.sessionStorage.getItem(WARRANTY_CHECKIN_CONTEXT_KEY);
+			window.sessionStorage.removeItem(WARRANTY_CHECKIN_CONTEXT_KEY);
+			context = raw ? JSON.parse(raw) : null;
+		} catch { context = null; }
+		if (!context?.customer || !context.customer_device) return;
+		let cancelled = false;
+		Promise.all([
+			balcao.searchCustomers(context.customer, 8),
+			balcao.listDevices(context.customer_device, 8, context.customer),
+		]).then(([customers, devices]) => {
+			if (cancelled) return;
+			const customer = customers.items.find((item) => item.name === context?.customer);
+			const device = devices.items.find((item) => item.name === context?.customer_device);
+			if (!customer || !device) { setError("Não foi possível carregar o cliente/aparelho da garantia."); return; }
+			setSelectedCustomer(customer); setCustomerMicrostep("existing"); setCustomerQuery(customer.customer_name ?? customer.name);
+			setSelectedDevice(device); setDeviceMicrostep("existing"); setDeviceQuery(device.imei_serial ?? device.name);
+			setOriginalServiceOrder(context?.original_service_order ?? "");
+			setForceNormalWarrantyReturn(context?.status === "expirada");
+			setServiceOrder((current) => ({ ...current, attendance_notes: context?.status === "expirada" ? `Retorno da ${context.source_service_order}: garantia expirada; abrir como OS normal com cobrança.` : `Retorno em garantia vinculado à ${context?.source_service_order}.` }));
+		}).catch(() => { if (!cancelled) setError("Não foi possível preparar o atendimento de garantia."); });
+		return () => { cancelled = true; };
+	}, []);
 
   useEffect(() => {
     setServiceOrder((current) => ({
@@ -352,6 +380,11 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
   useEffect(() => {
     const customer = selectedCustomer?.name ?? "";
     const device = selectedDevice?.name ?? "";
+	if (forceNormalWarrantyReturn) {
+		setWarrantyCandidates([]);
+		setOriginalServiceOrder("");
+		return;
+	}
     if (!customer && !device) {
       setWarrantyCandidates([]);
       setOriginalServiceOrder("");
@@ -381,7 +414,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
     return () => {
       cancelled = true;
     };
-  }, [selectedCustomer?.name, selectedDevice?.name]);
+  }, [forceNormalWarrantyReturn, selectedCustomer?.name, selectedDevice?.name]);
 
   const customerReady = customerMicrostep !== "choice" && Boolean(
     selectedCustomer ||
@@ -577,6 +610,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
                     diagnosisOnlyEnabled={diagnosisOnlyEnabled}
                     deliverySuggestion={deliverySuggestion}
                     generatedSummary={generatedSummary}
+					forceNormalWarrantyReturn={forceNormalWarrantyReturn}
                     originalServiceOrder={originalServiceOrder}
                     selections={serviceSelections}
                     serviceOrder={serviceOrder}
@@ -1531,6 +1565,7 @@ function ServiceDataStep({
   deliverySuggestion,
   diagnosisOnlyEnabled,
   generatedSummary,
+	forceNormalWarrantyReturn,
   originalServiceOrder,
   selections,
   serviceOrder,
@@ -1543,6 +1578,7 @@ function ServiceDataStep({
   deliverySuggestion: DeliverySuggestion | null;
   diagnosisOnlyEnabled: boolean;
   generatedSummary: string;
+	forceNormalWarrantyReturn: boolean;
   originalServiceOrder: string;
   selections: ServiceSelections;
   serviceOrder: {
@@ -1611,9 +1647,7 @@ function ServiceDataStep({
             ) : null}
           </div>
         ) : (
-          <p className="mt-3 text-sm leading-6 text-tec-muted">
-            Nenhuma OS entregue com garantia vigente foi encontrada para este cliente/aparelho. Garantia-cortesia exige libera{"\u00e7"}{"\u00e3"}o do Gestor.
-          </p>
+		  forceNormalWarrantyReturn ? <p className="mt-3 rounded-control border border-tec-red/25 bg-tec-red/10 px-3 py-2 text-sm font-semibold leading-6 text-tec-red">A garantia consultada está expirada. Este check-in criará uma OS nova normal, com orçamento e cobrança regulares.</p> : <p className="mt-3 text-sm leading-6 text-tec-muted">Nenhuma OS entregue com garantia vigente foi encontrada para este cliente/aparelho. Garantia-cortesia exige libera{"\u00e7"}{"\u00e3"}o do Gestor.</p>
         )}
       </WizardCard>
 

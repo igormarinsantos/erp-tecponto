@@ -104,6 +104,7 @@ import {
 import { login } from "./api/auth";
 import { isAuthRequiredError } from "./api/client";
 import { CheckinWizard } from "./CheckinWizard";
+import { WarrantyScreen } from "./WarrantyScreen";
 import { CashierMode } from "./CashierMode";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { ApprovalRequestsPanel } from "./ApprovalRequestsPanel";
@@ -350,6 +351,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
     title: "Detalhe da OS",
     subtitle: "Cliente, aparelho, orçamento, workflow e impressos.",
   },
+	warranties: {
+		title: "Garantias",
+		subtitle: "Consultar cobertura e iniciar atendimento de retorno.",
+	},
   customers: {
     title: "Clientes",
     subtitle: "Busca por nome, telefone, e-mail ou código.",
@@ -2529,6 +2534,10 @@ function NavigationContent({
       </div>
     );
   }
+
+	if (activeView === "warranties") {
+		return <WarrantyScreen onOpenOrder={onOpenServiceOrder} onStartCheckin={onStartCheckin} onToast={onToast} />;
+	}
 
   if (activeView === "approval-requests") {
     return <ApprovalRequestsPanel onToast={onToast} />;

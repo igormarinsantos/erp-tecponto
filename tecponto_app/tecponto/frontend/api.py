@@ -2017,6 +2017,74 @@ def list_warranty_candidates(customer: str = "", customer_device: str = "") -> d
 
 
 @frappe.whitelist()
+def search_service_order_warranties(query: str, search_by: str = "os", limit: int = 30) -> dict[str, Any]:
+	"""Safe warranty desk projection; the Service Order policy remains authoritative."""
+	_require_frontend_role()
+	query = (query or "").strip()[:100]
+	search_by = (search_by or "os").strip().lower()
+	if search_by not in {"os", "imei", "customer"}:
+		frappe.throw(_("Tipo de consulta de garantia inválido."), frappe.ValidationError)
+	if not query:
+		return {"items": [], "count": 0, "can_start_service": _can_start_warranty_service()}
+	filters: dict[str, Any] = {"workflow_state": STATE_ENTREGUE, "is_warranty": 0, "warranty_expiry": ["is", "set"]}
+	if search_by == "os":
+		filters["name"] = ["like", f"%{query}%"]
+	elif search_by == "imei":
+		devices = frappe.get_all("Customer Device", filters={"imei_serial": ["like", f"%{query}%"]}, pluck="name", limit_page_length=100)
+		filters["customer_device"] = ["in", devices or [""]]
+	else:
+		customers = list(set(
+			frappe.get_all("Customer", filters={"name": ["like", f"%{query}%"]}, pluck="name", limit_page_length=100)
+			+ frappe.get_all("Customer", filters={"customer_name": ["like", f"%{query}%"]}, pluck="name", limit_page_length=100)
+		))
+		filters["customer"] = ["in", customers or [""]]
+	filters = _with_service_order_scope(filters)
+	rows = frappe.get_list(
+		"Service Order",
+		filters=filters,
+		fields=["name", "customer", "customer_device", "reported_defect", "pickup_date", "warranty_expiry"],
+		order_by="pickup_date desc, modified desc",
+		limit_page_length=max(1, min(int(limit or 30), 50)),
+	)
+	services_by_order: dict[str, list[str]] = {row.name: [] for row in rows}
+	if rows:
+		for service in frappe.get_all(
+			"Service Order Service",
+			filters={"parent": ["in", list(services_by_order)]},
+			fields=["parent", "description"],
+			order_by="idx asc",
+			limit_page_length=500,
+		):
+			if service.description:
+				services_by_order[service.parent].append(service.description)
+	items = []
+	for row in rows:
+		expires = getdate(row.warranty_expiry)
+		remaining_days = (expires - getdate(today())).days
+		device = frappe.db.get_value("Customer Device", row.customer_device, ["brand", "model", "imei_serial"], as_dict=True) or {}
+		items.append({
+			"service_order": row.name,
+			"customer": row.customer,
+			"customer_device": row.customer_device,
+			"device_label": " ".join(value for value in (device.get("brand"), device.get("model")) if value) or row.customer_device,
+			"imei_serial": device.get("imei_serial"),
+			"reported_defect": row.reported_defect,
+			"delivery_date": str(row.pickup_date or ""),
+			"warranty_expiry": str(row.warranty_expiry or ""),
+			"warranty_days": max(0, (expires - getdate(row.pickup_date)).days) if row.pickup_date else 0,
+			"remaining_days": max(0, remaining_days),
+			"status": "vigente" if remaining_days >= 0 else "expirada",
+			"covered_services": services_by_order[row.name] or [row.reported_defect or "Serviço executado na OS"],
+			"coverage": "Mão de obra e serviço executado nesta OS; não cobre dano posterior, mau uso, intervenção de terceiros, falha diferente nem peça fornecida pelo cliente.",
+		})
+	return {"items": items, "count": len(items), "can_start_service": _can_start_warranty_service()}
+
+
+def _can_start_warranty_service() -> bool:
+	return bool(set(frappe.get_roles(frappe.session.user)).intersection(CHECKIN_ALLOWED_ROLES))
+
+
+@frappe.whitelist()
 def send_service_order_quote(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
 	_require_attendant_flow_role()
 	data = _parse_payload(payload)
