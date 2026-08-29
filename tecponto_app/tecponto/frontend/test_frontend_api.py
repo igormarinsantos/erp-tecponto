@@ -467,6 +467,9 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 		# setup so both connections can see the same unassigned row.
 		frappe.db.commit()
 		claim = _run_concurrent_claim_check(order, technician, second_technician)
+		# MariaDB REPEATABLE READ keeps the fixture connection's earlier snapshot;
+		# start a fresh read transaction before validating the workers' commits.
+		frappe.db.rollback()
 		if frappe.db.get_value("Service Order", order, "technician") != technician:
 			raise AssertionError("A reivindicação atômica não preservou o primeiro técnico.")
 		if frappe.db.count("Tecponto Service Order Assignment Event", {"service_order": order, "event_type": "Claim"}) != 1:
