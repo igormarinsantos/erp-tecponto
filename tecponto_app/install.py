@@ -3,6 +3,12 @@ from __future__ import annotations
 import frappe
 
 
+REQUIRED_SETTINGS_DEFAULTS = {
+	"technician_assignment_mode": "Dispatch",
+	"unassigned_technician_alert_hours": 4,
+}
+
+
 def bootstrap_erpnext_foundation(company: str | None = None) -> None:
 	"""Create idempotent operational defaults for the selected native Company."""
 	company_doc = _resolve_company(company)
@@ -74,6 +80,10 @@ def _resolve_company(company: str | None = None, raise_if_missing: bool = True):
 
 def _configure_settings(company_name: str, warehouses: dict[str, str]) -> None:
 	settings = frappe.get_single("Tecponto Settings")
+	for fieldname, default in REQUIRED_SETTINGS_DEFAULTS.items():
+		value = settings.get(fieldname)
+		if value is None or (isinstance(value, str) and not value.strip()):
+			settings.set(fieldname, default)
 	settings.identity_company = company_name
 	settings.repair_warehouse = warehouses["Peças"]
 	settings.commercial_warehouse = warehouses["Acessórios"]

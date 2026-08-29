@@ -6,6 +6,8 @@ import frappe
 
 
 OPERATION_DEFAULTS = {
+	"technician_assignment_mode": "Dispatch",
+	"unassigned_technician_alert_hours": 4,
 	"enable_repair_pillar": 1,
 	"enable_buy_pillar": 1,
 	"enable_tradein_pillar": 1,

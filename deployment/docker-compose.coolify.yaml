@@ -75,16 +75,14 @@ services:
             from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
             import json
             setup_complete(json.dumps({"country":"Brazil","company_name":company_name,"company_abbr":company_abbr,"currency":"BRL","timezone":"America/Sao_Paulo","fy_start_date":"2026-01-01","fy_end_date":"2026-12-31","chart_of_accounts":"Standard"}))
-        from tecponto_app.install import bootstrap_erpnext_foundation
-        bootstrap_erpnext_foundation()
         frappe.db.commit()
         frappe.destroy()
         PY
         if ! bench --site "$${SITE_NAME}" list-apps | grep -qx tecponto_app; then
           bench --site "$${SITE_NAME}" install-app tecponto_app
         fi
-        bench --site "$${SITE_NAME}" execute tecponto_app.install.after_install
         bench --site "$${SITE_NAME}" migrate
+        bench --site "$${SITE_NAME}" execute tecponto_app.install.after_install
         echo "Tecponto site bootstrap complete."
     depends_on:
       configure:

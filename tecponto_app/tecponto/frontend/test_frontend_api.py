@@ -6425,6 +6425,10 @@ def run_operation_config_checks() -> dict:
 		):
 			if legacy_after_first_run.get(fieldname) != "1":
 				raise AssertionError(f"Patch não aplicou o default legado de {fieldname}.")
+		if legacy_after_first_run.get("technician_assignment_mode") != "Dispatch":
+			raise AssertionError("Patch não aplicou o modo Dispatch para atribuição técnica legada.")
+		if legacy_after_first_run.get("unassigned_technician_alert_hours") != "4":
+			raise AssertionError("Patch não aplicou o alerta de quatro horas para OS sem técnico.")
 		if legacy_after_first_run.get("default_warranty_days") != "90":
 			raise AssertionError("Patch não aplicou o prazo de garantia legado.")
 		if legacy_after_first_run.get("diagnostic_fee_enabled") != "0":
@@ -6449,6 +6453,44 @@ def run_operation_config_checks() -> dict:
 		}
 		if legacy_restore:
 			frappe.db.set_single_value("Tecponto Settings", legacy_restore, update_modified=False)
+
+	assignment_fields = ("technician_assignment_mode", "unassigned_technician_alert_hours")
+	assignment_before = {
+		fieldname: frappe.db.get_single_value("Tecponto Settings", fieldname)
+		for fieldname in assignment_fields
+	}
+	try:
+		frappe.db.delete("Singles", filters={"doctype": "Tecponto Settings", "field": ("in", assignment_fields)})
+		frappe.clear_cache(doctype="Tecponto Settings")
+		from tecponto_app.install import bootstrap_erpnext_foundation
+
+		bootstrap_erpnext_foundation()
+		if frappe.db.get_single_value("Tecponto Settings", "technician_assignment_mode") != "Dispatch":
+			raise AssertionError("Bootstrap legado não preencheu o modo de atribuição obrigatório.")
+		if frappe.db.get_single_value("Tecponto Settings", "unassigned_technician_alert_hours") != 4:
+			raise AssertionError("Bootstrap legado não preencheu o alerta obrigatório.")
+
+		frappe.db.set_single_value(
+			"Tecponto Settings",
+			{"technician_assignment_mode": "Pull", "unassigned_technician_alert_hours": 0},
+			update_modified=False,
+		)
+		frappe.clear_cache(doctype="Tecponto Settings")
+		bootstrap_erpnext_foundation()
+		if frappe.db.get_single_value("Tecponto Settings", "technician_assignment_mode") != "Pull":
+			raise AssertionError("Bootstrap sobrescreveu o modo de atribuição configurado.")
+		if frappe.db.get_single_value("Tecponto Settings", "unassigned_technician_alert_hours") != 0:
+			raise AssertionError("Bootstrap sobrescreveu o alerta explicitamente desativado.")
+	finally:
+		frappe.db.delete("Singles", filters={"doctype": "Tecponto Settings", "field": ("in", assignment_fields)})
+		assignment_restore = {
+			fieldname: value
+			for fieldname, value in assignment_before.items()
+			if value is not None
+		}
+		if assignment_restore:
+			frappe.db.set_single_value("Tecponto Settings", assignment_restore, update_modified=False)
+		frappe.clear_cache(doctype="Tecponto Settings")
 
 	settings = frappe.get_single("Tecponto Settings")
 	original = {field: settings.get(field) for field in fields}
