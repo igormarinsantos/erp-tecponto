@@ -22,6 +22,7 @@ from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry impor
 
 from tecponto_app.tecponto.customer import CUSTOMER_NO_CPF_FIELD
 from tecponto_app.tecponto.financial import native_financial_posting
+from tecponto_app.tecponto.pending import action_for_service_order
 from tecponto_app.tecponto.company_identity import (
 	get_company_identity,
 	get_public_company_identity,
@@ -314,6 +315,7 @@ def run_foundation_checks() -> dict:
 		technician_budget_leak_check = run_technician_budget_leak_checks(
 			users["Tecponto Diretor"], users["Tecponto Atendente"], users["Tecponto Tecnico"]
 		)
+		k4_flow_check = run_k4_flow_projection_checks()
 		cash_session_check = run_cash_session_checks()
 		pos_cash_integration_check = run_pos_cash_integration_checks()
 		cash_closing_check = run_cash_closing_checks()
@@ -383,6 +385,7 @@ def run_foundation_checks() -> dict:
 			"manager_operation_scope": manager_operation_check,
 			"diagnosis_handoff": diagnosis_handoff_check,
 			"technician_budget_leak": technician_budget_leak_check,
+			"k4_flow_projection": k4_flow_check,
 			"sensitive_guard": guard_check,
 			"technician_scope": technician_scope_check,
 			"technician_part_execution": technician_part_execution_check,
@@ -441,6 +444,30 @@ def run_foundation_checks() -> dict:
 		frappe.set_user(previous_user)
 
 
+def run_k4_flow_projection_checks() -> dict:
+	cases = [
+		(frappe._dict(name="K4-EMPTY", workflow_state="Em diagnóstico", problem_found="", diagnosis_date=None), "Registrar diagnóstico"),
+		(frappe._dict(name="K4-SAVED", workflow_state="Em diagnóstico", problem_found="Conector oxidado", diagnosis_date=today()), "Concluir diagnóstico e definir repasse"),
+		(frappe._dict(name="K4-PRICE", workflow_state="Diagnosticado — aguardando orçamento", pricing_responsibility="Balcão", has_budget_lines=False), "Montar orçamento · Balcão"),
+		(frappe._dict(name="K4-READY", workflow_state="Diagnosticado — aguardando orçamento", pricing_responsibility="Técnico", has_budget_lines=True), "Concluir orçamento · Técnico"),
+		(frappe._dict(name="K4-NOT-SENT", workflow_state="Aguardando aprovação", quote_sent=False), "Enviar orçamento ao cliente"),
+		(frappe._dict(name="K4-SENT", workflow_state="Aguardando aprovação", quote_sent=True), "Acompanhar aceite"),
+	]
+	# Synthetic names deliberately avoid database records; patch exists/count so the
+	# projection is tested deterministically without coupling each substate to fixtures.
+	with patch.object(frappe.db, "get_value", return_value=None), patch.object(frappe.db, "exists", return_value=False):
+		for order, expected in cases:
+			actual = action_for_service_order(order)
+			if actual["label"] != expected:
+				raise AssertionError(f"K.4 projetou '{actual['label']}' em vez de '{expected}'.")
+
+	frontend_source = (Path(__file__).parents[3] / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+	for marker in ("detail.next_action", "Precificação com:", "Recebido por:", 'mode="transfer"'):
+		if marker not in frontend_source:
+			raise AssertionError(f"A amarra visual da K.4 não usa {marker!r}.")
+	return {"status": "ok", "substates": len(cases), "shared_projection": True}
+
+
 def run_technician_assignment_checks(manager: str, attendant: str, technician: str) -> dict:
 	"""Exercise Pull/Dispatch, stale claims, transfer audit and the safe queue contract."""
 	previous_user = frappe.session.user
@@ -493,6 +520,16 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 		else:
 			raise AssertionError("Transferência sem observação foi aceita.")
 		transfer = transfer_service_order(order, second_technician, "Redistribuição de bancada")
+		transfer_event = frappe.get_doc("Tecponto Service Order Assignment Event", transfer["event"])
+		if (
+			transfer_event.event_type != "Transfer"
+			or transfer_event.previous_technician != technician
+			or transfer_event.new_technician != second_technician
+			or transfer_event.performed_by != manager
+			or transfer_event.observation != "Redistribuição de bancada"
+			or not transfer_event.occurred_at
+		):
+			raise AssertionError("A transferência não preservou ator, origem, destino, data e motivo na auditoria.")
 		if frappe.db.get_value("Service Order", order, "workflow_state") != state_before:
 			raise AssertionError("A atribuição alterou o ciclo de vida da OS.")
 

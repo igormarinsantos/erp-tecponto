@@ -41,6 +41,41 @@ def action_for_service_order_state(state: str | None) -> dict[str, str]:
 	return {"label": label, "tone": tone}
 
 
+def action_for_service_order(order: Any) -> dict[str, str]:
+	"""Derive the next step from safe operational completeness, not status alone."""
+	state = order.get("workflow_state")
+	name = order.get("name")
+	if state == "Em diagnóstico":
+		diagnosis = (order.get("problem_found") or "").strip()
+		diagnosis_date = order.get("diagnosis_date")
+		if name and not diagnosis:
+			values = frappe.db.get_value("Service Order", name, ["problem_found", "diagnosis_date"], as_dict=True) or {}
+			diagnosis = (values.get("problem_found") or "").strip()
+			diagnosis_date = values.get("diagnosis_date")
+		return {"label": "Concluir diagnóstico e definir repasse" if diagnosis and diagnosis_date else "Registrar diagnóstico", "tone": "blue"}
+	if state == "Diagnosticado — aguardando orçamento":
+		responsibility = order.get("pricing_responsibility")
+		if name and not responsibility:
+			responsibility = frappe.db.get_value("Service Order", name, "pricing_responsibility")
+		has_lines = bool(order.get("has_budget_lines"))
+		if name and not has_lines:
+			has_lines = bool(
+				frappe.db.exists("Service Order Service", {"parent": name})
+				or frappe.db.exists("Service Order Part", {"parent": name})
+			)
+		owner = responsibility or "responsável pendente"
+		return {"label": f"Concluir orçamento · {owner}" if has_lines else f"Montar orçamento · {owner}", "tone": "amber"}
+	if state == "Aguardando aprovação" and name:
+		sent = bool(order.get("quote_sent")) or bool(
+			frappe.db.exists(
+				"Communication",
+				{"reference_doctype": "Service Order", "reference_name": name, "subject": ["like", "Orçamento enviado%"]},
+			)
+		)
+		return {"label": "Acompanhar aceite" if sent else "Enviar orçamento ao cliente", "tone": "amber"}
+	return action_for_service_order_state(state)
+
+
 @frappe.whitelist()
 def list_daily_actions(panel: str | None = None) -> dict[str, Any]:
 	panels = _resolve_panels(panel)
@@ -272,7 +307,7 @@ def _rejected_request_actions() -> list[dict[str, Any]]:
 
 def _service_order_action(row: Any, panel: str) -> dict[str, Any]:
 	state = row.workflow_state
-	state_action = action_for_service_order_state(state)
+	state_action = action_for_service_order(row)
 	clock = stage_clock.get_stage_clock(row)
 	urgency = _clock_urgency(clock)
 	urgency_sort_at = _clock_sort_at(clock, row)
@@ -340,7 +375,7 @@ def _sort_actions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _clock_fields() -> list[str]:
-	return ["name", "workflow_state", "customer", "modified", "entry_date", "stage_entered_at", "estimated_deadline", "labor_total", "parts_total"]
+	return ["name", "workflow_state", "customer", "modified", "entry_date", "stage_entered_at", "estimated_deadline", "labor_total", "parts_total", "problem_found", "diagnosis_date", "pricing_responsibility"]
 
 
 def _clock_urgency(clock: dict[str, Any]) -> str:

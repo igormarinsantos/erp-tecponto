@@ -518,6 +518,7 @@ export interface ServiceOrderDetailResponse {
   technician: string | null;
   priority: string | null;
   technical_view: boolean;
+	next_action: { label: string; tone: "orange" | "amber" | "blue" | "green" | "muted" };
   customer: ServiceOrderCustomerDetail | null;
   device: ServiceOrderDeviceDetail | null;
   reported_defect: string | null;

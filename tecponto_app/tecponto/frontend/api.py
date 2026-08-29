@@ -20,7 +20,7 @@ from tecponto_app.tecponto.customer import (
 )
 from tecponto_app.tecponto.pos import get_commercial_item_groups, get_retail_item_groups
 from tecponto_app.tecponto import pending
-from tecponto_app.tecponto.pending import action_for_service_order_state
+from tecponto_app.tecponto.pending import action_for_service_order
 from tecponto_app.tecponto.stock import normalize_barcode
 from tecponto_app.tecponto.service_order.print_formats import (
 	PF_ETIQUETA_INTERNA,
@@ -1507,6 +1507,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"workflow_transitions": _get_service_order_transition_options(doc.get("workflow_state")),
 		"workflow_blockers": _get_workflow_blockers(doc),
 		"workflow_requestable_transitions": _get_workflow_requestable_transitions(doc),
+		"next_action": action_for_service_order(doc),
 		"timeline": _get_service_order_timeline(doc),
 		"print_links": _get_service_order_print_links(doc.name) if not technical_view else [],
 	}
@@ -3513,7 +3514,7 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 		"workflow_blockers": _get_workflow_blockers(item),
 		"workflow_requestable_transitions": _get_workflow_requestable_transitions(item),
 		"has_sales_invoice": bool(item.get("sales_invoice")),
-		"next_action": action_for_service_order_state(item.get("workflow_state")),
+		"next_action": action_for_service_order(item),
 		"reported_defect": item.get("reported_defect"),
 		"approval_status": item.get("approval_status"),
 		"approval_deadline": str(item.get("approval_deadline") or ""),
@@ -4353,6 +4354,7 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 				detail = f"Técnico: {event.new_technician}"
 			if event.observation:
 				detail += f" · {event.observation}"
+			detail += f" · por {event.performed_by or 'usuário não identificado'}"
 			timeline.append({"title": labels.get(event.event_type, "Atribuição"), "detail": detail, "date": str(event.occurred_at or ""), "tone": "blue"})
 	if doc.get("problem_found") or doc.get("diagnosis_date"):
 		timeline.append(

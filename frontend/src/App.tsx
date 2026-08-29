@@ -2760,6 +2760,8 @@ function MesaFlowOrderCard({ canAssignTechnician, onChanged, onOpenOrder, onToas
         {order.stage_clock?.is_overdue ? <span className="shrink-0 text-[11px] font-bold text-tec-red">Atrasada</span> : null}
       </div>
       <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-tec-muted">{compactServiceOrderDescription(order.reported_defect)}</p>
+	  <div className="mt-3 grid gap-1 text-xs text-tec-muted sm:grid-cols-2"><span>Técnico: <strong className="text-tec-subtle">{order.technician ?? "Sem técnico"}</strong></span><span>Recebido por: <strong className="text-tec-subtle">{order.attendant ?? "Não informado"}</strong></span></div>
+	  {order.pricing_responsibility ? <p className="mt-2 text-xs font-bold text-tec-amber">Precificação com: {order.pricing_responsibility}</p> : null}
       <div className="mt-3 rounded-control bg-tec-panel px-3 py-2">
         <span className="block text-[10px] font-bold uppercase tracking-wide text-tec-muted">Próximo passo</span>
         <span className="mt-0.5 block text-sm font-bold text-tec-text">{next.label}</span>
@@ -4633,7 +4635,7 @@ function NextActionCard({
   onStartNoRepairPickup: () => void;
   onRequestApproval: (targetState: string) => void;
 }) {
-  const action = nextRecommendedAction(detail.workflow_state);
+  const action = nextRecommendedAction(detail);
   const isQuoteSendAction = action.kind === "quote-send";
   const isNoRepairPickupAction = action.kind === "no-repair-pickup";
   const buttonIcon = action.flow ? <ArrowRight size={17} /> : isQuoteSendAction ? <Send size={17} /> : isNoRepairPickupAction ? <PackageCheck size={17} /> : <RefreshCw size={17} />;
@@ -4735,7 +4737,7 @@ function NextActionCard({
   );
 }
 
-function nextRecommendedAction(state: string | null): {
+function nextRecommendedAction(detail: ServiceOrderDetailResponse): {
   button: string;
   description: string;
   flow: "approve" | "reject" | "pickup" | null;
@@ -4743,6 +4745,36 @@ function nextRecommendedAction(state: string | null): {
   kind?: "quote-send" | "no-repair-pickup";
   title: string;
 } {
+	const state = detail.workflow_state;
+	const projected = detail.next_action;
+	if (projected?.label === "Enviar orçamento ao cliente") {
+		return {
+			button: "Enviar orçamento",
+			description: "O orçamento avançou, mas ainda não há registro de envio ao cliente.",
+			flow: null,
+			hint: "Registre o canal usado para manter a passagem rastreável.",
+			kind: "quote-send",
+			title: projected.label,
+		};
+	}
+	if (projected?.label === "Acompanhar aceite") {
+		return {
+			button: "Atualizar atendimento",
+			description: "O envio já foi registrado. A próxima responsabilidade é acompanhar a decisão do cliente.",
+			flow: null,
+			hint: "Aprovação e reprovação continuam pelos fluxos com canal e responsável.",
+			title: projected.label,
+		};
+	}
+	if (projected && ["Em diagnóstico", "Diagnosticado — aguardando orçamento"].includes(state ?? "")) {
+		return {
+			button: "Atualizar dados",
+			description: state === "Em diagnóstico" ? "Use a tela de Diagnóstico abaixo; ela distingue rascunho salvo de diagnóstico ainda vazio." : `Use a única tela de Orçamento abaixo. Repasse explícito: ${detail.diagnosis.pricing_responsibility ?? "responsável ainda não definido"}.`,
+			flow: null,
+			hint: "A Mesa e o detalhe usam a mesma leitura de completude.",
+			title: projected.label,
+		};
+	}
   if (state === "Aguardando aprovação") {
     return {
       button: "Enviar para aprovação",
@@ -4789,7 +4821,8 @@ function ServiceOrderAttendanceCard({ detail }: { detail: ServiceOrderDetailResp
       "Prazo de aprovação",
       detail.approval_deadline ? formatDate(detail.approval_deadline) : "Não definido",
     ],
-    [<UserRound size={15} />, "Técnico", detail.technician ?? "Não definido"],
+	[<UserRound size={15} />, "Técnico", detail.technician ?? "Sem técnico"],
+	[<UserRound size={15} />, "Recebido por", detail.attendant ?? "Não informado"],
     [<BadgeInfo size={15} />, "Garantia até", detail.warranty.warranty_expiry || "Não aplicada"],
     ...(detail.warranty.is_warranty && detail.warranty.original_service_order
       ? [[<BadgeInfo size={15} />, "Retrabalho em garantia", `OS original ${detail.warranty.original_service_order}`] as [ReactNode, string, string]]
