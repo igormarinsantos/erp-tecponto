@@ -521,6 +521,7 @@ def _run_concurrent_claim_check(service_order: str, first_technician: str, secon
 	first_locked = Event()
 	second_at_lock = Event()
 	allow_second_sql = Event()
+	second_sql_started = Event()
 	second_sql_returned = Event()
 	results: dict[str, Any] = {}
 
@@ -541,27 +542,14 @@ def _run_concurrent_claim_check(service_order: str, first_technician: str, secon
 			if not second_at_lock.wait(10):
 				raise AssertionError("A segunda transação não alcançou o SELECT FOR UPDATE.")
 			allow_second_sql.set()
-			# Observe the MariaDB wait graph itself. This makes the race deterministic:
-			# the winner is not allowed to commit until the loser is actually waiting
-			# for its row lock, rather than merely scheduled in another Python thread.
-			wait_deadline = monotonic() + 10
-			lock_wait_observed = False
-			while monotonic() < wait_deadline:
-				lock_wait_observed = bool(frappe.db.sql(
-					"""SELECT COUNT(*)
-					FROM information_schema.INNODB_LOCK_WAITS waits
-					INNER JOIN information_schema.INNODB_LOCKS requested
-						ON requested.lock_id = waits.requested_lock_id
-					WHERE requested.lock_table LIKE %s""",
-					("%tabService Order%",),
-				)[0][0])
-				if lock_wait_observed:
-					break
-				if second_sql_returned.is_set():
-					break
-				sleep(0.05)
-			if not lock_wait_observed:
-				raise AssertionError("MariaDB não registrou contenção real no row lock da OS.")
+			if not second_sql_started.wait(10):
+				raise AssertionError("A consulta concorrente não iniciou no MariaDB.")
+			# Keep the first transaction's row lock long enough to prove that the
+			# independently connected query cannot return before commit. The elapsed
+			# time is also asserted after both workers finish.
+			sleep(2)
+			if second_sql_returned.is_set():
+				raise AssertionError("A segunda transação atravessou um row lock ainda ativo.")
 			results["winner"] = claim_service_order(service_order)
 			frappe.db.commit()
 		except Exception as error:
@@ -584,9 +572,12 @@ def _run_concurrent_claim_check(service_order: str, first_technician: str, secon
 				second_at_lock.set()
 				if not allow_second_sql.wait(10):
 					raise AssertionError("O teste não liberou a tentativa concorrente.")
+				started_at = monotonic()
+				second_sql_started.set()
 				try:
 					return original_sql(query, *args, **kwargs)
 				finally:
+					results["loser_blocked_seconds"] = monotonic() - started_at
 					second_sql_returned.set()
 
 			frappe.db.sql = controlled_sql
@@ -620,6 +611,8 @@ def _run_concurrent_claim_check(service_order: str, first_technician: str, secon
 		raise AssertionError(f"A disputa não produziu exatamente um vencedor: {results}")
 	if "já foi assumida" not in results.get("loser_error", ""):
 		raise AssertionError(f"O perdedor não recebeu o conflito esperado: {results}")
+	if results.get("loser_blocked_seconds", 0) < 1.5:
+		raise AssertionError(f"A consulta perdedora não ficou bloqueada pelo row lock: {results}")
 	return results["winner"]
 
 
