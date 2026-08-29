@@ -5,6 +5,9 @@ import os
 from base64 import b64encode
 from datetime import datetime
 from io import BytesIO
+from threading import Event, Thread
+from time import monotonic, sleep
+from typing import Any
 from unittest.mock import patch
 from pathlib import Path
 
@@ -460,14 +463,10 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 		available = list_unassigned_service_orders()
 		if order not in {item["name"] for item in available["items"]} or contains_sensitive_field(available):
 			raise AssertionError("Fila Pull não trouxe a OS segura e sem técnico.")
-		claim = claim_service_order(order)
-		try:
-			frappe.set_user(second_technician)
-			claim_service_order(order)
-		except (frappe.ValidationError, frappe.PermissionError):
-			pass
-		else:
-			raise AssertionError("Uma segunda reivindicação conseguiu sobrescrever o técnico.")
+		# The two workers need independent MariaDB sessions. Commit only the fixture
+		# setup so both connections can see the same unassigned row.
+		frappe.db.commit()
+		claim = _run_concurrent_claim_check(order, technician, second_technician)
 		if frappe.db.get_value("Service Order", order, "technician") != technician:
 			raise AssertionError("A reivindicação atômica não preservou o primeiro técnico.")
 		if frappe.db.count("Tecponto Service Order Assignment Event", {"service_order": order, "event_type": "Claim"}) != 1:
@@ -513,6 +512,115 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 		frappe.db.set_single_value("Tecponto Settings", "unassigned_technician_alert_hours", previous_alert)
 		frappe.clear_cache(doctype="Tecponto Settings")
 		frappe.set_user(previous_user)
+
+
+def _run_concurrent_claim_check(service_order: str, first_technician: str, second_technician: str) -> dict:
+	"""Force real DB lock contention instead of hoping two threads collide by chance."""
+	site = frappe.local.site
+	sites_path = frappe.local.sites_path
+	first_locked = Event()
+	second_at_lock = Event()
+	allow_second_sql = Event()
+	second_sql_returned = Event()
+	results: dict[str, Any] = {}
+
+	def connect_worker(user: str) -> None:
+		frappe.init(site=site, sites_path=sites_path)
+		frappe.connect()
+		frappe.set_user(user)
+
+	def first_worker() -> None:
+		try:
+			connect_worker(first_technician)
+			# Hold the exact row lock used by production before the second claim starts.
+			frappe.db.sql(
+				"SELECT name FROM `tabService Order` WHERE name=%s FOR UPDATE",
+				(service_order,),
+			)
+			first_locked.set()
+			if not second_at_lock.wait(10):
+				raise AssertionError("A segunda transação não alcançou o SELECT FOR UPDATE.")
+			allow_second_sql.set()
+			# Observe the MariaDB wait graph itself. This makes the race deterministic:
+			# the winner is not allowed to commit until the loser is actually waiting
+			# for its row lock, rather than merely scheduled in another Python thread.
+			wait_deadline = monotonic() + 10
+			lock_wait_observed = False
+			while monotonic() < wait_deadline:
+				lock_wait_observed = bool(frappe.db.sql(
+					"""SELECT COUNT(*)
+					FROM information_schema.INNODB_LOCK_WAITS waits
+					INNER JOIN information_schema.INNODB_LOCKS requested
+						ON requested.lock_id = waits.requested_lock_id
+					WHERE requested.lock_table LIKE %s""",
+					("%tabService Order%",),
+				)[0][0])
+				if lock_wait_observed:
+					break
+				if second_sql_returned.is_set():
+					break
+				sleep(0.05)
+			if not lock_wait_observed:
+				raise AssertionError("MariaDB não registrou contenção real no row lock da OS.")
+			results["winner"] = claim_service_order(service_order)
+			frappe.db.commit()
+		except Exception as error:
+			results["first_error"] = error
+			frappe.db.rollback()
+		finally:
+			allow_second_sql.set()
+			frappe.destroy()
+
+	def second_worker() -> None:
+		try:
+			connect_worker(second_technician)
+			if not first_locked.wait(10):
+				raise AssertionError("A primeira transação não adquiriu o row lock.")
+			original_sql = frappe.db.sql
+
+			def controlled_sql(query, *args, **kwargs):
+				if "FOR UPDATE" not in str(query).upper():
+					return original_sql(query, *args, **kwargs)
+				second_at_lock.set()
+				if not allow_second_sql.wait(10):
+					raise AssertionError("O teste não liberou a tentativa concorrente.")
+				try:
+					return original_sql(query, *args, **kwargs)
+				finally:
+					second_sql_returned.set()
+
+			frappe.db.sql = controlled_sql
+			try:
+				claim_service_order(service_order)
+			except frappe.ValidationError as error:
+				results["loser_error"] = str(error)
+				frappe.db.rollback()
+			else:
+				results["second_winner"] = True
+				frappe.db.commit()
+		except Exception as error:
+			results["second_error"] = error
+			frappe.db.rollback()
+		finally:
+			frappe.destroy()
+
+	first = Thread(target=first_worker, name="k1-first-claim")
+	second = Thread(target=second_worker, name="k1-second-claim")
+	first.start()
+	second.start()
+	first.join(20)
+	second.join(20)
+	if first.is_alive() or second.is_alive():
+		raise AssertionError("As transações concorrentes não terminaram; possível deadlock.")
+	if results.get("first_error"):
+		raise results["first_error"]
+	if results.get("second_error"):
+		raise results["second_error"]
+	if results.get("second_winner") or not results.get("winner"):
+		raise AssertionError(f"A disputa não produziu exatamente um vencedor: {results}")
+	if "já foi assumida" not in results.get("loser_error", ""):
+		raise AssertionError(f"O perdedor não recebeu o conflito esperado: {results}")
+	return results["winner"]
 
 
 def run_budget_presentation_checks() -> dict:
