@@ -626,6 +626,8 @@ def _run_concurrent_claim_check(service_order: str, first_technician: str, secon
 
 def run_diagnosis_handoff_checks(manager: str, attendant: str, technician: str) -> dict:
 	"""Prove the K.2 hand-off, including the safe K.2/K.3 capability boundary."""
+	from frappe.model.workflow import apply_workflow
+
 	previous_user = frappe.session.user
 	try:
 		frappe.set_user("Administrator")
