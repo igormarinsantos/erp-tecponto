@@ -3654,6 +3654,7 @@ def run_user_access_control_checks() -> dict:
 		# Employee synchronization is a commission-mode concern. The production
 		# default remains lean/off; this fixture enables it only to prove the hook.
 		frappe.db.set_single_value("Tecponto Settings", "use_technician_commission", 1)
+		frappe.clear_cache()
 		ensure_hr_foundation()
 		if not frappe.db.exists("Employee", {"user_id": owner_employee_sync_target}):
 			raise AssertionError("Sincronização interna Employee → Proprietário foi bloqueada.")
