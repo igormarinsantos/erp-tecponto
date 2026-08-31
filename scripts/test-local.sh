@@ -11,6 +11,7 @@ REDIS_NAME="tecponto-local-test-redis"
 DB_VOLUME="tecponto-local-test-db-data"
 SITE_VOLUME="tecponto-local-test-site"
 SITE_NAME="local-ci.local"
+RUNNER_NAME="tecponto-local-test-runner"
 APP_MOUNT="$ROOT:/home/frappe/frappe-bench/apps/tecponto_app:ro"
 
 if [[ "${TECPONTO_EXPORT_FIXTURES:-0}" == "1" ]]; then
@@ -19,7 +20,7 @@ if [[ "${TECPONTO_EXPORT_FIXTURES:-0}" == "1" ]]; then
 fi
 
 if [[ "${TECPONTO_LOCAL_RESET:-0}" == "1" ]]; then
-	docker rm -f "$DB_NAME" "$REDIS_NAME" >/dev/null 2>&1 || true
+	docker rm -f "$RUNNER_NAME" "$DB_NAME" "$REDIS_NAME" >/dev/null 2>&1 || true
 	docker volume rm "$DB_VOLUME" "$SITE_VOLUME" >/dev/null 2>&1 || true
 fi
 
@@ -47,7 +48,14 @@ REDIS_PORT="$(docker port "$REDIS_NAME" 6379/tcp | sed 's/.*://')"
 docker exec "$REDIS_NAME" redis-cli FLUSHDB >/dev/null
 SITE_EXISTS="$(docker run --rm --entrypoint test -v "$SITE_VOLUME:/home/frappe/frappe-bench/sites" "$IMAGE" -f "/home/frappe/frappe-bench/sites/$SITE_NAME/site_config.json" && echo 1 || true)"
 
-docker run --rm --network host \
+RUNNER_LIFECYCLE=(--rm)
+if [[ "${TECPONTO_LOCAL_DETACH:-0}" == "1" ]]; then
+	docker rm -f "$RUNNER_NAME" >/dev/null 2>&1 || true
+	RUNNER_LIFECYCLE=(--detach --name "$RUNNER_NAME")
+	printf 'Runner iniciado: docker logs -f %s\n' "$RUNNER_NAME"
+fi
+
+docker run "${RUNNER_LIFECYCLE[@]}" --network host \
 	-e DB_PORT="$DB_PORT" -e REDIS_PORT="$REDIS_PORT" -e SITE_EXISTS="$SITE_EXISTS" -e TECPONTO_EXPORT_FIXTURES="${TECPONTO_EXPORT_FIXTURES:-0}" \
 	-v "$APP_MOUNT" \
 	-v "$SITE_VOLUME:/home/frappe/frappe-bench/sites" \
