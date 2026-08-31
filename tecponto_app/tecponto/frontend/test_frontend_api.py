@@ -495,8 +495,6 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 		frappe.db.set_single_value("Tecponto Settings", "technician_assignment_mode", "Pull")
 		frappe.db.set_single_value("Tecponto Settings", "unassigned_technician_alert_hours", 4)
 		frappe.clear_cache(doctype="Tecponto Settings")
-		state_before = frappe.db.get_value("Service Order", order, "workflow_state")
-
 		frappe.set_user(technician)
 		available = list_unassigned_service_orders()
 		if order not in {item["name"] for item in available["items"]} or contains_sensitive_field(available):
@@ -531,8 +529,8 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 			or not transfer_event.occurred_at
 		):
 			raise AssertionError("A transferência não preservou ator, origem, destino, data e motivo na auditoria.")
-		if frappe.db.get_value("Service Order", order, "workflow_state") != state_before:
-			raise AssertionError("A atribuição alterou o ciclo de vida da OS.")
+		if frappe.db.get_value("Service Order", order, "workflow_state") != "Em diagnóstico":
+			raise AssertionError("O Pull não levou a OS assumida para Em diagnóstico.")
 
 		dispatch_order = _create_action_request_service_order(attendant)
 		frappe.db.set_value("Service Order", dispatch_order, "technician", None, update_modified=False)

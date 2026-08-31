@@ -8,6 +8,7 @@ from typing import Any
 
 import frappe
 from frappe import _
+from frappe.model.workflow import apply_workflow
 from frappe.utils import flt, get_datetime, now_datetime
 
 from tecponto_app.tecponto.operation_config import get_operation_config
@@ -100,6 +101,14 @@ def _change(service_order: str, technician: str, actor: str, event_type: str, ob
 		doc = frappe.get_doc("Service Order", service_order)
 		doc.technician = technician
 		doc.save(ignore_permissions=True)
+		# Pull means the technician is starting work now. Move only the initial
+		# stage through Frappe's workflow so every entry-acceptance gate remains
+		# authoritative and the assignment rolls back if a gate rejects it.
+		if event_type == "Claim" and row.workflow_state == "Entrada criada":
+			apply_workflow(
+				frappe.as_json({"doctype": doc.doctype, "name": doc.name}),
+				"Em diagnóstico",
+			)
 		audit = frappe.get_doc({
 			"doctype": AUDIT_DOCTYPE,
 			"service_order": service_order,
