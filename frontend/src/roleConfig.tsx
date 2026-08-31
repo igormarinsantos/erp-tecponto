@@ -99,8 +99,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       {
         label: "Reparo",
         items: [
-          { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "O que fazer agora" },
-          { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Criar, buscar e acompanhar" },
+          { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Bancada e acompanhamento" },
           { id: "quotes-crm", icon: FileText, label: "CRM de Orçamentos", subtitle: "Decisões e follow-up" },
 		  { id: "warranties", icon: ShieldCheck, label: "Garantias", subtitle: "Consultar e atender retornos" },
           { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque e solicitações", children: [
@@ -168,8 +167,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       {
         label: "Reparo",
         items: [
-          { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "Prioridades da bancada" },
-          { id: "service-orders", icon: ClipboardList, label: "Minhas OS", subtitle: "Lista completa da carteira" },
+          { id: "service-orders", icon: ClipboardList, label: "Bancada de OS", subtitle: "Ordens atribuídas a você" },
 		  { id: "warranties", icon: ShieldCheck, label: "Garantias", subtitle: "Consultar cobertura" },
           { id: "my-earnings", icon: BadgeDollarSign, label: "Minhas comissões", subtitle: "Lançamentos da sua mão de obra" },
           { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque e solicitações", children: [
@@ -214,8 +212,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
       {
         label: "Reparo",
         items: [
-          { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "Filas da operação" },
-          { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Acompanhar e controlar" },
+          { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Bancada e acompanhamento" },
           { id: "quotes-crm", icon: FileText, label: "CRM de Orçamentos", subtitle: "Decisões e follow-up" },
 		  { id: "warranties", icon: ShieldCheck, label: "Garantias", subtitle: "Consultar e atender retornos" },
           { id: "repair-parts", icon: Boxes, label: "Peças", subtitle: "Estoque e compras", children: [
@@ -278,8 +275,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         label: "Gestão",
         items: [
           { id: "overview", icon: Grid2X2, label: "Visão executiva", subtitle: "Panorama estratégico" },
-          { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "Filas da operação" },
-          { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Fila e conclusão" },
+          { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Bancada e acompanhamento" },
           { id: "quotes-crm", icon: FileText, label: "CRM de Orçamentos", subtitle: "Decisões e follow-up" },
 		  { id: "warranties", icon: ShieldCheck, label: "Garantias", subtitle: "Coberturas e retornos" },
           { id: "devices", icon: Smartphone, label: "Aparelhos", subtitle: "Base e histórico" },

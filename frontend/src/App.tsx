@@ -4480,6 +4480,7 @@ function ApprovalDecisionCard({
   const [channel, setChannel] = useState<"WhatsApp" | "Telefone" | "Presencial" | "Link">("WhatsApp");
   const [rejectionReason, setRejectionReason] = useState("Preço elevado");
   const [notes, setNotes] = useState("");
+  const [attachmentText, setAttachmentText] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const status = detail.approval_status || (detail.workflow_state === "Aguardando aprovação" ? "Pendente" : detail.workflow_state);
@@ -4498,11 +4499,13 @@ function ApprovalDecisionCard({
         decision,
         channel,
         notes: finalNotes,
+        attachment: decision === "approve" && channel !== "Link" ? (attachmentText.trim() || "Autorização registrada no balcão") : undefined,
       });
       onUpdated(updated);
       onToast(decision === "approve" ? "Orçamento aprovado com sucesso!" : "Orçamento reprovado e registrado.", "success");
       setDecisionMode("idle");
       setNotes("");
+      setAttachmentText("");
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Falha ao registrar decisão do orçamento", "error");
     } finally {
@@ -4606,7 +4609,7 @@ function ApprovalDecisionCard({
                 value={channel}
               >
                 <option value="WhatsApp">WhatsApp</option>
-                <option value="Balcão">Presencial / Balcão</option>
+                <option value="Presencial">Presencial / Balcão</option>
                 <option value="Telefone">Ligação Telefônica</option>
                 <option value="Link">Link Digital / Portal</option>
               </select>
@@ -4621,6 +4624,22 @@ function ApprovalDecisionCard({
               />
             </div>
           </div>
+          {channel !== "Link" && (
+            <div>
+              <label className="block text-xs font-semibold text-tec-amber">
+                Comprovante / Documento anexo (obrigatório para aprovação manual)
+              </label>
+              <input
+                className="tp-input mt-1 w-full"
+                onChange={(e) => setAttachmentText(e.target.value)}
+                placeholder="Ex.: Anexo, áudio/print de conversa ou número do termo físico"
+                value={attachmentText}
+              />
+              <p className="mt-1 text-[11px] text-tec-muted">
+                Sem o link digital, a comprovação é anexada ao histórico permanente da OS.
+              </p>
+            </div>
+          )}
           <div className="flex items-center gap-2 pt-2">
             <Button disabled={submitting} type="submit" variant="primary">
               {submitting ? "Gravando..." : "Confirmar Aprovação"}

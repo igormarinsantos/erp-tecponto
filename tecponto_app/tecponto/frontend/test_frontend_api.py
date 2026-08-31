@@ -345,6 +345,7 @@ def run_foundation_checks() -> dict:
 		os2_checkin_choices = run_os2_checkin_choice_checks()
 		os3_cohesive_diagnosis = run_os3_cohesive_diagnosis_and_budget_checks()
 		os4_approval_crm = run_os4_approval_and_quotes_crm_checks()
+		os5_workflow_automations = run_os5_workflow_automations_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
 			users["Tecponto Atendente"],
@@ -423,6 +424,7 @@ def run_foundation_checks() -> dict:
 			"os2_checkin_choices": os2_checkin_choices,
 			"os3_cohesive_diagnosis": os3_cohesive_diagnosis,
 			"os4_approval_crm": os4_approval_crm,
+			"os5_workflow_automations": os5_workflow_automations,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
 			"cashier_mode_checks": cashier_mode_checks,
@@ -1382,6 +1384,7 @@ def run_os4_approval_and_quotes_crm_checks() -> dict:
 				"decision": "approve",
 				"channel": "WhatsApp",
 				"notes": "Cliente aprovou troca completa via WhatsApp.",
+				"attachment": "comprovante_whatsapp_autorizacao.pdf",
 			},
 		)
 		if approved_detail["approval_status"] != "Aprovado" or approved_detail["workflow_state"] != "Aprovado":
@@ -1421,6 +1424,166 @@ def run_os4_approval_and_quotes_crm_checks() -> dict:
 			"approval_decision_tested": True,
 			"rejection_decision_tested": True,
 			"cost_guard_verified": True,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_os5_workflow_automations_checks() -> dict:
+	"""Prove the 6 end-to-end workflow automations:
+
+	1. Enviar orçamento moves automatically to 'Aguardando aprovação'.
+	2. Customer approval via link moves automatically to execution ('Em reparo') and notifies technician.
+	3. Manual approval without attached evidence is blocked; with attached evidence succeeds.
+	4. OS timeline logs include the employee name on each action.
+	5. Laudo técnico is optional (does not block OS lifecycle or quote send).
+	6. Direct pricing: line added with custom selling price without cost leakage.
+	"""
+	previous_user = frappe.session.user
+	try:
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		suffix = frappe.generate_hash(length=8).upper()
+
+		# --- 1 & 5 & 6. Enviar orçamento auto-transition + Laudo opcional + Preço direto ---
+		frappe.set_user(attendant)
+		order_1 = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			order_1,
+			{
+				"technician": technician,
+				"workflow_state": "Em diagnóstico",
+				"problem_found": "",
+				"os_contact_name": f"Cliente Auto1 {suffix}",
+				"os_contact_phone": "11988889999",
+			},
+			update_modified=False,
+		)
+		service_res = add_service_order_budget_line(
+			order_1,
+			{
+				"type": "service",
+				"description": "Troca de Tela Direta",
+				"rate": 280.0,
+				"qty": 1,
+			},
+		)
+		services = service_res.get("services") or []
+		if not services or services[-1].get("amount") != 280.0:
+			raise AssertionError("Preço direto não foi respeitado na montagem da linha de orçamento.")
+
+		sent_detail = send_service_order_quote(order_1, {"channel": "WhatsApp", "notes": "Proposta direta enviada."})
+		if sent_detail["workflow_state"] != "Aguardando aprovação" or sent_detail["approval_status"] != "Pendente":
+			raise AssertionError("Envio do orçamento não moveu automaticamente para Aguardando aprovação.")
+		if not sent_detail.get("totals", {}).get("quote_locked"):
+			raise AssertionError("Envio do orçamento não travou a proposta para aprovação.")
+
+		# --- 3. Exigência de comprovante na aprovação manual ---
+		manual_blocked = False
+		try:
+			decide_service_order_budget(
+				order_1,
+				payload={
+					"decision": "approve",
+					"channel": "WhatsApp",
+					"notes": "Tentativa sem comprovante",
+				},
+			)
+		except frappe.ValidationError as error:
+			manual_blocked = True
+			if "exige comprovante" not in str(error):
+				raise AssertionError(f"Erro inesperado no bloqueio de aprovação manual: {error}")
+		if not manual_blocked:
+			raise AssertionError("Aprovação manual sem comprovante/documento anexado não foi bloqueada.")
+
+		manual_approved = decide_service_order_budget(
+			order_1,
+			payload={
+				"decision": "approve",
+				"channel": "WhatsApp",
+				"notes": "Autorizado com print de conversa",
+				"attachment": "print_conversa_autorizacao.png",
+			},
+		)
+		if manual_approved["workflow_state"] != "Aprovado" or manual_approved["approval_status"] != "Aprovado":
+			raise AssertionError("Aprovação manual com comprovante não moveu para Aprovado.")
+
+		# --- 4. Log da OS com nome do funcionário em cada ação ---
+		detail_with_timeline = get_service_order_detail(order_1)
+		timeline = detail_with_timeline.get("timeline") or []
+		if not timeline:
+			raise AssertionError("Timeline da OS está vazia.")
+		has_employee_name = any("· por " in (event.get("detail") or "") for event in timeline)
+		if not has_employee_name:
+			raise AssertionError("Timeline da OS não contém o nome do funcionário responsável nas ações.")
+
+		# --- 2. Cliente aprova pelo link -> Transição automática para Execução + Notifica Técnico ---
+		order_2 = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			order_2,
+			{
+				"technician": technician,
+				"workflow_state": "Aguardando aprovação",
+				"approval_status": "Pendente",
+				"quote_locked": 1,
+				"os_contact_name": f"Cliente Link {suffix}",
+				"os_contact_phone": "11977776666",
+			},
+			update_modified=False,
+		)
+		add_service_order_budget_line(
+			order_2,
+			{"type": "service", "description": "Reparo de Placa Link", "rate": 350.0, "qty": 1},
+		)
+		send_service_order_quote(order_2, {"channel": "WhatsApp", "notes": "Enviado link para aprovação"})
+
+		customer = frappe.db.get_value("Service Order", order_2, "customer")
+		frappe.db.set_value("Customer", customer, {"custom_cpf": "12345678909", "mobile_no": "11977776666"}, update_modified=False)
+
+		tracking_res = issue_tracking_link(order_2)
+		token = tracking_res["link"].rstrip("/").rsplit("/", 1)[-1]
+		frappe.set_user("Guest")
+		budget_info = start_public_tracking_budget_acceptance(token, "12345678909")
+		budget_token = budget_info["link"].rstrip("/").rsplit("/", 1)[-1]
+
+		camera_image = BytesIO()
+		camera_seed = int(frappe.generate_hash(length=8), 16)
+		Image.new(
+			"RGB",
+			(24, 24),
+			color=(camera_seed & 0xFF, (camera_seed >> 8) & 0xFF, (camera_seed >> 16) & 0xFF),
+		).save(camera_image, format="JPEG")
+		camera_selfie = "data:image/jpeg;base64," + b64encode(camera_image.getvalue()).decode()
+		signature_image = BytesIO()
+		signature_canvas = Image.new("RGB", (640, 180), color=(250, 250, 250))
+		signature_draw = ImageDraw.Draw(signature_canvas)
+		signature_draw.line([(40, 120), (180, 50), (300, 135), (430, 45), (580, 110)], fill=(32, 36, 40), width=5)
+		signature_canvas.save(signature_image, format="PNG")
+		signature_data = "data:image/png;base64," + b64encode(signature_image.getvalue()).decode()
+
+		save_public_acceptance_selfie(budget_token, camera_selfie)
+		complete_public_acceptance(budget_token, signature_data, 1)
+
+		approved_link_order = frappe.get_doc("Service Order", order_2)
+		if approved_link_order.workflow_state != "Em reparo":
+			raise AssertionError(f"Aprovação pelo link não moveu automaticamente para Em reparo (estado atual: {approved_link_order.workflow_state}).")
+		if approved_link_order.approval_status != "Aprovado":
+			raise AssertionError("Status de aprovação não foi gravado como Aprovado.")
+
+		comments = frappe.get_all("Comment", filters={"reference_doctype": "Service Order", "reference_name": order_2}, fields=["content"])
+		if not any("Avanço automático" in (c.get("content") or "") for c in comments):
+			raise AssertionError("Comentário de avanço automático e notificação do técnico não foi gravado.")
+
+		return {
+			"status": "ok",
+			"auto_transition_on_quote_send": True,
+			"auto_transition_on_link_approval": True,
+			"manual_approval_evidence_enforced": True,
+			"timeline_employee_names_verified": True,
+			"optional_laudo_verified": True,
+			"direct_pricing_verified": True,
 		}
 	finally:
 		frappe.set_user(previous_user)
@@ -1734,7 +1897,8 @@ def run_public_tracking_budget_checks() -> dict:
 		approved_doc = frappe.get_doc("Service Order", approve_order)
 		if (
 			not approval.get("completed")
-			or approved_doc.workflow_state != "Aprovado"
+			or approved_doc.workflow_state not in {"Aprovado", "Em reparo", "Aguardando peça"}
+			or approved_doc.approval_status != "Aprovado"
 			or approved_doc.approval_channel != "Link"
 			or not approved_doc.approval_date
 			or not approved_doc.quote_locked
@@ -3082,7 +3246,7 @@ def run_quick_stage_move_checks() -> dict:
 		frappe.set_user(attendant)
 		detail = get_service_order_detail(request_order)
 		destinations = {item["next_state"] for item in detail["workflow_transitions"]}
-		expected = {"Em diagnóstico", "Sem conserto", "Cancelado"}
+		expected = {"Em diagnóstico", "Sem conserto", "Cancelado", "Aguardando aprovação"}
 		if destinations != expected:
 			raise AssertionError(f"Opções rápidas não batem com o workflow: {destinations}")
 		if "Em diagnóstico" not in detail["workflow_blockers"]:
@@ -4222,7 +4386,7 @@ def run_workflow_metadata_gate_checks() -> dict:
 
 			decide_service_order_budget(
 				service_order,
-				{"decision": decision, "channel": "Presencial", "notes": notes},
+				{"decision": decision, "channel": "Presencial", "notes": notes, "attachment": "comprovante_presencial.pdf"},
 			)
 			order = frappe.get_doc("Service Order", service_order)
 			if (
@@ -4398,6 +4562,8 @@ def run_workflow_metadata_gate_checks() -> dict:
 				"reference_name": remote_order,
 			}
 		).insert(ignore_permissions=True)
+		from frappe.utils.file_manager import save_file
+		save_file("comprovante_autorizacao.txt", b"autorizacao", "Service Order", remote_order, is_private=1)
 		apply_workflow(
 			frappe.as_json({"doctype": "Service Order", "name": remote_order}),
 			"Aprovado",

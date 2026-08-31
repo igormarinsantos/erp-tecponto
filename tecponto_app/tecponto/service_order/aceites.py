@@ -102,11 +102,33 @@ def _validate_approval_acceptance(doc) -> None:
 		assert_completed_acceptance_evidence(doc.name, "Orçamento", required=True)
 		if requires_customer_supplied_part_term(doc):
 			assert_completed_customer_supplied_part_term(doc.name)
+	elif approval_channel != "Link" and workflow_state == STATE_APROVADO:
+		if not _has_manual_approval_evidence(doc):
+			frappe.throw("Aprovação manual (balcão/whatsapp/telefone) exige comprovante, termo assinado ou documento anexado à OS.")
 
 	if workflow_state == STATE_APROVADO:
 		from tecponto_app.tecponto.service_order.deadline import assert_budget_approval_within_deadline
 
 		assert_budget_approval_within_deadline(doc)
+
+
+def _has_manual_approval_evidence(doc) -> bool:
+	from tecponto_app.tecponto.acceptance import has_completed_physical_acceptance
+
+	if has_completed_physical_acceptance(doc.name, "Orçamento"):
+		return True
+	if doc.meta.has_field("customer_signature") and doc.get("customer_signature"):
+		return True
+	if doc.meta.has_field("approval_attachment") and doc.get("approval_attachment"):
+		return True
+	if frappe.db.exists("File", {"attached_to_doctype": doc.doctype, "attached_to_name": doc.name}):
+		return True
+	comms = frappe.get_all("Communication", filters={"reference_doctype": doc.doctype, "reference_name": doc.name}, fields=["name"])
+	if comms:
+		comm_names = [c.name for c in comms]
+		if frappe.db.exists("File", {"attached_to_doctype": "Communication", "attached_to_name": ["in", comm_names]}):
+			return True
+	return False
 
 
 def _has_quote_dispatch_evidence(doc) -> bool:

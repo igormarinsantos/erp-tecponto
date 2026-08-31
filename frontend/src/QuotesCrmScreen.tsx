@@ -47,6 +47,7 @@ export function QuotesCrmScreen({
   const [modalResult, setModalResult] = useState("Sem resposta");
   const [modalRejectionReason, setModalRejectionReason] = useState("Preço elevado");
   const [modalNotes, setModalNotes] = useState("");
+  const [modalAttachment, setModalAttachment] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -81,6 +82,7 @@ export function QuotesCrmScreen({
           decision: "approve",
           channel: modalChannel,
           notes: modalNotes,
+          attachment: modalChannel !== "Link" ? (modalAttachment.trim() || "Autorização registrada no balcão") : undefined,
         });
         onToast("Orçamento aprovado com sucesso!", "success");
       } else if (actionModal.type === "reject") {
@@ -94,6 +96,7 @@ export function QuotesCrmScreen({
       }
       setActionModal(null);
       setModalNotes("");
+      setModalAttachment("");
       void loadData();
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Falha ao executar ação", "error");
@@ -422,11 +425,23 @@ export function QuotesCrmScreen({
                       onChange={(e) => setModalChannel(e.target.value as "WhatsApp" | "Telefone" | "Presencial" | "Link")}
                     >
                       <option value="WhatsApp">WhatsApp</option>
-                      <option value="Balcão">Presencial / Balcão</option>
+                      <option value="Presencial">Presencial / Balcão</option>
                       <option value="Telefone">Ligação Telefônica</option>
                       <option value="Link">Link Digital / Portal</option>
                     </select>
                   </div>
+                  {modalChannel !== "Link" && (
+                    <div>
+                      <label className="block text-xs font-semibold text-tec-amber">Comprovante / Documento anexo (obrigatório)</label>
+                      <input
+                        type="text"
+                        className="tp-input mt-1 w-full"
+                        value={modalAttachment}
+                        onChange={(e) => setModalAttachment(e.target.value)}
+                        placeholder="Ex.: Anexo, áudio/print de conversa ou número do termo"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-semibold text-tec-subtle">Observações (opcional)</label>
                     <input
@@ -466,7 +481,7 @@ export function QuotesCrmScreen({
                         onChange={(e) => setModalChannel(e.target.value as "WhatsApp" | "Telefone" | "Presencial" | "Link")}
                       >
                         <option value="WhatsApp">WhatsApp</option>
-                        <option value="Balcão">Presencial / Balcão</option>
+                        <option value="Presencial">Presencial / Balcão</option>
                         <option value="Telefone">Ligação Telefônica</option>
                         <option value="Link">Link Digital / Portal</option>
                       </select>

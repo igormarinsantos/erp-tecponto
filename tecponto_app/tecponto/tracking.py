@@ -274,11 +274,45 @@ def _execute_tracking_budget_decision(tracking, decision: str, notes: str) -> No
 	try:
 		frappe.set_user(actor)
 		from tecponto_app.tecponto.frontend.api import decide_service_order_budget
+		from frappe.model.workflow import apply_workflow
 
 		decide_service_order_budget(
 			order.name,
 			{"decision": decision, "channel": "Link", "notes": notes},
 		)
+
+		if decision == "approve":
+			order.reload()
+			has_pending_parts = any(
+				part.get("outcome") in {"Aguardando", "Pendente"} or not part.get("item_code")
+				for part in (order.get("parts") or [])
+			)
+			next_state = "Aguardando peça" if has_pending_parts else "Em reparo"
+			apply_workflow(frappe.as_json({"doctype": order.doctype, "name": order.name}), next_state)
+
+			if order.technician:
+				if frappe.db.exists("DocType", "Notification Log"):
+					frappe.get_doc(
+						{
+							"doctype": "Notification Log",
+							"for_user": order.technician,
+							"type": "Alert",
+							"document_type": "Service Order",
+							"document_name": order.name,
+							"subject": f"Orçamento aprovado pelo cliente: {order.name}",
+							"email_content": f"O cliente aprovou o orçamento da OS {order.name} pelo link. A OS avançou automaticamente para {next_state}.",
+						}
+					).insert(ignore_permissions=True)
+				frappe.get_doc(
+					{
+						"doctype": "Comment",
+						"comment_type": "Comment",
+						"reference_doctype": "Service Order",
+						"reference_name": order.name,
+						"content": f"Orçamento aprovado pelo cliente via Link. Avanço automático para {next_state}. Técnico ({order.technician}) notificado.",
+						"comment_by": actor,
+					}
+				).insert(ignore_permissions=True)
 	finally:
 		frappe.set_user(previous_user)
 

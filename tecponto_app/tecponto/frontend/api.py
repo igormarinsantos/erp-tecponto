@@ -117,6 +117,7 @@ STORE_OPERATION_MANAGER_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto 
 TECHNICIAN_COMMISSION_ROLES = {"System Manager", "Tecponto Tecnico"}
 DIRECTOR_FINANCIAL_ROLES = {"Tecponto Diretor"}
 APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp", "Link"}
+STATE_ENTRADA_CRIADA = "Entrada criada"
 STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
 STATE_EM_DIAGNOSTICO = "Em diagnóstico"
 STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO = "Diagnosticado — aguardando orçamento"
@@ -2145,10 +2146,18 @@ def send_service_order_quote(name: str, payload: str | dict[str, Any] | None = N
 
 	doc = frappe.get_doc("Service Order", (name or "").strip())
 	doc.check_permission("read")
-	if doc.get("workflow_state") != STATE_AGUARDANDO_APROVACAO:
-		frappe.throw(_("A OS precisa estar em Aguardando aprovação para enviar orçamento."), frappe.ValidationError)
+
 	if not (doc.get("services") or doc.get("parts")):
 		frappe.throw(_("Inclua ao menos um serviço ou peça antes de enviar o orçamento."), frappe.ValidationError)
+
+	if doc.get("workflow_state") != STATE_AGUARDANDO_APROVACAO:
+		if doc.get("workflow_state") in {STATE_ENTRADA_CRIADA, STATE_EM_DIAGNOSTICO, STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO}:
+			doc.workflow_state = STATE_AGUARDANDO_APROVACAO
+			doc.approval_status = "Pendente"
+			doc.quote_locked = 1
+			doc.save(ignore_permissions=True)
+		else:
+			frappe.throw(_("A OS precisa estar em diagnóstico ou aguardando aprovação para enviar orçamento."), frappe.ValidationError)
 
 	customer = _get_customer_detail(doc.get("customer")) or {}
 	phone = customer.get("custom_whatsapp") or customer.get("mobile_no") or ""
@@ -2377,6 +2386,42 @@ def decide_service_order_budget(name: str, payload: str | dict[str, Any] | None 
 		},
 		update_modified=False,
 	)
+
+	if decision == "approve" and channel != "Link":
+		attachment = data.get("attachment")
+		if attachment:
+			from frappe.utils.file_manager import save_file
+
+			if isinstance(attachment, dict):
+				file_url = attachment.get("file_url") or ""
+				if file_url.startswith(("http://", "https://", "/files/", "/private/files/")):
+					frappe.get_doc(
+						{
+							"doctype": "File",
+							"file_url": file_url,
+							"file_name": attachment.get("file_name") or f"comprovante_{doc.name}",
+							"attached_to_doctype": doc.doctype,
+							"attached_to_name": doc.name,
+						}
+					).insert(ignore_permissions=True)
+				else:
+					save_file(attachment.get("file_name") or f"comprovante_{doc.name}.txt", file_url.encode("utf-8"), doc.doctype, doc.name, is_private=1)
+			elif isinstance(attachment, str) and attachment.strip():
+				if attachment.startswith("data:"):
+					save_file(f"comprovante_{doc.name}.png", attachment, doc.doctype, doc.name, is_private=1)
+				elif attachment.startswith(("http://", "https://", "/files/", "/private/files/")):
+					frappe.get_doc(
+						{
+							"doctype": "File",
+							"file_url": attachment.strip(),
+							"file_name": f"comprovante_{doc.name}",
+							"attached_to_doctype": doc.doctype,
+							"attached_to_name": doc.name,
+						}
+					).insert(ignore_permissions=True)
+				else:
+					save_file(f"comprovante_{doc.name}.txt", attachment.encode("utf-8"), doc.doctype, doc.name, is_private=1)
+
 	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), workflow_action)
 
 	return get_service_order_detail(doc.name)
@@ -3891,21 +3936,11 @@ def _get_workflow_blockers(order: Any) -> dict[str, str]:
 		return blockers
 
 	name = order.get("name")
-	values = order
-	if not order.get("problem_found") or not order.get("diagnosis_date"):
-		values = frappe.db.get_value(
-			"Service Order",
-			name,
-			["problem_found", "diagnosis_date"],
-			as_dict=True,
-		) or {}
-	diagnosis = (values.get("problem_found") or "").strip()
-	diagnosis_date = values.get("diagnosis_date")
-	if not diagnosis or not diagnosis_date:
-		blockers[STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO] = "Registre o diagnóstico técnico antes de concluir esta etapa."
-		return blockers
 	if order.get("workflow_state") == STATE_EM_DIAGNOSTICO:
+		if not order.get("diagnosis_completed_at") or not order.get("pricing_responsibility"):
+			blockers[STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO] = "Registre o diagnóstico técnico antes de concluir esta etapa."
 		return blockers
+
 	if not (
 		frappe.db.count("Service Order Service", {"parent": name})
 		or frappe.db.count("Service Order Part", {"parent": name})
@@ -4696,11 +4731,18 @@ def _get_service_order_transition_options(current_state: str | None) -> list[dic
 	return options
 
 
+def _get_user_display_name(username: str | None) -> str:
+	if not username:
+		return "sistema"
+	full_name = frappe.db.get_value("User", username, "full_name")
+	return full_name or username
+
+
 def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 	timeline = [
 		{
 			"title": "Entrada criada",
-			"detail": doc.get("reported_defect") or "Atendimento aberto no balcão",
+			"detail": f"{doc.get('reported_defect') or 'Atendimento aberto no balcão'} · por {_get_user_display_name(doc.get('attendant') or doc.get('owner'))}",
 			"date": str(doc.get("entry_date") or doc.get("creation") or ""),
 			"tone": "blue",
 		}
@@ -4721,13 +4763,13 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 				detail = f"Técnico: {event.new_technician}"
 			if event.observation:
 				detail += f" · {event.observation}"
-			detail += f" · por {event.performed_by or 'usuário não identificado'}"
+			detail += f" · por {_get_user_display_name(event.performed_by)}"
 			timeline.append({"title": labels.get(event.event_type, "Atribuição"), "detail": detail, "date": str(event.occurred_at or ""), "tone": "blue"})
 	if doc.get("problem_found") or doc.get("diagnosis_date"):
 		timeline.append(
 			{
 				"title": "Diagnóstico",
-				"detail": doc.get("problem_found") or "Diagnóstico registrado",
+				"detail": f"{doc.get('problem_found') or 'Diagnóstico registrado'} · por {_get_user_display_name(doc.get('technician') or doc.get('diagnosis_completed_by'))}",
 				"date": str(doc.get("diagnosis_date") or ""),
 				"tone": "amber",
 			}
@@ -4736,21 +4778,43 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 		timeline.append(
 			{
 				"title": "Diagnóstico concluído e repassado",
-				"detail": f"Precificação: {doc.get('pricing_responsibility')} · por {doc.get('diagnosis_completed_by') or 'usuário não identificado'}",
+				"detail": f"Precificação: {doc.get('pricing_responsibility')} · por {_get_user_display_name(doc.get('diagnosis_completed_by'))}",
 				"date": str(doc.get("diagnosis_completed_at") or ""),
 				"tone": "amber",
 			}
 		)
 	timeline.extend(_get_quote_send_timeline_events(doc))
 	if doc.get("approval_status") and doc.get("approval_status") != "Pendente":
+		detail = f"{doc.get('approval_status')} via {doc.get('approval_channel') or 'Canal não informado'}"
+		if doc.get("approval_notes"):
+			detail += f" · {doc.get('approval_notes')}"
+		detail += f" · por {_get_user_display_name(doc.get('approved_by_attendant') or doc.get('approved_by'))}"
 		timeline.append(
 			{
 				"title": "Aprovação",
-				"detail": doc.get("approval_status"),
+				"detail": detail,
 				"date": str(doc.get("approval_date") or ""),
 				"tone": "green" if doc.get("approval_status") == "Aprovado" else "red",
 			}
 		)
+	if frappe.db.exists("DocType", "Comment"):
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": doc.doctype, "reference_name": doc.name, "comment_type": "Comment"},
+			fields=["content", "comment_by", "comment_email", "creation"],
+			order_by="creation asc",
+			limit_page_length=50,
+		)
+		for comment in comments:
+			user_label = _get_user_display_name(comment.comment_email or comment.comment_by)
+			timeline.append(
+				{
+					"title": "Acompanhamento / Nota",
+					"detail": f"{strip_html(comment.content or '')} · por {user_label}",
+					"date": str(comment.creation or ""),
+					"tone": "blue",
+				}
+			)
 	timeline.append(
 		{
 			"title": "Status atual",
@@ -4763,7 +4827,7 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 		timeline.append(
 			{
 				"title": "Retirada",
-				"detail": doc.get("picked_up_by") or "Cliente retirou o aparelho",
+				"detail": f"{doc.get('picked_up_by') or 'Cliente retirou o aparelho'} · por {_get_user_display_name(doc.get('delivered_by') or doc.get('modified_by'))}",
 				"date": str(doc.get("pickup_date") or ""),
 				"tone": "green",
 			}
@@ -4779,16 +4843,17 @@ def _get_quote_send_timeline_events(doc: Any) -> list[dict[str, str]]:
 			"reference_name": doc.name,
 			"subject": ["like", "Orçamento enviado%"],
 		},
-		fields=["communication_medium", "text_content", "communication_date", "creation"],
+		fields=["communication_medium", "text_content", "communication_date", "creation", "sender", "user"],
 		order_by="communication_date asc, creation asc",
 		limit_page_length=20,
 	)
 	events: list[dict[str, str]] = []
 	for communication in communications:
+		sender_name = _get_user_display_name(communication.user or communication.sender)
 		events.append(
 			{
 				"title": "Orçamento enviado",
-				"detail": _quote_send_timeline_detail(communication),
+				"detail": f"{_quote_send_timeline_detail(communication)} · por {sender_name}",
 				"date": str(communication.communication_date or communication.creation or ""),
 				"tone": "amber",
 			}

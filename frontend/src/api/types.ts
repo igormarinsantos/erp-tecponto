@@ -1055,6 +1055,7 @@ export interface BudgetDecisionPayload {
   decision: "approve" | "reject";
   channel: "Presencial" | "Telefone" | "WhatsApp" | "Link";
   notes?: string;
+  attachment?: string | { file_url: string; file_name?: string };
 }
 
 export interface PickupPayload {

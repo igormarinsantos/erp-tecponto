@@ -25,16 +25,12 @@ def _validate_diagnosis_handoff(doc) -> None:
 	previous = doc.get_doc_before_save() if not doc.is_new() else None
 	if not previous or previous.get("workflow_state") != STATE_EM_DIAGNOSTICO:
 		return
-	if not (doc.get("problem_found") or "").strip() or not doc.get("diagnosis_date"):
-		frappe.throw("Registre o diagnóstico antes de concluir esta etapa.")
-	if doc.get("pricing_responsibility") not in {"Técnico", "Balcão"}:
-		frappe.throw("Escolha quem fará a precificação ao concluir o diagnóstico.")
-	if not doc.get("diagnosis_completed_at") or not doc.get("diagnosis_completed_by"):
-		frappe.throw("Use Concluir diagnóstico para registrar o repasse auditável.")
+	if not (doc.get("diagnosis_completed_at") and doc.get("pricing_responsibility")):
+		frappe.throw("Conclua o diagnóstico técnico e repasse a precificação antes de avançar.")
 
 
 def _validate_budget_submission(doc) -> None:
-	"""Keep an empty diagnosis or quote from entering the customer approval stage.
+	"""Keep an empty quote from entering the customer approval stage.
 
 	The rule lives on the document because the same workflow transition is exposed
 	by both the Tecponto frontend and Frappe Desk. Zero-priced lines remain valid
@@ -46,11 +42,9 @@ def _validate_budget_submission(doc) -> None:
 	previous = doc.get_doc_before_save() if not doc.is_new() else None
 	if previous and previous.get("workflow_state") == STATE_AGUARDANDO_APROVACAO:
 		return
-	if previous and previous.get("workflow_state") != STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO:
-		return
 
-	if not (doc.get("problem_found") or "").strip() or not doc.get("diagnosis_date"):
-		frappe.throw("Registre o diagnóstico e a data antes de enviar o orçamento para aprovação.")
+	if not doc.get("diagnosis_date"):
+		doc.diagnosis_date = nowdate()
 
 	if not _has_identified_budget_line(doc):
 		frappe.throw("Inclua ao menos um serviço ou peça identificada no orçamento antes de solicitar aprovação.")
