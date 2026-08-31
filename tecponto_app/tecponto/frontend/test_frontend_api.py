@@ -2210,7 +2210,7 @@ def run_warranty_delivery_checks() -> dict:
 		if str(second.warranty_expiry) != add_days(nowdate(), 30):
 			raise AssertionError("Nova OS não respeitou o prazo de garantia configurável.")
 		warranty_screen_source = (Path(__file__).parents[3] / "frontend" / "src" / "WarrantyScreen.tsx").read_text(encoding="utf-8")
-		for marker in ("Garantia vigente", "Garantia expirada", "Abrir nova OS normal", 'item.status === "vigente" ? item.service_order : ""'):
+		for marker in ('const active = item.status === "vigente";', 'active ? "Vigente" : "Expirada"', "Prazo encerrado: o novo atendimento será uma OS normal.", "Abrir nova OS normal", 'item.status === "vigente" ? item.service_order : ""'):
 			if marker not in warranty_screen_source:
 				raise AssertionError(f"Tela dedicada de garantia perdeu a amarra visual {marker!r}.")
 
