@@ -21,6 +21,14 @@ if [[ "${TECPONTO_EXPORT_FIXTURES:-0}" == "1" ]]; then
 fi
 
 if [[ "${TECPONTO_LOCAL_RESET:-0}" == "1" ]]; then
+	# A stopped bootstrap/runner can still hold a named volume. Remove every
+	# container that mounts these test-only volumes before discarding them.
+	for volume in "$DB_VOLUME" "$SITE_VOLUME"; do
+		mapfile -t volume_consumers < <(docker ps -aq --filter "volume=$volume")
+		if (( ${#volume_consumers[@]} )); then
+			docker rm -f "${volume_consumers[@]}" >/dev/null
+		fi
+	done
 	docker rm -f "$RUNNER_NAME" "$DB_NAME" "$REDIS_NAME" >/dev/null 2>&1 || true
 	docker network rm "$NETWORK_NAME" >/dev/null 2>&1 || true
 	docker volume rm "$DB_VOLUME" "$SITE_VOLUME" >/dev/null 2>&1 || true
