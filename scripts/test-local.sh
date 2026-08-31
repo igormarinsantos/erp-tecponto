@@ -82,7 +82,6 @@ bench set-config -g redis_socketio "redis://$REDIS_HOST:$REDIS_PORT"
 bench set-config -g -p throttle_user_limit 1000000
 if [[ "$SITE_EXISTS" != "1" ]]; then
   bench new-site local-ci.local --mariadb-root-password local-test-password --db-root-username root --admin-password local-admin-password --mariadb-user-host-login-scope "%" --install-app erpnext --set-default
-  bench --site local-ci.local install-app hrms
   ./env/bin/python -c "import os, frappe; os.chdir(\"/home/frappe/frappe-bench/sites\"); frappe.init(site=\"local-ci.local\", sites_path=\"/home/frappe/frappe-bench/sites\"); frappe.connect(); frappe.set_user(\"Administrator\"); from frappe.desk.page.setup_wizard.setup_wizard import setup_complete; setup_complete(\"{\\\"country\\\":\\\"Brazil\\\",\\\"company_name\\\":\\\"CI Repair\\\",\\\"company_abbr\\\":\\\"CIR\\\",\\\"currency\\\":\\\"BRL\\\",\\\"timezone\\\":\\\"America/Sao_Paulo\\\",\\\"fy_start_date\\\":\\\"2026-01-01\\\",\\\"fy_end_date\\\":\\\"2026-12-31\\\",\\\"chart_of_accounts\\\":\\\"Standard\\\"}\"); from tecponto_app.install import bootstrap_erpnext_foundation; bootstrap_erpnext_foundation(); frappe.db.commit(); frappe.destroy()"
   bench --site local-ci.local install-app tecponto_app
 fi
