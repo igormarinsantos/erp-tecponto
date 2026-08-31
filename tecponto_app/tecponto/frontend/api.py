@@ -1227,25 +1227,27 @@ def list_my_commissions(
 	elif period != "all":
 		frappe.throw(_("Periodo de comissoes invalido."), frappe.ValidationError)
 
-	payroll_entry_field = "additional_salary.payroll_entry" if frappe.get_meta("Additional Salary").has_field("payroll_entry") else "''"
-	rows = frappe.db.sql(
-		f"""
-		select
-			service_order.name as service_order,
-			service_row.description as service_name,
-			additional_salary.amount as value,
-			additional_salary.payroll_date as date,
-			{payroll_entry_field} as payroll_entry
-		from `tabAdditional Salary` additional_salary
-		inner join `tabService Order Service` service_row on service_row.name = additional_salary.ref_docname
-		inner join `tabService Order` service_order on service_order.name = service_row.parent
-		where {' and '.join(conditions)}
-		order by additional_salary.payroll_date desc, additional_salary.creation desc
-		limit %(limit)s
-		""",
-		values,
-		as_dict=True,
-	)
+	rows = []
+	if frappe.db.table_exists("Additional Salary"):
+		payroll_entry_field = "additional_salary.payroll_entry" if frappe.get_meta("Additional Salary").has_field("payroll_entry") else "''"
+		rows = frappe.db.sql(
+			f"""
+			select
+				service_order.name as service_order,
+				service_row.description as service_name,
+				additional_salary.amount as value,
+				additional_salary.payroll_date as date,
+				{payroll_entry_field} as payroll_entry
+			from `tabAdditional Salary` additional_salary
+			inner join `tabService Order Service` service_row on service_row.name = additional_salary.ref_docname
+			inner join `tabService Order` service_order on service_order.name = service_row.parent
+			where {' and '.join(conditions)}
+			order by additional_salary.payroll_date desc, additional_salary.creation desc
+			limit %(limit)s
+			""",
+			values,
+			as_dict=True,
+		)
 	items = [
 		{
 			"service_order": row.service_order,
@@ -2160,11 +2162,23 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.original_service_order = (data["service_order"].get("original_service_order") or "").strip() or None
 	selected_defects = _checkin_defects(data["service_order"].get("defects"))
 	suggested_services = defect_service_mapping.resolve_services(selected_defects)
+	initial_budget_lines = data.get("initial_budget_lines") or []
+	if not isinstance(initial_budget_lines, list):
+		frappe.throw(_("Composição do orçamento inicial inválida."), frappe.ValidationError)
 	# Prazo pertence ao diagnóstico/orçamento, não à Entrada.
 	order.estimated_deadline = None
-	if cint(data["service_order"].get("include_initial_budget")):
+	if cint(data["service_order"].get("include_initial_budget")) and not initial_budget_lines:
 		_append_checkin_service_suggestions(order, suggested_services)
 	order.insert(ignore_permissions=True)
+	if cint(data["service_order"].get("include_initial_budget")):
+		from tecponto_app.tecponto.service_order.billing import _get_labor_item
+		for line in initial_budget_lines:
+			if not isinstance(line, dict):
+				frappe.throw(_("Linha do orçamento inicial inválida."), frappe.ValidationError)
+			line_payload = dict(line)
+			if line_payload.get("type") == "service" and not (line_payload.get("item_code") or "").strip():
+				line_payload["item_code"] = _get_labor_item()
+			add_service_order_budget_line(order.name, line_payload)
 
 	photo_url = _save_checkin_photo(order.name, data["entry_photo"])
 	frappe.db.set_value(
@@ -2482,7 +2496,7 @@ def get_director_financial_summary() -> dict[str, Any]:
 	)[0][0]
 	commissions_enabled = technician_commissions_enabled()
 	commissions = 0
-	if commissions_enabled:
+	if commissions_enabled and frappe.db.table_exists("Additional Salary"):
 		commissions = frappe.db.sql(
 			"""
 			select coalesce(sum(amount), 0)
@@ -2576,7 +2590,7 @@ def get_director_strategic_report(period: str = "month") -> dict[str, Any]:
 			values,
 			as_dict=True,
 		)
-		if commissions_enabled
+		if commissions_enabled and frappe.db.table_exists("Additional Salary")
 		else []
 	)
 	commissions = {row.employee: flt(row.amount) for row in commission_rows}
@@ -4364,20 +4378,22 @@ def get_service_order_director_financial_summary(name: str) -> dict[str, Any]:
 		""",
 		{"service_order": doc.name, "outcome": OUTCOME_USADA},
 	)[0][0]
-	labor_cost = frappe.db.sql(
-		"""
-		select coalesce(sum(additional_salary.amount), 0)
-		from `tabAdditional Salary` additional_salary
-		inner join `tabService Order Service` service_row
-			on service_row.name = additional_salary.ref_docname
-		where additional_salary.docstatus = 1
-			and additional_salary.salary_component = 'Comissão'
-			and additional_salary.type = 'Earning'
-			and additional_salary.ref_doctype = 'Service Order Service'
-			and service_row.parent = %(service_order)s
-		""",
-		{"service_order": doc.name},
-	)[0][0]
+	labor_cost = 0
+	if frappe.db.table_exists("Additional Salary"):
+		labor_cost = frappe.db.sql(
+			"""
+			select coalesce(sum(additional_salary.amount), 0)
+			from `tabAdditional Salary` additional_salary
+			inner join `tabService Order Service` service_row
+				on service_row.name = additional_salary.ref_docname
+			where additional_salary.docstatus = 1
+				and additional_salary.salary_component = 'Comissão'
+				and additional_salary.type = 'Earning'
+				and additional_salary.ref_doctype = 'Service Order Service'
+				and service_row.parent = %(service_order)s
+			""",
+			{"service_order": doc.name},
+		)[0][0]
 	total_cost = flt(part_cost) + flt(labor_cost)
 	revenue = flt(commercial["total_due"])
 	gross_profit = revenue - total_cost

@@ -56,6 +56,8 @@ def _employee_name_from_user(user_doc) -> str:
 def _ensure_employee_for_user(user: str, company: str, gender: str) -> str:
 	employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
 	if employee:
+		if frappe.db.get_value("Employee", employee, "status") != "Active":
+			frappe.db.set_value("Employee", employee, "status", "Active", update_modified=False)
 		return employee
 
 	user_doc = frappe.get_cached_doc("User", user)

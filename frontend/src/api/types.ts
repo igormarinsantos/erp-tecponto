@@ -972,6 +972,14 @@ export interface CheckinPayload {
     filename: string;
   };
   entry_signature?: string;
+  initial_budget_lines?: Array<{
+    type: "service" | "part";
+    item_code?: string;
+    description: string;
+    qty: number;
+    rate: number;
+    part_source?: "Loja" | "Cliente";
+  }>;
 }
 
 export interface ServiceOrderStatBarResponse {

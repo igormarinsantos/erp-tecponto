@@ -100,6 +100,8 @@ type DeviceMeta = {
   type: string;
 };
 
+type InitialBudgetLine = NonNullable<CheckinPayload["initial_budget_lines"]>[number];
+
 type ServiceSelections = {
   defects: string[];
   problemLocations: string[];
@@ -291,6 +293,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
   const [originalServiceOrder, setOriginalServiceOrder] = useState("");
 	const [forceNormalWarrantyReturn, setForceNormalWarrantyReturn] = useState(false);
   const [photo, setPhoto] = useState<{ dataUrl: string; filename: string } | null>(null);
+  const [initialBudgetLines, setInitialBudgetLines] = useState<InitialBudgetLine[]>([]);
 
   const generatedSummary = useMemo(() => buildServiceSummary(serviceSelections), [serviceSelections]);
   const hasDamage = useMemo(
@@ -407,7 +410,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
       selectedCustomer || customerQuery.trim() || newCustomer.customer_name.trim() || newCustomer.mobile_no.trim() || newCustomer.custom_cpf.trim() || newCustomer.custom_rg.trim()
       || selectedDevice || deviceQuery.trim() || newDevice.brand.trim() || newDevice.model.trim() || newDevice.imei_serial.trim()
       || serviceOrder.reported_defect.trim() || serviceOrder.physical_state.trim() || serviceOrder.attendance_notes.trim() || serviceOrder.accessories_received.trim() || photo
-	  || serviceOrder.contact_name.trim() || serviceOrder.contact_phone.trim() || serviceOrder.device_access_credential.trim()
+	  || serviceOrder.contact_name.trim() || serviceOrder.contact_phone.trim() || serviceOrder.device_access_credential.trim() || initialBudgetLines.length || serviceOrder.include_initial_budget
     ),
   );
 
@@ -495,6 +498,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
         data_url: photo.dataUrl,
         filename: photo.filename,
       },
+	  initial_budget_lines: serviceOrder.include_initial_budget ? initialBudgetLines : [],
     };
 
     setSubmitting(true);
@@ -589,6 +593,8 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
                     selections={serviceSelections}
                     serviceOrder={serviceOrder}
                     setServiceOrder={setServiceOrder}
+					initialBudgetLines={initialBudgetLines}
+					setInitialBudgetLines={setInitialBudgetLines}
                     warrantyCandidates={warrantyCandidates}
                     warrantyLoading={warrantyLoading}
                     setOriginalServiceOrder={setOriginalServiceOrder}
@@ -1535,6 +1541,183 @@ function DeviceStep({
   );
 }
 
+function PatternCredentialInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const selected = value ? value.split("-").map(Number).filter(Boolean) : [];
+  const [drawing, setDrawing] = useState(false);
+  const addPoint = (point: number) => {
+    if (point < 1 || point > 9 || selected.includes(point)) return;
+    onChange([...selected, point].join("-"));
+  };
+  const coordinates = [
+    [50, 50], [150, 50], [250, 50],
+    [50, 150], [150, 150], [250, 150],
+    [50, 250], [150, 250], [250, 250],
+  ];
+  return (
+    <div className="mt-4 rounded-card border border-tec-border/20 bg-tec-field/45 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-white">Desenhe o padrão de desbloqueio</p>
+          <p className="mt-1 text-xs text-tec-muted">Arraste pelos pontos ou toque/clique na sequência.</p>
+        </div>
+        <Button onClick={() => onChange("")} variant="secondary">Limpar</Button>
+      </div>
+      <div
+        className="relative mx-auto mt-4 aspect-square w-full max-w-[300px] select-none touch-none"
+        onPointerCancel={() => setDrawing(false)}
+        onPointerLeave={() => setDrawing(false)}
+        onPointerMove={(e) => {
+          if (!drawing) return;
+          const el = document.elementFromPoint(e.clientX, e.clientY);
+          const pt = el?.getAttribute("data-pattern-point");
+          if (pt) addPoint(Number(pt));
+        }}
+        onPointerUp={() => setDrawing(false)}
+      >
+        <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 300 300">
+          <polyline
+            className="text-tec-orange"
+            fill="none"
+            points={selected.map((point) => coordinates[point - 1]?.join(",") ?? "").filter(Boolean).join(" ")}
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="8"
+          />
+        </svg>
+        <div className="absolute inset-0 grid grid-cols-3 gap-[18%] p-[10%]">
+          {coordinates.map((_, index) => {
+            const point = index + 1;
+            const active = selected.includes(point);
+            return (
+              <button
+                aria-label={`Ponto ${point}`}
+                className={`relative z-10 aspect-square rounded-full border-4 transition ${
+                  active ? "border-tec-orange bg-tec-orange shadow-glow" : "border-tec-muted bg-tec-panel hover:border-tec-orange/60"
+                }`}
+                data-pattern-point={point}
+                key={point}
+                onClick={() => addPoint(point)}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  (event.target as HTMLElement).releasePointerCapture?.(event.pointerId);
+                  setDrawing(true);
+                  addPoint(point);
+                }}
+                type="button"
+              />
+            );
+          })}
+        </div>
+      </div>
+      <p className="mt-3 text-center text-xs font-semibold text-tec-muted">
+        {selected.length ? (
+          <span>
+            Padrão registrado: <strong className="text-white">{selected.join(" → ")}</strong> ({selected.length} pontos)
+          </span>
+        ) : (
+          "Nenhum ponto registrado (desenhe o padrão acima)"
+        )}
+      </p>
+    </div>
+  );
+}
+
+function InitialBudgetComposer({ lines, onChange }: { lines: InitialBudgetLine[]; onChange: React.Dispatch<React.SetStateAction<InitialBudgetLine[]>> }) {
+  const [type, setType] = useState<"service" | "part">("service");
+  const [itemCode, setItemCode] = useState("");
+  const [description, setDescription] = useState("");
+  const [qty, setQty] = useState("1");
+  const [rate, setRate] = useState("");
+  const add = () => {
+    const amount = Number(rate.replace(",", "."));
+    const quantity = Number(qty.replace(",", "."));
+    if (!description.trim() || !quantity || quantity <= 0 || isNaN(amount) || amount < 0 || (type === "part" && !itemCode.trim())) return;
+    onChange((current) => [
+      ...current,
+      {
+        type,
+        item_code: itemCode.trim() || undefined,
+        description: description.trim(),
+        qty: quantity,
+        rate: amount,
+        part_source: "Loja",
+      },
+    ]);
+    setItemCode("");
+    setDescription("");
+    setQty("1");
+    setRate("");
+  };
+  const total = lines.reduce((sum, line) => sum + line.qty * line.rate, 0);
+  return (
+    <div className="mt-4 rounded-card border border-tec-success/25 bg-tec-panel/60 p-4">
+      <h4 className="font-semibold text-white">Composição do orçamento inicial</h4>
+      <p className="mt-1 text-xs text-tec-muted">Este conteúdo entra diretamente no orçamento da OS (etapa Diagnóstico e orçamento); não cria orçamento paralelo.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className="space-y-2 text-sm text-tec-muted">
+          <span>Tipo</span>
+          <select
+            className="w-full rounded-control border border-tec-border/20 bg-tec-field px-3 py-3 text-white"
+            onChange={(event) => setType(event.target.value as "service" | "part")}
+            value={type}
+          >
+            <option value="service">Serviço</option>
+            <option value="part">Peça</option>
+          </select>
+        </label>
+        <Field
+          label={type === "part" ? "Código do item (obrigatório)" : "Código do serviço (opcional)"}
+          onChange={setItemCode}
+          placeholder={type === "part" ? "Ex.: TELA-IP15" : "Usa o item padrão de mão de obra"}
+          value={itemCode}
+        />
+        <Field
+          label="Descrição"
+          onChange={setDescription}
+          placeholder={type === "service" ? "Ex.: Troca de tela" : "Ex.: Tela OLED"}
+          value={description}
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <Field inputMode="decimal" label="Quantidade" onChange={setQty} value={qty} />
+          <Field inputMode="decimal" label="Valor unitário" onChange={setRate} placeholder="0,00" value={rate} />
+        </div>
+      </div>
+      <div className="mt-3 flex justify-end">
+        <Button onClick={add} variant="secondary">Adicionar ao orçamento</Button>
+      </div>
+      {lines.length ? (
+        <div className="mt-4 space-y-2">
+          {lines.map((line, index) => (
+            <div className="flex items-center justify-between gap-3 rounded-control bg-tec-field px-3 py-2 text-sm" key={`${line.type}-${index}`}>
+              <div>
+                <strong className="text-white">{line.description}</strong>
+                <span className="ml-2 text-xs text-tec-muted">
+                  {line.type === "service" ? "Serviço" : "Peça"} · {line.qty} × R$ {line.rate.toFixed(2)}
+                </span>
+              </div>
+              <button
+                aria-label="Remover item"
+                className="text-tec-red transition hover:opacity-80"
+                onClick={() => onChange((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                type="button"
+              >
+                <X size={17} />
+              </button>
+            </div>
+          ))}
+          <div className="flex justify-between border-t border-tec-border/20 pt-3 font-bold text-white">
+            <span>Total inicial</span>
+            <span>R$ {total.toFixed(2)}</span>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-tec-muted">Adicione ao menos um serviço ou peça para compor o orçamento inicial.</p>
+      )}
+    </div>
+  );
+}
+
 function ServiceDataStep({
   diagnosisOnlyEnabled,
   generatedSummary,
@@ -1542,8 +1725,10 @@ function ServiceDataStep({
   originalServiceOrder,
   selections,
   serviceOrder,
+	initialBudgetLines,
   setOriginalServiceOrder,
   setServiceOrder,
+	setInitialBudgetLines,
   setSelections,
   warrantyCandidates,
   warrantyLoading,
@@ -1565,8 +1750,10 @@ function ServiceDataStep({
     device_access_credential: string;
     include_initial_budget: boolean;
   };
+	initialBudgetLines: InitialBudgetLine[];
   setOriginalServiceOrder: (value: string) => void;
   setServiceOrder: React.Dispatch<React.SetStateAction<{ reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; contact_name: string; contact_phone: string; device_access_type: string; device_access_credential: string; include_initial_budget: boolean }>>;
+	setInitialBudgetLines: React.Dispatch<React.SetStateAction<InitialBudgetLine[]>>;
   setSelections: (value: ServiceSelections | ((current: ServiceSelections) => ServiceSelections)) => void;
   warrantyCandidates: WarrantyCandidate[];
   warrantyLoading: boolean;
@@ -1592,13 +1779,15 @@ function ServiceDataStep({
           <Field inputMode="tel" label="Telefone do contato da OS" onChange={(value) => setServiceOrder((current) => ({ ...current, contact_phone: value }))} placeholder="Opcional" value={serviceOrder.contact_phone} />
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <label className="space-y-2 text-sm text-tec-muted"><span>Tipo de acesso</span><select className="w-full rounded-control border border-tec-border/20 bg-tec-field px-3 py-3 text-white" onChange={(event) => setServiceOrder((current) => ({ ...current, device_access_type: event.target.value }))} value={serviceOrder.device_access_type}><option>PIN</option><option>Padrão de desenho</option><option>Alfanumérica</option></select></label>
-          <Field label="Senha / PIN / padrão do aparelho" onChange={(value) => setServiceOrder((current) => ({ ...current, device_access_credential: value }))} placeholder="Dado interno protegido" type="password" value={serviceOrder.device_access_credential} />
+          <label className="space-y-2 text-sm text-tec-muted"><span>Tipo de acesso</span><select className="w-full rounded-control border border-tec-border/20 bg-tec-field px-3 py-3 text-white" onChange={(event) => setServiceOrder((current) => ({ ...current, device_access_type: event.target.value, device_access_credential: "" }))} value={serviceOrder.device_access_type}><option>PIN</option><option>Padrão de desenho</option><option>Alfanumérica</option></select></label>
+		  {serviceOrder.device_access_type === "Padrão de desenho" ? null : <Field inputMode={serviceOrder.device_access_type === "PIN" ? "numeric" : "text"} label={serviceOrder.device_access_type === "PIN" ? "PIN do aparelho" : "Senha alfanumérica"} onChange={(value) => setServiceOrder((current) => ({ ...current, device_access_credential: serviceOrder.device_access_type === "PIN" ? value.replace(/\D/g, "") : value }))} placeholder="Dado interno protegido" type="password" value={serviceOrder.device_access_credential} />}
         </div>
+		{serviceOrder.device_access_type === "Padrão de desenho" ? <PatternCredentialInput onChange={(value) => setServiceOrder((current) => ({ ...current, device_access_credential: value }))} value={serviceOrder.device_access_credential} /> : null}
 		<button className={`mt-4 w-full rounded-control border px-4 py-3 text-left text-sm ${serviceOrder.include_initial_budget ? "border-tec-success/40 bg-tec-success/10 text-tec-success" : "border-tec-border/20 bg-tec-field text-tec-muted"}`} onClick={() => setServiceOrder((current) => ({ ...current, include_initial_budget: !current.include_initial_budget }))} type="button">
 		  <span className="block font-semibold">{serviceOrder.include_initial_budget ? "Orçamento inicial incluído" : "Incluir orçamento inicial (opcional)"}</span>
 		  <span className="mt-1 block text-xs">Usa os mesmos serviços e preços do motor de orçamento, a partir dos defeitos selecionados.</span>
 		</button>
+		{serviceOrder.include_initial_budget ? <InitialBudgetComposer lines={initialBudgetLines} onChange={setInitialBudgetLines} /> : null}
       </WizardCard>
       <WizardCard clean>
         <SectionTitle icon={<ShieldCheck size={21} />} title="Retrabalho em garantia" />
