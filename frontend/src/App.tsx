@@ -2646,6 +2646,7 @@ function MesaFlowBoard({
   >({ status: "loading" });
 	const [unassigned, setUnassigned] = useState<ServiceOrderSummary[]>([]);
 	const [technicians, setTechnicians] = useState<TechnicianWorkloadItem[]>([]);
+	const [preferredTechnician, setPreferredTechnician] = useState("");
 
   const load = useCallback(async () => {
     setState((current) => current.status === "ready" ? current : { status: "loading" });
@@ -2709,8 +2710,13 @@ function MesaFlowBoard({
       {state.status === "error" ? <Card className="border-tec-red/30 p-5 text-sm font-semibold text-tec-red">{state.message}</Card> : null}
       {state.status === "loading" ? <Card className="p-6"><div className="h-9 w-9 animate-spin rounded-full border-2 border-tec-orange border-t-transparent" /><p className="mt-3 text-sm font-semibold text-tec-subtle">Organizando a Mesa...</p></Card> : null}
 
+      {state.status === "ready" && canAssignTechnician ? <MesaTechnicianWorkloadBoard items={technicians} mode={technicianAssignment.mode} onAssign={(technician) => {
+        setPreferredTechnician(technician);
+        window.requestAnimationFrame(() => document.getElementById("mesa-sem-tecnico")?.scrollIntoView({ behavior: "smooth", block: "center" }));
+      }} /> : null}
+
       {state.status === "ready" ? <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-		{unassigned.length ? <MesaAssignmentQueue canAssignTechnician={canAssignTechnician && technicianAssignment.mode === "Dispatch"} canClaim={isRestrictedTechnician && technicianAssignment.mode === "Pull"} items={unassigned} onChanged={load} onOpenOrder={onOpenOrder} onToast={onToast} technicians={technicians} /> : null}
+		{unassigned.length ? <MesaAssignmentQueue canAssignTechnician={canAssignTechnician && technicianAssignment.mode === "Dispatch"} canClaim={isRestrictedTechnician && technicianAssignment.mode === "Pull"} canIntervene={canAssignTechnician && technicianAssignment.mode === "Pull"} items={unassigned} onChanged={load} onOpenOrder={onOpenOrder} onToast={onToast} preferredTechnician={preferredTechnician} technicians={technicians} /> : null}
         {queues.map((queue) => <MesaFlowQueue canAssignTechnician={canAssignTechnician} key={queue.title} onChanged={load} onOpenOrder={onOpenOrder} onToast={onToast} queue={queue} technicians={technicians} />)}
       </div> : null}
     </div>
@@ -2785,19 +2791,61 @@ function MesaFlowOrderCard({ canAssignTechnician, onChanged, onOpenOrder, onToas
   );
 }
 
-function MesaAssignmentQueue({ canAssignTechnician, canClaim, items, onChanged, onOpenOrder, onToast, technicians }: { canAssignTechnician: boolean; canClaim: boolean; items: ServiceOrderSummary[]; onChanged: () => Promise<void>; onOpenOrder: (name: string) => void; onToast: (message: string, tone?: ToastState["tone"]) => void; technicians: TechnicianWorkloadItem[] }) {
-	return <Card className={cx("flex min-h-64 flex-col overflow-hidden p-0", items.some((item) => item.unassigned_overdue) && "border-tec-red/45")}>
-		<header className="border-b border-tec-amber/25 bg-tec-amber/5 p-4"><div className="flex justify-between gap-3"><div><h2 className="text-lg font-bold text-white">{canClaim ? "Disponíveis para assumir" : "Sem técnico"}</h2><p className="mt-1 text-xs text-tec-muted">{canClaim ? "Escolha uma OS livre e assuma a responsabilidade." : "Distribua as OS antes que parem na entrada."}</p></div><span className="rounded-full bg-tec-amber/15 px-2.5 py-1 text-xs font-bold text-tec-amber">{items.length}</span></div></header>
-		<div className="flex-1 space-y-2 p-3">{items.slice(0, 8).map((order) => <article className={cx("rounded-control border bg-tec-field/45 p-3", order.unassigned_overdue ? "border-tec-red/45" : "border-tec-border/15")} key={order.name}><button className="text-left" onClick={() => onOpenOrder(order.name)} type="button"><strong className="block text-sm text-white">{order.name}</strong><span className="text-xs text-tec-muted">{order.customer ?? "Cliente não informado"} · Técnico: Sem técnico</span></button><div className="mt-2 flex justify-between text-xs"><span className="text-tec-muted">Recebido por: {order.attendant ?? "Não informado"}</span>{order.unassigned_overdue ? <strong className="text-tec-red">{order.unassigned_waiting_hours}h úteis</strong> : null}</div>{canClaim ? <Button className="mt-3 w-full" onClick={() => void serviceOrders.claim(order.name).then(() => { onToast("OS assumida por você.", "success"); return onChanged(); }).catch((error) => onToast(error instanceof Error ? error.message : "Não foi possível assumir a OS.", "error"))}>Assumir esta OS</Button> : null}{canAssignTechnician ? <TechnicianAssignmentControl mode="assign" onChanged={onChanged} onToast={onToast} order={order.name} technicians={technicians} /> : null}</article>)}</div>
-	</Card>;
+function MesaTechnicianWorkloadBoard({ items, mode, onAssign }: { items: TechnicianWorkloadItem[]; mode: "Pull" | "Dispatch"; onAssign: (technician: string) => void }) {
+  const totals = items.reduce((total, item) => ({
+    active_orders: total.active_orders + item.active_orders,
+    in_diagnosis: total.in_diagnosis + item.in_diagnosis,
+    waiting_part: total.waiting_part + item.waiting_part,
+    overdue: total.overdue + item.overdue,
+  }), { active_orders: 0, in_diagnosis: 0, waiting_part: 0, overdue: 0 });
+
+  return <Card className="p-5">
+    <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wide text-tec-orange">Gestão de bancada</p>
+        <h2 className="mt-1 text-xl font-bold text-white">Carga da equipe</h2>
+        <p className="mt-1 text-sm text-tec-muted">{mode === "Pull" ? "Pull ativo: o técnico assume normalmente; atribuição do gestor é uma exceção auditada." : "Use a carga real antes de distribuir uma OS."}</p>
+      </div>
+      <span className={cx("rounded-full px-3 py-1.5 text-xs font-bold", mode === "Pull" ? "bg-tec-blue/15 text-tec-blue" : "bg-tec-orange/15 text-tec-orange")}>Modo {mode}</span>
+    </div>
+    <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {[["OS ativas", totals.active_orders, "text-white"], ["Em diagnóstico", totals.in_diagnosis, "text-tec-blue"], ["Aguardando peça", totals.waiting_part, "text-tec-amber"], ["Atrasadas", totals.overdue, totals.overdue ? "text-tec-red" : "text-tec-success"]].map(([label, value, tone]) => <div className="rounded-control border border-tec-border/15 bg-tec-field/55 p-3" key={String(label)}><span className="block text-xs font-bold text-tec-muted">{label}</span><strong className={cx("mt-1 block text-xl", String(tone))}>{value}</strong></div>)}
+    </div>
+    {!items.length ? <p className="mt-4 rounded-control border border-dashed border-tec-border/20 p-3 text-sm text-tec-muted">Nenhuma OS ativa atribuída a técnico.</p> : <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">{items.map((item) => <article className={cx("rounded-control border bg-tec-field/55 p-4", item.overdue ? "border-tec-red/35" : "border-tec-border/15")} key={item.technician}>
+      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><strong className="block truncate text-sm text-white" title={item.technician_name}>{item.technician_name}</strong><span className="mt-1 block text-xs text-tec-muted">{item.active_orders} OS ativas</span></div>{item.overdue ? <span className="shrink-0 rounded-full bg-tec-red/15 px-2 py-1 text-xs font-bold text-tec-red">{item.overdue} atrasada{item.overdue > 1 ? "s" : ""}</span> : null}</div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs"><span className="rounded-control bg-tec-panel px-2 py-2 text-tec-muted"><strong className="block text-sm text-tec-text">{item.in_diagnosis}</strong>diagnóstico</span><span className="rounded-control bg-tec-panel px-2 py-2 text-tec-muted"><strong className="block text-sm text-tec-text">{item.waiting_part}</strong>peças</span><span className="rounded-control bg-tec-panel px-2 py-2 text-tec-muted"><strong className="block text-sm text-tec-text">{item.active_orders}</strong>em curso</span></div>
+      <p className="mt-3 text-xs text-tec-muted">Capacidade: <strong className="text-tec-subtle">limite não configurado</strong></p>
+      <Button className="mt-3 w-full" onClick={() => onAssign(item.technician)} variant="secondary">{mode === "Pull" ? "Intervir e atribuir" : "Distribuir OS"}</Button>
+    </article>)}</div>}
+  </Card>;
 }
 
-function TechnicianAssignmentControl({ current, mode, onChanged, onToast, order, technicians }: { current?: string; mode: "assign" | "transfer"; onChanged: () => Promise<void>; onToast: (message: string, tone?: ToastState["tone"]) => void; order: string; technicians: TechnicianWorkloadItem[] }) {
-	const [technician, setTechnician] = useState("");
-	const [observation, setObservation] = useState("");
-	const [busy, setBusy] = useState(false);
-	const options = technicians.filter((item) => item.technician !== current);
-	return <div className="mt-3 space-y-2 border-t border-tec-border/15 pt-3"><select aria-label={mode === "assign" ? "Técnico para atribuir" : "Novo técnico"} className="tp-input" onChange={(event) => setTechnician(event.target.value)} value={technician}><option value="">{mode === "assign" ? "Escolher técnico" : "Transferir para..."}</option>{options.map((item) => <option key={item.technician} value={item.technician}>{item.technician_name || item.technician}</option>)}</select>{mode === "transfer" && technician ? <input className="tp-input" onChange={(event) => setObservation(event.target.value)} placeholder="Motivo da transferência (obrigatório)" value={observation} /> : null}<Button className="w-full" disabled={busy || !technician || (mode === "transfer" && !observation.trim())} onClick={() => { setBusy(true); const action = mode === "assign" ? serviceOrders.assign(order, technician) : serviceOrders.transfer(order, technician, observation); void action.then(() => { onToast(mode === "assign" ? "Técnico atribuído." : "OS transferida.", "success"); setTechnician(""); setObservation(""); return onChanged(); }).catch((error) => onToast(error instanceof Error ? error.message : "Não foi possível alterar o técnico.", "error")).finally(() => setBusy(false)); }} variant="secondary">{busy ? "Salvando..." : mode === "assign" ? "Atribuir" : "Confirmar transferência"}</Button></div>;
+function MesaAssignmentQueue({ canAssignTechnician, canClaim, canIntervene, items, onChanged, onOpenOrder, onToast, preferredTechnician, technicians }: { canAssignTechnician: boolean; canClaim: boolean; canIntervene: boolean; items: ServiceOrderSummary[]; onChanged: () => Promise<void>; onOpenOrder: (name: string) => void; onToast: (message: string, tone?: ToastState["tone"]) => void; preferredTechnician: string; technicians: TechnicianWorkloadItem[] }) {
+  const managerAction = canAssignTechnician || canIntervene;
+  return <section id="mesa-sem-tecnico">
+  <Card className={cx("flex min-h-64 flex-col overflow-hidden p-0", items.some((item) => item.unassigned_overdue) && "border-tec-red/45")}>
+    <header className="border-b border-tec-amber/25 bg-tec-amber/5 p-4"><div className="flex justify-between gap-3"><div><h2 className="text-lg font-bold text-white">{canClaim ? "Disponíveis para assumir" : "Sem técnico"}</h2><p className="mt-1 text-xs text-tec-muted">{canClaim ? "Escolha uma OS livre e assuma a responsabilidade." : canIntervene ? "Pull ativo. Intervenha somente por urgência, ausência ou backlog; a justificativa é obrigatória." : "Distribua as OS antes que parem na entrada."}</p></div><span className="rounded-full bg-tec-amber/15 px-2.5 py-1 text-xs font-bold text-tec-amber">{items.length}</span></div></header>
+    <div className="flex-1 space-y-2 p-3">{items.slice(0, 8).map((order) => <article className={cx("rounded-control border bg-tec-field/45 p-3", order.unassigned_overdue ? "border-tec-red/45" : "border-tec-border/15")} key={order.name}><button className="text-left" onClick={() => onOpenOrder(order.name)} type="button"><strong className="block text-sm text-white">{order.name}</strong><span className="text-xs text-tec-muted">{order.customer ?? "Cliente não informado"} · {order.customer_device ?? "Aparelho não informado"}</span></button><p className="mt-2 line-clamp-2 text-xs text-tec-muted">{compactServiceOrderDescription(order.reported_defect)}</p><div className="mt-2 flex justify-between gap-2 text-xs"><span className="text-tec-muted">Prioridade: {order.priority ?? "Normal"}</span>{order.unassigned_overdue ? <strong className="text-tec-red">{order.unassigned_waiting_hours}h úteis</strong> : <span className="text-tec-muted">Sem técnico</span>}</div>{canClaim ? <ClaimServiceOrderButton onChanged={onChanged} onToast={onToast} order={order.name} /> : null}{managerAction ? <TechnicianAssignmentControl mode={canIntervene ? "intervention" : "assign"} onChanged={onChanged} onToast={onToast} order={order.name} preferredTechnician={preferredTechnician} technicians={technicians} /> : null}</article>)}</div>
+  </Card>
+  </section>;
+}
+
+function ClaimServiceOrderButton({ onChanged, onToast, order }: { onChanged: () => Promise<void>; onToast: (message: string, tone?: ToastState["tone"]) => void; order: string }) {
+  const [busy, setBusy] = useState(false);
+  return <Button className="mt-3 w-full" disabled={busy} onClick={() => { setBusy(true); void serviceOrders.claim(order).then(() => { onToast("OS assumida por você.", "success"); return onChanged(); }).catch((error) => onToast(error instanceof Error ? error.message : "Não foi possível assumir a OS.", "error")).finally(() => setBusy(false)); }}>{busy ? "Assumindo..." : "Assumir"}</Button>;
+}
+
+function TechnicianAssignmentControl({ current, mode, onChanged, onToast, order, preferredTechnician = "", technicians }: { current?: string; mode: "assign" | "intervention" | "transfer"; onChanged: () => Promise<void>; onToast: (message: string, tone?: ToastState["tone"]) => void; order: string; preferredTechnician?: string; technicians: TechnicianWorkloadItem[] }) {
+  const [technician, setTechnician] = useState("");
+  const [observation, setObservation] = useState("");
+  const [busy, setBusy] = useState(false);
+  const requiresObservation = mode === "transfer" || mode === "intervention";
+  const options = technicians.filter((item) => item.technician !== current);
+  useEffect(() => { if (preferredTechnician && preferredTechnician !== current) setTechnician(preferredTechnician); }, [current, preferredTechnician]);
+  const selectLabel = mode === "transfer" ? "Novo técnico" : mode === "intervention" ? "Técnico para a intervenção" : "Técnico para atribuir";
+  const placeholder = mode === "transfer" ? "Motivo da transferência (obrigatório)" : "Justificativa da intervenção (obrigatória)";
+  const submitLabel = mode === "transfer" ? "Confirmar transferência" : mode === "intervention" ? "Confirmar intervenção" : "Atribuir";
+  return <div className="mt-3 space-y-2 border-t border-tec-border/15 pt-3"><select aria-label={selectLabel} className="tp-input" onChange={(event) => setTechnician(event.target.value)} value={technician}><option value="">{mode === "transfer" ? "Transferir para..." : "Escolher técnico"}</option>{options.map((item) => <option key={item.technician} value={item.technician}>{item.technician_name || item.technician}</option>)}</select>{requiresObservation && technician ? <input className="tp-input" onChange={(event) => setObservation(event.target.value)} placeholder={placeholder} value={observation} /> : null}<Button className="w-full" disabled={busy || !technician || (requiresObservation && !observation.trim())} onClick={() => { setBusy(true); const action = mode === "transfer" ? serviceOrders.transfer(order, technician, observation) : serviceOrders.assign(order, technician, observation); void action.then(() => { onToast(mode === "transfer" ? "OS transferida." : mode === "intervention" ? "Intervenção registrada e técnico atribuído." : "Técnico atribuído.", "success"); setTechnician(""); setObservation(""); return onChanged(); }).catch((error) => onToast(error instanceof Error ? error.message : "Não foi possível alterar o técnico.", "error")).finally(() => setBusy(false)); }} variant="secondary">{busy ? "Salvando..." : submitLabel}</Button></div>;
 }
 
 function ServiceOrderFilterBar({

@@ -547,6 +547,27 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 		else:
 			raise AssertionError("Técnico reivindicou OS enquanto a operação estava em Dispatch.")
 
+		intervention_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", intervention_order, "technician", None, update_modified=False)
+		frappe.db.set_single_value("Tecponto Settings", "technician_assignment_mode", "Pull")
+		frappe.clear_cache(doctype="Tecponto Settings")
+		frappe.set_user(manager)
+		try:
+			assign_service_order(intervention_order, technician, "")
+		except frappe.ValidationError:
+			pass
+		else:
+			raise AssertionError("Intervenção no Pull sem justificativa foi aceita.")
+		intervention = assign_service_order(intervention_order, technician, "Urgência: técnico ausente")
+		intervention_event = frappe.get_doc("Tecponto Service Order Assignment Event", intervention["event"])
+		if (
+			intervention_event.event_type != "Intervention"
+			or intervention_event.assignment_mode != "Pull"
+			or intervention_event.observation != "Urgência: técnico ausente"
+			or intervention_event.performed_by != manager
+		):
+			raise AssertionError("A intervenção no Pull não foi auditada como exceção.")
+
 		frappe.set_user("Administrator")
 		event = frappe.get_doc("Tecponto Service Order Assignment Event", transfer["event"])
 		event.observation = "tentativa de adulteração"
@@ -556,7 +577,7 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 			pass
 		else:
 			raise AssertionError("Evento de atribuição imutável pôde ser editado.")
-		return {"status": "ok", "claim": claim["event"], "transfer": transfer["event"], "assign": assigned["event"]}
+		return {"status": "ok", "claim": claim["event"], "transfer": transfer["event"], "assign": assigned["event"], "intervention": intervention["event"]}
 	finally:
 		frappe.set_user("Administrator")
 		frappe.db.set_single_value("Tecponto Settings", "technician_assignment_mode", previous_mode)

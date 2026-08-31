@@ -31,9 +31,16 @@ def claim(service_order: str, actor: str) -> dict[str, Any]:
 
 def assign(service_order: str, technician: str, actor: str, observation: str = "") -> dict[str, Any]:
 	_require_manager(actor)
-	_require_mode("Dispatch")
 	_require_technician(technician)
-	return _change(service_order, technician, actor, "Assign", observation=observation, expected_assigned=False)
+	mode = assignment_config()["mode"]
+	observation = (observation or "").strip()
+	if mode == "Dispatch":
+		return _change(service_order, technician, actor, "Assign", observation=observation, expected_assigned=False)
+	if mode == "Pull":
+		if not observation:
+			frappe.throw(_("Informe a justificativa da intervenção no modo Pull."), frappe.ValidationError)
+		return _change(service_order, technician, actor, "Intervention", observation=observation, expected_assigned=False)
+	frappe.throw(_("Modo de atribuição inválido."), frappe.ValidationError)
 
 
 def transfer(service_order: str, technician: str, actor: str, observation: str) -> dict[str, Any]:
