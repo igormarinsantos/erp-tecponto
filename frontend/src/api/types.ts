@@ -527,6 +527,9 @@ export interface ServiceOrderDetailResponse {
   physical_state: string | null;
   entry_operating_condition: string | null;
   accessories_received: string | null;
+  os_contact_name: string | null;
+  os_contact_phone: string | null;
+  device_access_type: string | null;
   diagnosis: {
     problem_found: string | null;
     diagnosis_date: string;
@@ -954,6 +957,11 @@ export interface CheckinPayload {
     attendance_notes?: string;
     entry_operating_condition?: "Liga e permite teste" | "Liga parcialmente" | "Não liga / sem condições de teste";
     accessories_received?: string;
+    contact_name?: string;
+    contact_phone?: string;
+    device_access_type?: "PIN" | "Padrão de desenho" | "Alfanumérica";
+    device_access_credential?: string;
+    include_initial_budget?: boolean;
     is_warranty?: boolean;
     original_service_order?: string;
     estimated_deadline?: string;

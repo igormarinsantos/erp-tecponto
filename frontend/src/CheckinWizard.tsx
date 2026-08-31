@@ -53,7 +53,6 @@ import {
   type CheckinResponse,
   type CustomerDeviceSummary,
   type CustomerSummary,
-  type DeliverySuggestion,
   type WarrantyCandidate,
 } from "./api";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
@@ -280,16 +279,17 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
     attendance_notes: "",
     entry_operating_condition: "Liga e permite teste",
     accessories_received: "",
-    estimated_deadline: "",
-    lead_time_business_hours: "",
+    contact_name: "",
+    contact_phone: "",
+    device_access_type: "PIN",
+    device_access_credential: "",
+    include_initial_budget: false,
   });
   const [serviceSelections, setServiceSelections] = useState<ServiceSelections>(defaultServiceSelections);
   const [warrantyCandidates, setWarrantyCandidates] = useState<WarrantyCandidate[]>([]);
   const [warrantyLoading, setWarrantyLoading] = useState(false);
   const [originalServiceOrder, setOriginalServiceOrder] = useState("");
 	const [forceNormalWarrantyReturn, setForceNormalWarrantyReturn] = useState(false);
-  const [deliverySuggestion, setDeliverySuggestion] = useState<DeliverySuggestion | null>(null);
-  const [autoSuggestedDeadline, setAutoSuggestedDeadline] = useState("");
   const [photo, setPhoto] = useState<{ dataUrl: string; filename: string } | null>(null);
 
   const generatedSummary = useMemo(() => buildServiceSummary(serviceSelections), [serviceSelections]);
@@ -347,35 +347,6 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
       accessories_received: serviceSelections.accessories.join("; "),
     }));
   }, [generatedSummary, serviceSelections.accessories, serviceSelections.physicalStates]);
-
-  useEffect(() => {
-    if (!open) return;
-    const defects = serviceSelections.defects;
-    if (!defects.length) {
-      setDeliverySuggestion(null);
-      setServiceOrder((current) => current.estimated_deadline === autoSuggestedDeadline
-        ? { ...current, estimated_deadline: "" }
-        : current);
-      setAutoSuggestedDeadline("");
-      return;
-    }
-    let cancelled = false;
-    const leadTime = Number(serviceOrder.lead_time_business_hours) || 0;
-    checkin.getDeliverySuggestion(defects, leadTime).then((suggestion) => {
-      if (cancelled) return;
-      setDeliverySuggestion(suggestion);
-      setServiceOrder((current) => {
-        if (!suggestion.suggested_delivery_date || (current.estimated_deadline && current.estimated_deadline !== autoSuggestedDeadline)) {
-          return current;
-        }
-        return { ...current, estimated_deadline: suggestion.suggested_delivery_date };
-      });
-      setAutoSuggestedDeadline(suggestion.suggested_delivery_date);
-    }).catch(() => {
-      if (!cancelled) setDeliverySuggestion(null);
-    });
-    return () => { cancelled = true; };
-  }, [autoSuggestedDeadline, open, serviceOrder.lead_time_business_hours, serviceSelections.defects]);
 
   useEffect(() => {
     const customer = selectedCustomer?.name ?? "";
@@ -436,6 +407,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
       selectedCustomer || customerQuery.trim() || newCustomer.customer_name.trim() || newCustomer.mobile_no.trim() || newCustomer.custom_cpf.trim() || newCustomer.custom_rg.trim()
       || selectedDevice || deviceQuery.trim() || newDevice.brand.trim() || newDevice.model.trim() || newDevice.imei_serial.trim()
       || serviceOrder.reported_defect.trim() || serviceOrder.physical_state.trim() || serviceOrder.attendance_notes.trim() || serviceOrder.accessories_received.trim() || photo
+	  || serviceOrder.contact_name.trim() || serviceOrder.contact_phone.trim() || serviceOrder.device_access_credential.trim()
     ),
   );
 
@@ -510,11 +482,14 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
         attendance_notes: serviceOrder.attendance_notes.trim(),
         entry_operating_condition: serviceOrder.entry_operating_condition as CheckinPayload["service_order"]["entry_operating_condition"],
         accessories_received: serviceOrder.accessories_received.trim(),
+        contact_name: serviceOrder.contact_name.trim(),
+        contact_phone: serviceOrder.contact_phone.trim(),
+        device_access_type: serviceOrder.device_access_type as CheckinPayload["service_order"]["device_access_type"],
+        device_access_credential: serviceOrder.device_access_credential.trim(),
+        include_initial_budget: serviceOrder.include_initial_budget,
         is_warranty: Boolean(originalServiceOrder),
         original_service_order: originalServiceOrder || undefined,
         defects: serviceSelections.defects,
-        estimated_deadline: serviceOrder.estimated_deadline,
-        lead_time_business_hours: Number(serviceOrder.lead_time_business_hours) || 0,
       },
       entry_photo: {
         data_url: photo.dataUrl,
@@ -608,7 +583,6 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
                 {step === 2 ? (
                   <ServiceDataStep
                     diagnosisOnlyEnabled={diagnosisOnlyEnabled}
-                    deliverySuggestion={deliverySuggestion}
                     generatedSummary={generatedSummary}
 					forceNormalWarrantyReturn={forceNormalWarrantyReturn}
                     originalServiceOrder={originalServiceOrder}
@@ -1562,7 +1536,6 @@ function DeviceStep({
 }
 
 function ServiceDataStep({
-  deliverySuggestion,
   diagnosisOnlyEnabled,
   generatedSummary,
 	forceNormalWarrantyReturn,
@@ -1575,7 +1548,6 @@ function ServiceDataStep({
   warrantyCandidates,
   warrantyLoading,
 }: {
-  deliverySuggestion: DeliverySuggestion | null;
   diagnosisOnlyEnabled: boolean;
   generatedSummary: string;
 	forceNormalWarrantyReturn: boolean;
@@ -1587,11 +1559,14 @@ function ServiceDataStep({
     attendance_notes: string;
     entry_operating_condition: string;
     accessories_received: string;
-    estimated_deadline: string;
-    lead_time_business_hours: string;
+    contact_name: string;
+    contact_phone: string;
+    device_access_type: string;
+    device_access_credential: string;
+    include_initial_budget: boolean;
   };
   setOriginalServiceOrder: (value: string) => void;
-  setServiceOrder: (value: { reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string } | ((current: { reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string }) => { reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; estimated_deadline: string; lead_time_business_hours: string })) => void;
+  setServiceOrder: React.Dispatch<React.SetStateAction<{ reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; contact_name: string; contact_phone: string; device_access_type: string; device_access_credential: string; include_initial_budget: boolean }>>;
   setSelections: (value: ServiceSelections | ((current: ServiceSelections) => ServiceSelections)) => void;
   warrantyCandidates: WarrantyCandidate[];
   warrantyLoading: boolean;
@@ -1609,6 +1584,22 @@ function ServiceDataStep({
 
   return (
     <div className="space-y-4">
+      <WizardCard clean className="p-4">
+        <SectionTitle icon={<ShieldCheck size={21} />} title="Contato e acesso desta OS" />
+        <p className="mt-2 text-sm text-tec-muted">Use um contato diferente do cadastro somente para este atendimento. A credencial do aparelho é interna e nunca aparece nos documentos do cliente.</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <Field label="Nome do contato da OS" onChange={(value) => setServiceOrder((current) => ({ ...current, contact_name: value }))} placeholder="Opcional" value={serviceOrder.contact_name} />
+          <Field inputMode="tel" label="Telefone do contato da OS" onChange={(value) => setServiceOrder((current) => ({ ...current, contact_phone: value }))} placeholder="Opcional" value={serviceOrder.contact_phone} />
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <label className="space-y-2 text-sm text-tec-muted"><span>Tipo de acesso</span><select className="w-full rounded-control border border-tec-border/20 bg-tec-field px-3 py-3 text-white" onChange={(event) => setServiceOrder((current) => ({ ...current, device_access_type: event.target.value }))} value={serviceOrder.device_access_type}><option>PIN</option><option>Padrão de desenho</option><option>Alfanumérica</option></select></label>
+          <Field label="Senha / PIN / padrão do aparelho" onChange={(value) => setServiceOrder((current) => ({ ...current, device_access_credential: value }))} placeholder="Dado interno protegido" type="password" value={serviceOrder.device_access_credential} />
+        </div>
+		<button className={`mt-4 w-full rounded-control border px-4 py-3 text-left text-sm ${serviceOrder.include_initial_budget ? "border-tec-success/40 bg-tec-success/10 text-tec-success" : "border-tec-border/20 bg-tec-field text-tec-muted"}`} onClick={() => setServiceOrder((current) => ({ ...current, include_initial_budget: !current.include_initial_budget }))} type="button">
+		  <span className="block font-semibold">{serviceOrder.include_initial_budget ? "Orçamento inicial incluído" : "Incluir orçamento inicial (opcional)"}</span>
+		  <span className="mt-1 block text-xs">Usa os mesmos serviços e preços do motor de orçamento, a partir dos defeitos selecionados.</span>
+		</button>
+      </WizardCard>
       <WizardCard clean>
         <SectionTitle icon={<ShieldCheck size={21} />} title="Retrabalho em garantia" />
         {warrantyLoading ? (
@@ -1655,43 +1646,6 @@ function ServiceDataStep({
         title="Seleções mais precisas geram orçamentos mais assertivos e execuções técnicas mais alinhadas."
         text="Quanto mais detalhe você registrar agora, menos dúvidas no orçamento e mais agilidade no reparo."
       />
-
-      <WizardCard clean className="p-4">
-        <SectionTitle icon={<ClipboardList size={21} />} title="Previsão de entrega" />
-        <p className="mt-3 text-sm leading-6 text-tec-muted">
-          Ao selecionar um defeito com serviço mapeado, o motor sugere uma data usando os SLAs internos e dias úteis. Ela é apenas uma previsão: pode ser ajustada ou deixada em branco sem impedir a abertura da OS.
-        </p>
-        {!selections.defects.length ? (
-          <p className="mt-3 rounded-control border border-tec-border/20 bg-tec-field/55 px-3 py-2 text-sm text-tec-muted">
-            Selecione ao menos um defeito para estimar a entrega. Você ainda pode preencher ou deixar a data em branco.
-          </p>
-        ) : deliverySuggestion?.mapped_services.length ? (
-          <div className="mt-3 rounded-control border border-tec-success/25 bg-tec-success/10 px-3 py-2 text-sm text-tec-subtle">
-            <span className="font-semibold text-tec-success">Sugestão do catálogo:</span>{" "}
-            {deliverySuggestion.mapped_services.map((service) => service.service_name).join(", ")}.{" "}
-            {deliverySuggestion.service_business_hours}h úteis de serviço somados ao fluxo interno.
-          </div>
-        ) : (
-          <p className="mt-3 rounded-control border border-tec-border/20 bg-tec-field/55 px-3 py-2 text-sm text-tec-muted">
-            Os defeitos selecionados ainda não possuem um serviço mapeado. A OS continua podendo ser aberta sem previsão.
-          </p>
-        )}
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <Field
-            label="Data prometida ao cliente"
-            onChange={(value) => setServiceOrder((current) => ({ ...current, estimated_deadline: value }))}
-            type="date"
-            value={serviceOrder.estimated_deadline}
-          />
-          <Field
-            inputMode="decimal"
-            label="Prazo da peça (horas úteis)"
-            onChange={(value) => setServiceOrder((current) => ({ ...current, lead_time_business_hours: value.replace(/[^0-9.,]/g, "").replace(",", ".") }))}
-            placeholder="Opcional, ex.: 18"
-            value={serviceOrder.lead_time_business_hours}
-          />
-        </div>
-      </WizardCard>
 
       <WizardCard clean className="p-4">
         <ChipGroup compact label="Condição de funcionamento na entrada" required>

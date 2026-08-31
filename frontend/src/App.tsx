@@ -4484,14 +4484,41 @@ function ServiceOrderStageScreenContent({
   whatsappUrl: string | null;
 }) {
   if (active === "entrada") {
+	const editEntry = async () => {
+		const reportedDefect = window.prompt("Defeito relatado", detail.reported_defect ?? "");
+		if (reportedDefect === null) return;
+		const physicalState = window.prompt("Estado físico", detail.physical_state ?? "");
+		if (physicalState === null) return;
+		const contactName = window.prompt("Contato desta OS", detail.os_contact_name ?? "");
+		if (contactName === null) return;
+		const contactPhone = window.prompt("Telefone do contato desta OS", detail.os_contact_phone ?? "");
+		if (contactPhone === null) return;
+		const credential = window.prompt("Nova senha/PIN/padrão (deixe vazio para manter a atual)", "");
+		if (credential === null) return;
+		try {
+			const updated = await serviceOrders.updateEntry(detail.name, {
+				reported_defect: reportedDefect,
+				physical_state: physicalState,
+				os_contact_name: contactName,
+				os_contact_phone: contactPhone,
+				device_access_type: detail.device_access_type || "PIN",
+				entry_operating_condition: detail.entry_operating_condition || "Liga e permite teste",
+				...(credential ? { device_access_credential: credential } : {}),
+			});
+			onUpdated(updated);
+			onToast("Informações da Entrada atualizadas e registradas no histórico.");
+		} catch (error) {
+			onToast(error instanceof Error ? error.message : "Não foi possível editar a Entrada.", "error");
+		}
+	};
     return (
       <div className="space-y-4">
-        <StageHeading title="Entrada" description="Conferência do cliente, aparelho e evidências da recepção." />
+        <div className="flex flex-wrap items-center justify-between gap-3"><StageHeading title="Entrada" description="Conferência do cliente, aparelho e evidências da recepção." /><Button onClick={() => void editEntry()} variant="secondary">Editar informações</Button></div>
         <div className="grid gap-4 lg:grid-cols-2">
           <IdentityCard
             action={whatsappUrl ? <a className="mt-4 inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-tec-whatsapp/35 bg-tec-whatsapp/10 px-4 text-sm font-bold text-tec-whatsapp transition hover:bg-tec-whatsapp/20" href={whatsappUrl} rel="noreferrer" target="_blank"><WhatsAppLogo size={17} />Abrir WhatsApp</a> : undefined}
             icon={<UserRound size={20} />}
-            lines={[["Cliente", customerLabel], ["Telefone", detail.customer?.custom_whatsapp || detail.customer?.mobile_no || "Não informado"], ["E-mail", detail.customer?.email_id ?? "Não informado"], ["Atendente", detail.attendant ?? "Não definido"]]}
+            lines={[["Cliente", customerLabel], ["Contato desta OS", detail.os_contact_name || customerLabel], ["Telefone desta OS", detail.os_contact_phone || detail.customer?.custom_whatsapp || detail.customer?.mobile_no || "Não informado"], ["E-mail", detail.customer?.email_id ?? "Não informado"], ["Atendente", detail.attendant ?? "Não definido"]]}
             title="Cliente"
           />
           <IdentityCard icon={<Smartphone size={20} />} lines={[["Aparelho", deviceLabel], ["IMEI / Serial", detail.device?.imei_serial ?? "Não informado"], ["Capacidade", detail.device?.capacity ?? "Não informada"], ["Condição na entrada", detail.entry_operating_condition ?? detail.physical_state ?? "Não informada"]]} title="Aparelho" />

@@ -10,6 +10,8 @@
   "identification_section",
   "naming_series",
   "customer",
+  "os_contact_name",
+  "os_contact_phone",
   "customer_device",
   "entry_date",
   "attendant",
@@ -25,6 +27,8 @@
   "entry_operating_condition",
   "link_acceptance_required",
   "accessories_received",
+  "device_access_type",
+  "device_access_credential",
   "entry_photos",
   "entry_signature",
   "diagnosis_section",
@@ -125,6 +129,16 @@
    "reqd": 1
   },
   {
+   "fieldname": "os_contact_name",
+   "fieldtype": "Data",
+   "label": "Contato desta OS"
+  },
+  {
+   "fieldname": "os_contact_phone",
+   "fieldtype": "Data",
+   "label": "Telefone do contato desta OS"
+  },
+  {
    "fieldname": "customer_device",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -214,6 +228,18 @@
    "fieldname": "accessories_received",
    "fieldtype": "Small Text",
    "label": "Acessórios recebidos"
+  },
+  {
+   "fieldname": "device_access_type",
+   "fieldtype": "Select",
+   "label": "Tipo de acesso do aparelho",
+   "options": "\nPIN\nPadrão de desenho\nAlfanumérica"
+  },
+  {
+   "fieldname": "device_access_credential",
+   "fieldtype": "Password",
+   "label": "Credencial de acesso do aparelho",
+   "permlevel": 1
   },
   {
    "fieldname": "entry_photos",

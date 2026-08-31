@@ -1488,6 +1488,9 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"physical_state": doc.get("physical_state"),
 		"entry_operating_condition": doc.get("entry_operating_condition"),
 		"accessories_received": doc.get("accessories_received"),
+		"os_contact_name": doc.get("os_contact_name"),
+		"os_contact_phone": doc.get("os_contact_phone"),
+		"device_access_type": doc.get("device_access_type"),
 		"diagnosis": {
 			"problem_found": doc.get("problem_found"),
 			"diagnosis_date": str(doc.get("diagnosis_date") or ""),
@@ -2138,6 +2141,8 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order = frappe.new_doc("Service Order")
 	order.naming_series = "OS-.YYYY.-.#####"
 	order.customer = customer_name
+	order.os_contact_name = (data["service_order"].get("contact_name") or "").strip()
+	order.os_contact_phone = (data["service_order"].get("contact_phone") or "").strip()
 	order.customer_device = device_name
 	order.entry_date = now_datetime()
 	order.attendant = frappe.session.user
@@ -2149,22 +2154,16 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.attendance_notes = (data["service_order"].get("attendance_notes") or "").strip()
 	order.entry_operating_condition = (data["service_order"].get("entry_operating_condition") or ENTRY_OPERATING_CONDITION_OK).strip()
 	order.accessories_received = (data["service_order"].get("accessories_received") or "").strip()
+	order.device_access_type = (data["service_order"].get("device_access_type") or "").strip()
+	order.device_access_credential = (data["service_order"].get("device_access_credential") or "").strip()
 	order.is_warranty = cint(data["service_order"].get("is_warranty"))
 	order.original_service_order = (data["service_order"].get("original_service_order") or "").strip() or None
 	selected_defects = _checkin_defects(data["service_order"].get("defects"))
 	suggested_services = defect_service_mapping.resolve_services(selected_defects)
-	# The check-in may deliberately leave the promise empty. When it is absent
-	# altogether, retain the operational suggestion as a helpful default only.
-	if "estimated_deadline" in data["service_order"]:
-		order.estimated_deadline = (data["service_order"].get("estimated_deadline") or "").strip() or None
-	else:
-		suggestion = defect_service_mapping.calculate_delivery_suggestion(
-			selected_defects,
-			start_datetime=order.entry_date,
-			lead_time_business_hours=data["service_order"].get("lead_time_business_hours") or 0,
-		)
-		order.estimated_deadline = suggestion["suggested_delivery_date"] or None
-	_append_checkin_service_suggestions(order, suggested_services)
+	# Prazo pertence ao diagnóstico/orçamento, não à Entrada.
+	order.estimated_deadline = None
+	if cint(data["service_order"].get("include_initial_budget")):
+		_append_checkin_service_suggestions(order, suggested_services)
 	order.insert(ignore_permissions=True)
 
 	photo_url = _save_checkin_photo(order.name, data["entry_photo"])
@@ -2189,6 +2188,34 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 		"entry_photo_url": photo_url,
 		"tracking": tracking,
 	}
+
+
+@frappe.whitelist()
+def update_service_order_entry(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Edit only check-in facts; workflow, gates and budget stay under their own motors."""
+	_require_checkin_role()
+	doc = frappe.get_doc("Service Order", (name or "").strip())
+	doc.check_permission("write")
+	if doc.get("workflow_state") in {"Entregue", "Cancelado"}:
+		frappe.throw(_("A entrada não pode ser editada após o encerramento da OS."), frappe.ValidationError)
+	data = _parse_payload(payload)
+	text_fields = {
+		"reported_defect", "physical_state", "attendance_notes", "entry_operating_condition",
+		"accessories_received", "os_contact_name", "os_contact_phone", "device_access_type",
+	}
+	for fieldname in text_fields:
+		if fieldname in data:
+			doc.set(fieldname, (data.get(fieldname) or "").strip())
+	if "device_access_credential" in data and (data.get("device_access_credential") or "").strip():
+		doc.device_access_credential = data["device_access_credential"].strip()
+	if not (doc.reported_defect or "").strip() or not (doc.physical_state or "").strip():
+		frappe.throw(_("Defeito relatado e estado físico são obrigatórios na Entrada."), frappe.ValidationError)
+	if doc.entry_operating_condition not in ENTRY_OPERATING_CONDITIONS:
+		frappe.throw(_("Condição de funcionamento inválida."), frappe.ValidationError)
+	# The endpoint allowlist is the authority here; permlevel 1 keeps the secret
+	# out of generic forms while the check-in operator may rotate it explicitly.
+	doc.save(ignore_permissions=True)
+	return get_service_order_detail(doc.name)
 
 
 @frappe.whitelist()
@@ -4010,6 +4037,9 @@ def _validate_checkin_payload(data: dict[str, Any]) -> None:
 	entry_operating_condition = (service_order.get("entry_operating_condition") or ENTRY_OPERATING_CONDITION_OK).strip()
 	if entry_operating_condition not in ENTRY_OPERATING_CONDITIONS:
 		frappe.throw(_("Informe uma condição de funcionamento válida na entrada."), frappe.ValidationError)
+	access_type = (service_order.get("device_access_type") or "").strip()
+	if access_type and access_type not in {"PIN", "Padrão de desenho", "Alfanumérica"}:
+		frappe.throw(_("Tipo de acesso do aparelho inválido."), frappe.ValidationError)
 	if not _is_image_data_url(entry_photo.get("data_url")):
 		frappe.throw(_("Anexe ao menos uma foto de entrada."), frappe.ValidationError)
 

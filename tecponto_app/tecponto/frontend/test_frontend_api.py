@@ -119,6 +119,7 @@ from tecponto_app.tecponto.frontend.api import (
 	get_sale_post_sale_detail,
 	create_sales_return,
 	exchange_sales_product,
+	_quote_send_text,
 )
 from tecponto_app.tecponto.acceptance import (
 	audit_completed_acceptance_evidence,
@@ -335,6 +336,7 @@ def run_foundation_checks() -> dict:
 		warranty_delivery_check = run_warranty_delivery_checks()
 		budget_presentation_check = run_budget_presentation_checks()
 		print_document_checks = run_print_document_checks()
+		device_credential_guard = run_device_credential_non_leak_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
 			users["Tecponto Atendente"],
@@ -409,6 +411,7 @@ def run_foundation_checks() -> dict:
 			"warranty_delivery": warranty_delivery_check,
 			"budget_presentation": budget_presentation_check,
 			"print_documents": print_document_checks,
+			"device_credential_guard": device_credential_guard,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
 			"cashier_mode_checks": cashier_mode_checks,
@@ -1100,6 +1103,66 @@ def run_print_document_checks() -> dict:
 		settings.trade_name = original_trade_name
 		settings.public_logo = original_public_logo
 		settings.save(ignore_permissions=True)
+		frappe.set_user(previous_user)
+
+
+def run_device_credential_non_leak_checks() -> dict:
+	"""OS.2 sentinel: the device credential never crosses a customer/public/restricted channel."""
+	previous_user = frappe.session.user
+	sentinel = f"OS2-CREDENCIAL-SENTINELA-{frappe.generate_hash(length=18)}"
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		order_name = _create_action_request_service_order(attendant)
+		frappe.set_user("Administrator")
+		order = frappe.get_doc("Service Order", order_name)
+		order.device_access_type = "Alfanumérica"
+		order.device_access_credential = sentinel
+		order.save(ignore_permissions=True)
+		order.reload()
+		if order.get_password("device_access_credential") != sentinel:
+			raise AssertionError("Credencial da OS não foi persistida pelo armazenamento protegido de Password.")
+
+		customer_templates = {
+			PF_TERMO_ENTRADA: _termo_entrada_html(),
+			PF_TERMO_RETIRADA: _termo_retirada_html(),
+			PF_OS_ORCAMENTO: _os_orcamento_html(),
+			PF_OS_ORCAMENTO_DISCRIMINADO: _os_orcamento_discriminado_html(),
+			PF_LAUDO_TECNICO: _laudo_tecnico_html(),
+			PF_TERMO_GARANTIA: _termo_garantia_html(),
+			PF_TERMO_PECA_CLIENTE: _termo_peca_cliente_html(),
+			PF_ETIQUETA_QR: _etiqueta_qr_html(),
+		}
+		channels: dict[str, Any] = {
+			"customer_documents": {
+				name: frappe.render_template(template, {"doc": order, "tp": get_service_order_print_context(order)})
+				for name, template in customer_templates.items()
+			},
+			"communication": _quote_send_text(order, "WhatsApp", "Orçamento disponível"),
+		}
+		frappe.set_user(attendant)
+		channels["budget"] = get_service_order_detail(order.name).get("budget")
+		tracking = issue_tracking_link(order.name)
+		frappe.set_user("Guest")
+		channels["public_link"] = get_public_tracking(tracking["link"].rstrip("/").rsplit("/", 1)[-1])
+		frappe.set_user(technician)
+		unauthorized_blocked = False
+		try:
+			channels["unauthorized_technician"] = get_service_order_detail(order.name)
+		except frappe.PermissionError:
+			unauthorized_blocked = True
+
+		for channel, payload in channels.items():
+			if sentinel in frappe.as_json(payload):
+				raise AssertionError(f"Credencial-sentinela da OS vazou no canal {channel}.")
+		return {
+			"status": "ok",
+			"sentinel_not_leaked": True,
+			"channels": sorted(channels),
+			"unauthorized_technician_blocked": unauthorized_blocked,
+		}
+	finally:
 		frappe.set_user(previous_user)
 
 

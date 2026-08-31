@@ -94,6 +94,9 @@ export const serviceOrders = {
       query: { name },
     });
   },
+	updateEntry(name: string, payload: Record<string, string>) {
+		return rpc<ServiceOrderDetailResponse>(`${API}.update_service_order_entry`, { body: { name, payload } });
+	},
 	directorFinancialSummary(name: string) {
 		return rpc<ServiceOrderDirectorFinancialSummary>(`${API}.get_service_order_director_financial_summary`, {
 			query: { name },
