@@ -29,6 +29,8 @@ const permittedDirectorRegistryEditor = join(root, "src", "RegistryEditorModal.t
 const permittedDirectorRegistryTypes = join(root, "src", "api", "types.ts");
 const permittedDirectorFinancialApi = join(root, "src", "api", "serviceOrders.ts");
 const permittedDirectorFinancialView = join(root, "src", "App.tsx");
+const serviceOrderView = join(root, "src", "App.tsx");
+const serviceOrderFlows = join(root, "src", "ServiceOrderFlows.tsx");
 
 for (const file of requiredBuildFiles) {
   const target = join(publicDir, file);
@@ -76,6 +78,27 @@ for (const file of sourceFiles) {
     if (body.includes(term)) {
       throw new Error(`Termo sensível no front (${term}): ${file}`);
     }
+  }
+}
+
+const serviceOrderSource = readFileSync(serviceOrderView, "utf8");
+const serviceOrderActionSource = `${serviceOrderSource}\n${readFileSync(serviceOrderFlows, "utf8")}`;
+for (const stage of ["Entrada", "Diagnóstico", "Orçamento", "Aprovação", "Execução", "Retirada"]) {
+  if (!serviceOrderSource.includes(`label: "${stage}"`)) {
+    throw new Error(`Etapa obrigatória ausente na casca da OS: ${stage}`);
+  }
+}
+for (const preservedAction of [
+  "serviceOrders.saveDiagnosis",
+  "serviceOrders.completeDiagnosis",
+  "serviceOrders.addBudgetLine",
+  "serviceOrders.decideBudget",
+  "serviceOrders.setPartOutcome",
+  "serviceOrders.collectPayment",
+  "serviceOrders.completePickup",
+]) {
+  if (!serviceOrderActionSource.includes(preservedAction)) {
+    throw new Error(`Ação existente da OS deixou de estar conectada: ${preservedAction}`);
   }
 }
 
