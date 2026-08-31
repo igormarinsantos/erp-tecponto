@@ -56,6 +56,8 @@ from tecponto_app.tecponto.frontend.api import (
 	get_service_order_kanban,
 	issue_os_acceptance,
 	add_service_order_budget_line,
+	remove_service_order_budget_line,
+	update_service_order_budget_presentation,
 	add_catalog_service_to_service_order,
 	create_service_order_checkin,
 	decide_service_order_budget,
@@ -338,6 +340,7 @@ def run_foundation_checks() -> dict:
 		print_document_checks = run_print_document_checks()
 		device_credential_guard = run_device_credential_non_leak_checks()
 		os2_checkin_choices = run_os2_checkin_choice_checks()
+		os3_cohesive_diagnosis = run_os3_cohesive_diagnosis_and_budget_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
 			users["Tecponto Atendente"],
@@ -414,6 +417,7 @@ def run_foundation_checks() -> dict:
 			"print_documents": print_document_checks,
 			"device_credential_guard": device_credential_guard,
 			"os2_checkin_choices": os2_checkin_choices,
+			"os3_cohesive_diagnosis": os3_cohesive_diagnosis,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
 			"cashier_mode_checks": cashier_mode_checks,
@@ -1210,6 +1214,101 @@ def run_os2_checkin_choice_checks() -> dict:
 		if not line or flt(line.qty) != 2 or flt(line.rate) != 75:
 			raise AssertionError("Composição do orçamento inicial não persistiu no orçamento real da OS.")
 		return {"status": "ok", "credential_types": sorted(orders), "initial_budget_persisted": True}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_os3_cohesive_diagnosis_and_budget_checks() -> dict:
+	"""Prove cohesive diagnosis and budget stage: technical handoff, budget mutation and presentation."""
+	previous_user = frappe.session.user
+	try:
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		suffix = frappe.generate_hash(length=8).upper()
+
+		# 1. Create OS and assign technician in Em diagnóstico
+		frappe.set_user(attendant)
+		order_name = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			order_name,
+			{"technician": technician, "workflow_state": "Em diagnóstico"},
+			update_modified=False,
+		)
+
+		# 2. Save technical diagnosis draft as technician
+		frappe.set_user(technician)
+		saved_detail = save_technical_diagnosis(order_name, "Laudo técnico inicial: placa sem curto primário, conector de carga oxidado.")
+		if saved_detail["diagnosis"]["problem_found"] != "Laudo técnico inicial: placa sem curto primário, conector de carga oxidado.":
+			raise AssertionError("Rascunho de laudo técnico não persistiu na OS.")
+
+		# 3. Conclude diagnosis with technician pricing responsibility
+		completed_detail = complete_technical_diagnosis(order_name, "Laudo técnico final: desoxidação do conector e substituição da bateria.", "Técnico")
+		if completed_detail["diagnosis"]["pricing_responsibility"] != "Técnico":
+			raise AssertionError("Repasse da precificação ao técnico não foi registrado.")
+
+		# 4. Add service and part lines
+		added_service = add_service_order_budget_line(
+			order_name,
+			{
+				"line_type": "service",
+				"description": "Desoxidação de conector e limpeza química",
+				"qty": 1,
+				"rate": 150.0,
+				"duration": 2,
+				"duration_unit": "Horas",
+			},
+		)
+		part_item = _get_demo_item(is_stock_item=1)
+		warehouse = _get_demo_warehouse()
+		added_part = add_service_order_budget_line(
+			order_name,
+			{
+				"line_type": "part",
+				"item_code": part_item,
+				"description": "Bateria Original iPhone 13",
+				"qty": 1,
+				"rate": 280.0,
+				"part_source": "Loja",
+				"warehouse": warehouse,
+			},
+		)
+
+		order_doc = frappe.get_doc("Service Order", order_name)
+		service_row = next((row for row in order_doc.services if row.description == "Desoxidação de conector e limpeza química"), None)
+		part_row = next((row for row in order_doc.parts if row.description == "Bateria Original iPhone 13"), None)
+		if not service_row or not part_row:
+			raise AssertionError("Linhas de mão de obra e peças não foram salvas na OS.")
+
+		service_row_name = service_row.name
+		part_row_name = part_row.name
+
+		# 5. Update presentation toggle
+		presentation_closed = update_service_order_budget_presentation(order_name, "Fechado")
+		if presentation_closed["budget"]["presentation"] != "Fechado":
+			raise AssertionError("Formato do orçamento não alternou para Fechado.")
+
+		presentation_disc = update_service_order_budget_presentation(order_name, "Discriminado")
+		if presentation_disc["budget"]["presentation"] != "Discriminado":
+			raise AssertionError("Formato do orçamento não alternou para Discriminado.")
+
+		# 6. Remove a budget line
+		after_remove = remove_service_order_budget_line(order_name, part_row_name, "part")
+		order_doc = frappe.get_doc("Service Order", order_name)
+		if any(row.name == part_row_name for row in order_doc.parts):
+			raise AssertionError("Item de peça não foi removido do orçamento da OS.")
+
+		# 7. Check sensitive fields guard (cost/margin/profit) for technician
+		leaks = contains_sensitive_field(after_remove)
+		if leaks:
+			raise AssertionError(f"Técnico recebeu campos confidenciais de custo na etapa de diagnóstico/orçamento: {leaks}")
+
+		return {
+			"status": "ok",
+			"diagnosis_persisted": True,
+			"budget_mutations_tested": True,
+			"cost_guard_verified": True,
+		}
 	finally:
 		frappe.set_user(previous_user)
 

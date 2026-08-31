@@ -117,6 +117,16 @@ export const serviceOrders = {
       body: { name, payload },
     });
   },
+  removeBudgetLine(name: string, lineName: string, lineType: "service" | "part" = "service") {
+    return rpc<ServiceOrderDetailResponse>(`${API}.remove_service_order_budget_line`, {
+      body: { name, line_name: lineName, line_type: lineType },
+    });
+  },
+  updateBudgetPresentation(name: string, presentation: "Discriminado" | "Fechado") {
+    return rpc<ServiceOrderDetailResponse>(`${API}.update_service_order_budget_presentation`, {
+      body: { name, presentation },
+    });
+  },
   addCatalogService(name: string, catalogService: string, payload: CatalogServiceBudgetPayload) {
     return rpc<ServiceOrderDetailResponse>(`${API}.add_catalog_service_to_service_order`, {
       body: { name, catalog_service: catalogService, payload },

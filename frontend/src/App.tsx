@@ -41,6 +41,7 @@ import {
   Users,
   Wrench,
   XCircle,
+  Trash2,
 } from "lucide-react";
 
 import {
@@ -4536,21 +4537,15 @@ function ServiceOrderStageScreenContent({
 		const hasBudget = detail.services.length + detail.parts.length > 0;
     return (
       <div className="space-y-4">
-        <StageHeading title="Diagnóstico e orçamento" description="Laudo técnico, composição comercial e envio da versão vigente." />
-        <Card className="p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-bold text-white">Laudo técnico</h3>
-              <p className="mt-2 text-sm leading-6 text-tec-subtle">{detail.diagnosis.problem_found || "O diagnóstico ainda não foi registrado pelo técnico."}</p>
-            </div>
-            <span className="rounded-full bg-tec-field px-3 py-1 text-xs font-bold text-tec-subtle">{detail.diagnosis.diagnosis_date ? `Registrado em ${formatDate(detail.diagnosis.diagnosis_date)}` : "Pendente"}</span>
-          </div>
-        </Card>
-        {detail.workflow_state === "Em diagnóstico" ? <DiagnosisCompletionCard detail={detail} onComplete={onCompleteDiagnosis} /> : <HandoffStatus detail={detail} />}
-        <BudgetCard detail={detail} onOpenBudgetEditor={onOpenBudgetEditor} />
+        <StageHeading title="Diagnóstico e orçamento" description="Laudo técnico, prazo estimado e composição comercial em uma única tela de bancada." />
+        <DiagnosisTechnicalCard detail={detail} onComplete={onCompleteDiagnosis} onToast={onToast} onUpdated={onUpdated} />
+        <BudgetCard detail={detail} onOpenBudgetEditor={onOpenBudgetEditor} onToast={onToast} onUpdated={onUpdated} />
         <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
-          <div><h3 className="text-lg font-bold text-white">Enviar orçamento</h3><p className="mt-1 text-sm text-tec-muted">O motor exige diagnóstico salvo e ao menos um item antes de avançar.</p></div>
-          <Button disabled={!hasBudget || detail.workflow_state !== "Aguardando aprovação"} icon={<Send size={17} />} onClick={onOpenQuoteSend} title={!hasBudget ? "Inclua ao menos um serviço ou peça." : undefined} variant="primary">Enviar ao cliente</Button>
+          <div>
+            <h3 className="text-lg font-bold text-white">Enviar orçamento ao cliente</h3>
+            <p className="mt-1 text-sm text-tec-muted">O motor exige diagnóstico salvo e ao menos um item de orçamento antes de avançar para aprovação.</p>
+          </div>
+          <Button disabled={!hasBudget || !detail.diagnosis.problem_found?.trim()} icon={<Send size={17} />} onClick={onOpenQuoteSend} title={!hasBudget ? "Inclua ao menos um serviço ou peça no orçamento." : undefined} variant="primary">Enviar ao cliente</Button>
         </Card>
         <TimelineCard events={detail.timeline} onOpenHistory={onOpenHistory} />
       </div>
@@ -4562,7 +4557,7 @@ function ServiceOrderStageScreenContent({
       <div className="space-y-4">
         <StageHeading title="Aprovação" description="Decisão do cliente, evidências de aceite e próximo encaminhamento." />
         <Card className="p-5"><h3 className="text-lg font-bold text-white">Situação da decisão</h3><dl className="mt-4 space-y-3 text-sm"><DetailLine label="Status" value={detail.approval_status ?? "Pendente"} /><DetailLine label="Canal" value={detail.approval.channel ?? "Ainda não informado"} /><DetailLine label="Responsável" value={detail.approval.approved_by_attendant ?? "Ainda não informado"} /><DetailLine label="Data" value={detail.approval.approval_date ? formatDate(detail.approval.approval_date) : "Pendente"} /></dl></Card>
-        <BudgetCard detail={detail} onOpenBudgetEditor={onOpenBudgetEditor} />
+        <BudgetCard detail={detail} onOpenBudgetEditor={onOpenBudgetEditor} onToast={onToast} onUpdated={onUpdated} />
         <TimelineCard events={detail.timeline} onOpenHistory={onOpenHistory} />
       </div>
     );
@@ -4587,18 +4582,144 @@ function ServiceOrderStageScreenContent({
   );
 }
 
-function DiagnosisCompletionCard({ detail, onComplete }: { detail: ServiceOrderDetailResponse; onComplete: (problemFound: string, pricingResponsibility: "Técnico" | "Balcão") => Promise<void> }) {
+function DiagnosisTechnicalCard({
+	detail,
+	onComplete,
+	onToast,
+	onUpdated,
+}: {
+	detail: ServiceOrderDetailResponse;
+	onComplete: (problemFound: string, pricingResponsibility: "Técnico" | "Balcão") => Promise<void>;
+	onToast: (message: string, tone?: ToastState["tone"]) => void;
+	onUpdated: (detail: ServiceOrderDetailResponse) => void;
+}) {
+	const isDiagnosing = detail.workflow_state === "Em diagnóstico";
+	const [problemFound, setProblemFound] = useState(detail.diagnosis.problem_found ?? "");
 	const [responsibility, setResponsibility] = useState<"Técnico" | "Balcão">(detail.diagnosis.default_pricing_responsibility);
-	const [busy, setBusy] = useState(false);
-	return <Card className="p-5">
-		<h3 className="text-lg font-bold text-white">Concluir diagnóstico e repassar</h3>
-		<p className="mt-1 text-sm text-tec-muted">A conclusão cria a fila de precificação e registra claramente quem recebeu o próximo passo.</p>
-		<select className="tp-input mt-4" onChange={(event) => setResponsibility(event.target.value as "Técnico" | "Balcão")} value={responsibility}>
-			<option disabled={!detail.diagnosis.technician_pricing_available} value="Técnico">Técnico continua{!detail.diagnosis.technician_pricing_available ? " — papel técnico necessário" : ""}</option>
-			<option value="Balcão">Encaminhar ao Balcão</option>
-		</select>
-		<Button className="mt-4" disabled={busy || !detail.diagnosis.problem_found?.trim()} icon={<ArrowRight size={17} />} onClick={async () => { setBusy(true); try { await onComplete(detail.diagnosis.problem_found ?? "", responsibility); } finally { setBusy(false); } }} variant="primary">{busy ? "Concluindo..." : "Concluir e repassar"}</Button>
-	</Card>;
+	const [editing, setEditing] = useState(isDiagnosing || !detail.diagnosis.problem_found);
+	const [saving, setSaving] = useState(false);
+
+	useEffect(() => {
+		setProblemFound(detail.diagnosis.problem_found ?? "");
+		setEditing(detail.workflow_state === "Em diagnóstico" || !detail.diagnosis.problem_found);
+	}, [detail.diagnosis.problem_found, detail.workflow_state]);
+
+	const saveDraft = async () => {
+		if (!problemFound.trim()) {
+			onToast("Informe o laudo técnico antes de salvar.", "error");
+			return;
+		}
+		setSaving(true);
+		try {
+			const updated = await serviceOrders.saveDiagnosis(detail.name, problemFound.trim());
+			onUpdated(updated);
+			onToast("Laudo técnico salvo.");
+			if (!isDiagnosing) setEditing(false);
+		} catch (err) {
+			onToast(err instanceof Error ? err.message : "Falha ao salvar laudo.", "error");
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const handleComplete = async () => {
+		if (!problemFound.trim()) {
+			onToast("Informe o laudo técnico antes de concluir.", "error");
+			return;
+		}
+		setSaving(true);
+		try {
+			await onComplete(problemFound.trim(), responsibility);
+			setEditing(false);
+		} catch (err) {
+			onToast(err instanceof Error ? err.message : "Falha ao concluir diagnóstico.", "error");
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	return (
+		<Card className="p-5">
+			<div className="flex flex-wrap items-center justify-between gap-3 border-b border-tec-border/15 pb-4">
+				<div className="flex items-center gap-3">
+					<div className="grid size-10 place-items-center rounded-control bg-tec-orange/15 text-tec-orange">
+						<Wrench size={20} />
+					</div>
+					<div>
+						<h3 className="text-lg font-bold text-white">Laudo Técnico</h3>
+						<p className="text-xs text-tec-muted">
+							Defeito constatado e parecer da bancada técnica
+						</p>
+					</div>
+				</div>
+				<div className="flex items-center gap-2">
+					<span className={`rounded-full px-3 py-1 text-xs font-bold ${
+						detail.diagnosis.problem_found ? "bg-tec-success/20 text-tec-success" : "bg-tec-amber/20 text-tec-amber"
+					}`}>
+						{detail.diagnosis.problem_found ? `Registrado em ${formatDate(detail.diagnosis.diagnosis_date ?? detail.modified)}` : "Diagnóstico pendente"}
+					</span>
+					{!editing && !detail.totals.quote_locked ? (
+						<Button className="px-3 py-1 text-xs" onClick={() => setEditing(true)} variant="secondary">
+							Editar laudo
+						</Button>
+					) : null}
+				</div>
+			</div>
+
+			{editing ? (
+				<div className="mt-4 space-y-4">
+					<div>
+						<label className="block text-sm font-semibold text-white">Defeito constatado / Parecer técnico</label>
+						<p className="mt-1 text-xs text-tec-muted">Descreva o resultado da análise e os reparos necessários para a solução.</p>
+						<textarea
+							className="tp-input mt-2 min-h-[100px] w-full resize-y"
+							onChange={(e) => setProblemFound(e.target.value)}
+							placeholder="Ex.: Tela trincada com touch inoperante e bateria com ciclo degradado (74% de saúde). Necessária troca da tela e substituição da bateria."
+							value={problemFound}
+						/>
+					</div>
+
+					{isDiagnosing ? (
+						<div className="rounded-control border border-tec-border/20 bg-tec-field/40 p-4">
+							<label className="block text-sm font-semibold text-white">Encaminhamento da Precificação (Bloco K)</label>
+							<p className="mt-1 text-xs text-tec-muted">Defina quem é responsável por orçar as peças e serviços desta OS.</p>
+							<select
+								className="tp-input mt-2"
+								onChange={(event) => setResponsibility(event.target.value as "Técnico" | "Balcão")}
+								value={responsibility}
+							>
+								<option disabled={!detail.diagnosis.technician_pricing_available} value="Técnico">
+									Técnico continua precificando{!detail.diagnosis.technician_pricing_available ? " (exige papel técnico)" : ""}
+								</option>
+								<option value="Balcão">Encaminhar ao Balcão / Atendente</option>
+							</select>
+						</div>
+					) : null}
+
+					<div className="flex justify-end gap-3 pt-2">
+						{!isDiagnosing ? (
+							<Button onClick={() => setEditing(false)} variant="ghost">Cancelar</Button>
+						) : null}
+						<Button disabled={saving || !problemFound.trim()} onClick={saveDraft} variant="secondary">
+							{saving ? "Salvando..." : "Salvar rascunho"}
+						</Button>
+						{isDiagnosing ? (
+							<Button disabled={saving || !problemFound.trim()} icon={<ArrowRight size={17} />} onClick={handleComplete} variant="primary">
+								{saving ? "Concluindo..." : "Concluir e repassar"}
+							</Button>
+						) : null}
+					</div>
+				</div>
+			) : (
+				<div className="mt-4 space-y-3">
+					<p className="rounded-control bg-tec-field/50 p-4 text-sm leading-6 text-tec-subtle">
+						{detail.diagnosis.problem_found}
+					</p>
+					<HandoffStatus detail={detail} />
+				</div>
+			)}
+		</Card>
+	);
 }
 
 function HandoffStatus({ detail }: { detail: ServiceOrderDetailResponse }) {
@@ -5160,33 +5281,85 @@ function IdentityCard({
 function BudgetCard({
   detail,
   onOpenBudgetEditor,
+  onToast,
+  onUpdated,
 }: {
   detail: ServiceOrderDetailResponse;
   onOpenBudgetEditor: (type: BudgetLineType) => void;
+  onToast: (message: string, tone?: ToastState["tone"]) => void;
+  onUpdated: (detail: ServiceOrderDetailResponse) => void;
 }) {
 	const [discriminated, setDiscriminated] = useState(detail.budget.presentation === "Discriminado");
+	const [updatingPresentation, setUpdatingPresentation] = useState(false);
+
+	const togglePresentation = async () => {
+		const nextPresentation = discriminated ? "Fechado" : "Discriminado";
+		setUpdatingPresentation(true);
+		try {
+			const updated = await serviceOrders.updateBudgetPresentation(detail.name, nextPresentation);
+			onUpdated(updated);
+			setDiscriminated(nextPresentation === "Discriminado");
+			onToast(`Formato do orçamento alterado para ${nextPresentation}.`);
+		} catch (err) {
+			onToast(err instanceof Error ? err.message : "Falha ao alterar formato de apresentação.", "error");
+		} finally {
+			setUpdatingPresentation(false);
+		}
+	};
+
+	const handleRemoveLine = async (lineName: string, type: BudgetLineType) => {
+		try {
+			const updated = await serviceOrders.removeBudgetLine(detail.name, lineName, type);
+			onUpdated(updated);
+			onToast("Item removido do orçamento.");
+		} catch (err) {
+			onToast(err instanceof Error ? err.message : "Falha ao remover item do orçamento.", "error");
+		}
+	};
+
   return (
     <Card className="p-5">
       <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
-          <h3 className="text-xl font-bold text-white">Orçamento</h3>
+          <h3 className="text-xl font-bold text-white">Orçamento Comercial</h3>
           <p className="text-xs text-tec-muted">
-            Versão {detail.totals.budget_version} · {detail.totals.quote_locked ? "travado" : "em edição"}
+            Versão {detail.totals.budget_version} · {detail.totals.quote_locked ? "travado para envio" : "em edição de bancada"}
           </p>
         </div>
         <div className="text-left md:text-right">
           <p className="text-xs font-semibold uppercase text-tec-muted">Total do orçamento</p>
           <span className="tp-metric-value text-3xl font-bold text-tec-orange">{formatCurrency(detail.totals.grand_total)}</span>
         </div>
-			<button className="self-start rounded-control border border-tec-border/20 bg-tec-field px-3 py-2 text-xs font-bold text-tec-subtle hover:border-tec-orange/50 hover:text-white" onClick={() => setDiscriminated((value) => !value)} type="button">
-				{discriminated ? "Ocultar composição" : "Discriminar"}
+			<button
+				className="self-start rounded-control border border-tec-border/20 bg-tec-field px-3 py-2 text-xs font-bold text-tec-subtle hover:border-tec-orange/50 hover:text-white"
+				disabled={updatingPresentation || detail.totals.quote_locked}
+				onClick={togglePresentation}
+				type="button"
+			>
+				{updatingPresentation ? "Atualizando..." : discriminated ? "Mudar para Orçamento Fechado" : "Mudar para Orçamento Discriminado"}
 			</button>
       </div>
 
 		{discriminated ? <>
-        <BudgetLines lines={detail.services} onOpenBudgetEditor={onOpenBudgetEditor} title="Mão de obra" type="service" />
-        <div className="mt-4"><BudgetLines lines={detail.parts} onOpenBudgetEditor={onOpenBudgetEditor} title="Peças" type="part" /></div>
-			<p className="mt-3 text-xs text-tec-muted">Composição exibida com preços de venda. Custos internos não fazem parte deste orçamento.</p>
+        <BudgetLines
+					lines={detail.services}
+					onOpenBudgetEditor={onOpenBudgetEditor}
+					onRemoveLine={handleRemoveLine}
+					quoteLocked={detail.totals.quote_locked}
+					title="Mão de obra / Serviços"
+					type="service"
+				/>
+        <div className="mt-4">
+					<BudgetLines
+						lines={detail.parts}
+						onOpenBudgetEditor={onOpenBudgetEditor}
+						onRemoveLine={handleRemoveLine}
+						quoteLocked={detail.totals.quote_locked}
+						title="Peças e Insumos"
+						type="part"
+					/>
+				</div>
+			<p className="mt-3 text-xs text-tec-muted">Composição exibida a preço de venda comercial. Custos e margens internas não trafegam para este perfil.</p>
 		</> : <div className="overflow-hidden rounded-card border border-tec-border/20">
 			{detail.budget.closed_lines.map((line, index) => <div className="flex items-center justify-between gap-4 border-b border-tec-border/15 bg-tec-field/40 px-4 py-3 text-sm last:border-0" key={`${line.description}-${index}`}><span className="font-semibold text-white">{line.description}</span><span className="shrink-0 font-bold text-tec-orange">{formatCurrency(line.amount)}</span></div>)}
 			{detail.budget.customer_supplied_part_term_required ? <p className="border-t border-tec-amber/20 bg-tec-amber/10 px-4 py-3 text-xs font-semibold text-tec-amber">Peça fornecida pelo cliente: cobra-se apenas o serviço; a garantia não cobre a peça do cliente.</p> : null}
@@ -5204,13 +5377,17 @@ function BudgetCard({
 function BudgetLines({
   lines,
   onOpenBudgetEditor,
+  onRemoveLine,
   title,
   type,
+  quoteLocked,
 }: {
   lines: ServiceOrderBudgetLine[];
   onOpenBudgetEditor: (type: BudgetLineType) => void;
+  onRemoveLine: (lineName: string, type: BudgetLineType) => Promise<void>;
   title: string;
   type: BudgetLineType;
+  quoteLocked?: boolean;
 }) {
   return (
     <div>
@@ -5218,13 +5395,13 @@ function BudgetLines({
         <h4 className="text-sm font-bold text-white">{title}</h4>
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-tec-field px-2 py-1 text-xs text-tec-muted">{lines.length}</span>
-          {lines.length ? (
+          {!quoteLocked ? (
             <button
               className="rounded-full border border-tec-border/15 bg-tec-field px-3 py-1 text-xs font-bold text-tec-subtle transition hover:border-tec-orange/50 hover:text-white"
               onClick={() => onOpenBudgetEditor(type)}
               type="button"
             >
-              Adicionar
+              + Adicionar
             </button>
           ) : null}
         </div>
@@ -5233,25 +5410,42 @@ function BudgetLines({
         {lines.length ? (
           lines.map((line, index) => (
             <div
-              className="grid gap-3 border-b border-tec-border/15 bg-tec-field/40 p-3 text-sm last:border-0 md:grid-cols-[minmax(0,1fr)_90px_120px_120px]"
-              key={`${line.item_code ?? title}-${index}`}
+              className="grid gap-3 border-b border-tec-border/15 bg-tec-field/40 p-3 text-sm last:border-0 md:grid-cols-[minmax(0,1fr)_90px_120px_140px]"
+              key={`${line.name ?? line.item_code ?? title}-${index}`}
             >
               <div className="min-w-0">
                 <p className="truncate font-semibold text-white">{line.description || line.item_code || "Item sem descrição"}</p>
                 <p className="mt-1 text-xs text-tec-muted">
-                  {line.item_code ?? "Sem item"}
+                  {line.item_code ?? "Sem item de catálogo"}
                   {type === "service" && line.service_duration ? ` · Prazo: ${line.service_duration} ${(line.duration_unit ?? "Horas").toLowerCase()}` : ""}
                   {type === "service" && line.technician ? ` · ${line.technician}` : ""}
                   {type === "part" && line.outcome ? ` · ${line.outcome}` : ""}
+                  {type === "part" && line.part_source ? ` · Origem: ${line.part_source}` : ""}
                 </p>
               </div>
               <span className="text-tec-subtle">Qtd. {line.qty.toLocaleString("pt-BR")}</span>
               <span className="text-tec-subtle">{formatCurrency(line.unit_price ?? 0)}</span>
-              <span className="font-semibold text-white">{formatCurrency(line.amount ?? 0)}</span>
+              <div className="flex items-center justify-between md:justify-end gap-3">
+                <span className="font-semibold text-white">{formatCurrency(line.amount ?? 0)}</span>
+                {!quoteLocked && line.name ? (
+                  <button
+                    aria-label="Remover linha"
+                    className="p-1 text-tec-muted transition hover:text-tec-red"
+                    onClick={() => {
+                      const name = line.name;
+                      if (name) void onRemoveLine(name, type);
+                    }}
+                    title="Remover do orçamento"
+                    type="button"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                ) : null}
+              </div>
             </div>
           ))
         ) : (
-          <BudgetEmptyState onOpenBudgetEditor={onOpenBudgetEditor} type={type} />
+          <BudgetEmptyState onOpenBudgetEditor={onOpenBudgetEditor} quoteLocked={quoteLocked} type={type} />
         )}
       </div>
     </div>
@@ -5260,9 +5454,11 @@ function BudgetLines({
 
 function BudgetEmptyState({
   onOpenBudgetEditor,
+  quoteLocked,
   type,
 }: {
   onOpenBudgetEditor: (type: BudgetLineType) => void;
+  quoteLocked?: boolean;
   type: BudgetLineType;
 }) {
   const isService = type === "service";
@@ -5282,9 +5478,11 @@ function BudgetEmptyState({
           <p className="mt-1 text-sm text-tec-muted">{description}</p>
         </div>
       </div>
-      <Button icon={<Plus size={16} />} onClick={() => onOpenBudgetEditor(type)} variant="secondary">
-        {action}
-      </Button>
+      {!quoteLocked ? (
+        <Button icon={<Plus size={16} />} onClick={() => onOpenBudgetEditor(type)} variant="secondary">
+          {action}
+        </Button>
+      ) : null}
     </div>
   );
 }

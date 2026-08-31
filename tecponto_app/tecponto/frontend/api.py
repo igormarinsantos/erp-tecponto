@@ -107,6 +107,7 @@ CHECKIN_ALLOWED_ROLES = {
 	"Tecponto Gestor",
 }
 ATTENDANT_FLOW_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
+BUDGET_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES | {"Tecponto Tecnico"}
 POS_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POST_SALE_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POST_SALE_IDEMPOTENCY_DOCTYPE = "Tecponto Post Sale Request"
@@ -275,6 +276,13 @@ def _require_attendant_flow_role() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(ATTENDANT_FLOW_ALLOWED_ROLES):
 		return
 	frappe.throw(_("Usuário sem permissão para registrar aprovação ou retirada no balcão."), frappe.PermissionError)
+
+
+def _require_budget_edit_role() -> None:
+	_require_login()
+	if set(frappe.get_roles(frappe.session.user)).intersection(BUDGET_ALLOWED_ROLES):
+		return
+	frappe.throw(_("Usuário sem permissão para compor orçamento na OS."), frappe.PermissionError)
 
 
 def _require_pos_role() -> None:
@@ -1854,9 +1862,9 @@ def list_budget_warehouses(query: str = "", limit: int = 12) -> dict[str, Any]:
 
 @frappe.whitelist()
 def add_service_order_budget_line(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
-	_require_attendant_flow_role()
+	_require_budget_edit_role()
 	data = _parse_payload(payload)
-	line_type = _validate_budget_line_type(data.get("type"))
+	line_type = _validate_budget_line_type(data.get("type") or data.get("line_type"))
 	item_code = (data.get("item_code") or "").strip()
 	part_source = (data.get("part_source") or "Loja").strip()
 	qty = flt(data.get("qty") or 0)
@@ -1866,6 +1874,9 @@ def add_service_order_budget_line(name: str, payload: str | dict[str, Any] | Non
 		frappe.throw(_("Origem da peça inválida."), frappe.ValidationError)
 	if line_type == "service" and part_source != "Loja":
 		frappe.throw(_("Origem de peça só se aplica a linhas de peça."), frappe.ValidationError)
+	if line_type == "service" and not item_code:
+		from tecponto_app.tecponto.service_order.billing import _get_labor_item
+		item_code = _get_labor_item()
 	if not item_code and not (line_type == "part" and part_source == "Cliente"):
 		frappe.throw(_("Selecione o item do orçamento."), frappe.ValidationError)
 	if qty <= 0:
@@ -1938,7 +1949,7 @@ def add_service_order_budget_line(name: str, payload: str | dict[str, Any] | Non
 @frappe.whitelist()
 def add_catalog_service_to_service_order(name: str, catalog_service: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
 	"""Add a catalog suggestion while preserving the ability to adjust it per OS."""
-	_require_attendant_flow_role()
+	_require_budget_edit_role()
 	data = _parse_payload(payload)
 	catalog = frappe.db.get_value(
 		"Tecponto Service",
@@ -1981,6 +1992,39 @@ def add_catalog_service_to_service_order(name: str, catalog_service: str, payloa
 			"duration_unit": duration_unit,
 		},
 	)
+	doc.save(ignore_permissions=True)
+	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def remove_service_order_budget_line(name: str, line_name: str, line_type: str = "service") -> dict[str, Any]:
+	_require_budget_edit_role()
+	doc = frappe.get_doc("Service Order", (name or "").strip())
+	doc.check_permission("write")
+	if doc.get("workflow_state") in {"Entregue", "Cancelado"}:
+		frappe.throw(_("O orçamento não pode ser alterado após o encerramento da OS."), frappe.ValidationError)
+	if doc.get("quote_locked"):
+		frappe.throw(_("O orçamento está travado e não permite remoção de itens."), frappe.ValidationError)
+	table_name = "services" if line_type == "service" else "parts"
+	table = doc.get(table_name) or []
+	filtered = [row for row in table if row.name != (line_name or "").strip()]
+	if len(filtered) == len(table):
+		frappe.throw(_("Item do orçamento não encontrado."), frappe.ValidationError)
+	doc.set(table_name, filtered)
+	if line_type == "part" and not any(row.part_source == "Cliente" for row in (doc.get("parts") or [])):
+		doc.customer_supplied_part_term_required = 0
+	doc.save(ignore_permissions=True)
+	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def update_service_order_budget_presentation(name: str, presentation: str = "Discriminado") -> dict[str, Any]:
+	_require_budget_edit_role()
+	doc = frappe.get_doc("Service Order", (name or "").strip())
+	doc.check_permission("write")
+	if presentation not in {"Discriminado", "Fechado"}:
+		frappe.throw(_("Formato de apresentação inválido."), frappe.ValidationError)
+	doc.budget_presentation = presentation
 	doc.save(ignore_permissions=True)
 	return get_service_order_detail(doc.name)
 
