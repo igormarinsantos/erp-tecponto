@@ -12,6 +12,7 @@ DB_VOLUME="tecponto-local-test-db-data"
 SITE_VOLUME="tecponto-local-test-site"
 SITE_NAME="local-ci.local"
 RUNNER_NAME="tecponto-local-test-runner"
+NETWORK_NAME="tecponto-local-test-net"
 APP_MOUNT="$ROOT:/home/frappe/frappe-bench/apps/tecponto_app:ro"
 
 if [[ "${TECPONTO_EXPORT_FIXTURES:-0}" == "1" ]]; then
@@ -21,6 +22,7 @@ fi
 
 if [[ "${TECPONTO_LOCAL_RESET:-0}" == "1" ]]; then
 	docker rm -f "$RUNNER_NAME" "$DB_NAME" "$REDIS_NAME" >/dev/null 2>&1 || true
+	docker network rm "$NETWORK_NAME" >/dev/null 2>&1 || true
 	docker volume rm "$DB_VOLUME" "$SITE_VOLUME" >/dev/null 2>&1 || true
 fi
 
@@ -29,20 +31,22 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1 || [[ "${TECPONTO_TEST_PULL:-
 	docker pull "$IMAGE" >/dev/null
 fi
 
+docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || docker network create "$NETWORK_NAME" >/dev/null
+
 if ! docker inspect "$DB_NAME" >/dev/null 2>&1; then
-	docker run -d --name "$DB_NAME" -e MARIADB_ROOT_PASSWORD=local-test-password -v "$DB_VOLUME:/var/lib/mysql" -p 127.0.0.1::3306 mariadb:10.6 >/dev/null
+	docker run -d --name "$DB_NAME" --network "$NETWORK_NAME" -e MARIADB_ROOT_PASSWORD=local-test-password -v "$DB_VOLUME:/var/lib/mysql" mariadb:10.6 >/dev/null
 else
 	docker start "$DB_NAME" >/dev/null
 fi
 if ! docker inspect "$REDIS_NAME" >/dev/null 2>&1; then
-	docker run -d --name "$REDIS_NAME" -p 127.0.0.1::6379 redis:6.2-alpine >/dev/null
+	docker run -d --name "$REDIS_NAME" --network "$NETWORK_NAME" redis:6.2-alpine >/dev/null
 else
 	docker start "$REDIS_NAME" >/dev/null
 fi
 
 until docker exec "$DB_NAME" mariadb-admin ping -h 127.0.0.1 -uroot -plocal-test-password --silent; do sleep 1; done
-DB_PORT="$(docker port "$DB_NAME" 3306/tcp | sed 's/.*://')"
-REDIS_PORT="$(docker port "$REDIS_NAME" 6379/tcp | sed 's/.*://')"
+DB_PORT="3306"
+REDIS_PORT="6379"
 
 # The persistent runner has no worker. Clear jobs left by Frappe hooks before migrate so queue backpressure cannot make tests nondeterministic.
 docker exec "$REDIS_NAME" redis-cli FLUSHDB >/dev/null
@@ -55,18 +59,18 @@ if [[ "${TECPONTO_LOCAL_DETACH:-0}" == "1" ]]; then
 	printf 'Runner iniciado: docker logs -f %s\n' "$RUNNER_NAME"
 fi
 
-docker run "${RUNNER_LIFECYCLE[@]}" --network host \
-	-e DB_PORT="$DB_PORT" -e REDIS_PORT="$REDIS_PORT" -e SITE_EXISTS="$SITE_EXISTS" -e TECPONTO_EXPORT_FIXTURES="${TECPONTO_EXPORT_FIXTURES:-0}" \
+docker run "${RUNNER_LIFECYCLE[@]}" --network "$NETWORK_NAME" \
+	-e DB_HOST="$DB_NAME" -e REDIS_HOST="$REDIS_NAME" -e DB_PORT="$DB_PORT" -e REDIS_PORT="$REDIS_PORT" -e SITE_EXISTS="$SITE_EXISTS" -e TECPONTO_EXPORT_FIXTURES="${TECPONTO_EXPORT_FIXTURES:-0}" \
 	-v "$APP_MOUNT" \
 	-v "$SITE_VOLUME:/home/frappe/frappe-bench/sites" \
 	--entrypoint bash "$IMAGE" -lc '
 set -euo pipefail
 cd /home/frappe/frappe-bench
-bench set-config -g db_host 127.0.0.1
+bench set-config -g db_host "$DB_HOST"
 bench set-config -g db_port "$DB_PORT"
-bench set-config -g redis_cache "redis://127.0.0.1:$REDIS_PORT"
-bench set-config -g redis_queue "redis://127.0.0.1:$REDIS_PORT"
-bench set-config -g redis_socketio "redis://127.0.0.1:$REDIS_PORT"
+bench set-config -g redis_cache "redis://$REDIS_HOST:$REDIS_PORT"
+bench set-config -g redis_queue "redis://$REDIS_HOST:$REDIS_PORT"
+bench set-config -g redis_socketio "redis://$REDIS_HOST:$REDIS_PORT"
 bench set-config -g -p throttle_user_limit 1000000
 if [[ "$SITE_EXISTS" != "1" ]]; then
   bench new-site local-ci.local --mariadb-root-password local-test-password --db-root-username root --admin-password local-admin-password --mariadb-user-host-login-scope "%" --install-app erpnext --set-default
