@@ -101,6 +101,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         items: [
           { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "O que fazer agora" },
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Criar, buscar e acompanhar" },
+          { id: "quotes-crm", icon: FileText, label: "CRM de Orçamentos", subtitle: "Decisões e follow-up" },
 		  { id: "warranties", icon: ShieldCheck, label: "Garantias", subtitle: "Consultar e atender retornos" },
           { id: "repair-parts", icon: PackageSearch, label: "Peças", subtitle: "Estoque e solicitações", children: [
             { id: "repair-parts", icon: Boxes, label: "Estoque de reparo", subtitle: "Disponibilidade" },
@@ -215,6 +216,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
         items: [
           { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "Filas da operação" },
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Acompanhar e controlar" },
+          { id: "quotes-crm", icon: FileText, label: "CRM de Orçamentos", subtitle: "Decisões e follow-up" },
 		  { id: "warranties", icon: ShieldCheck, label: "Garantias", subtitle: "Consultar e atender retornos" },
           { id: "repair-parts", icon: Boxes, label: "Peças", subtitle: "Estoque e compras", children: [
             { id: "repair-parts", icon: Boxes, label: "Estoque de Reparo", subtitle: "Disponibilidade" },
@@ -278,6 +280,7 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
           { id: "overview", icon: Grid2X2, label: "Visão executiva", subtitle: "Panorama estratégico" },
           { id: "mesa-flow", icon: ClipboardCheck, label: "Mesa / Fluxo", subtitle: "Filas da operação" },
           { id: "service-orders", icon: Wrench, label: "Ordens de serviço", subtitle: "Fila e conclusão" },
+          { id: "quotes-crm", icon: FileText, label: "CRM de Orçamentos", subtitle: "Decisões e follow-up" },
 		  { id: "warranties", icon: ShieldCheck, label: "Garantias", subtitle: "Coberturas e retornos" },
           { id: "devices", icon: Smartphone, label: "Aparelhos", subtitle: "Base e histórico" },
           { id: "trade-ins", icon: Handshake, label: "Trocas", subtitle: "Avaliações e ofertas" },

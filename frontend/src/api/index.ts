@@ -92,6 +92,8 @@ export type {
 	ServiceOrderTradeinCandidate,
   ServiceOrderPrintLink,
   ServiceOrderSummary,
+  QuoteCrmItem,
+  QuotesCrmResponse,
 	UnassignedServiceOrderResponse,
   ServiceOrderTimelineEvent,
   ServiceOrderWorkflowAction,

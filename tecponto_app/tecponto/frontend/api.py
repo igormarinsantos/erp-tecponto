@@ -10,7 +10,7 @@ from urllib.parse import quote
 import frappe
 from frappe import _
 from frappe.model.workflow import apply_workflow
-from frappe.utils import add_days, add_to_date, cint, flt, getdate, now_datetime, strip_html, today
+from frappe.utils import add_days, add_to_date, cint, flt, getdate, get_datetime, now_datetime, strip_html, today
 from frappe.utils.file_manager import save_file
 
 from tecponto_app.tecponto.customer import (
@@ -963,7 +963,7 @@ def list_service_orders(
 
 
 @frappe.whitelist()
-def list_unassigned_service_orders(limit: int = 100) -> dict[str, Any]:
+def list_unassigned_service_orders(limit: int = 1000) -> dict[str, Any]:
 	"""Dedicated safe queue; technicians only receive it while Pull is enabled."""
 	from tecponto_app.tecponto.service_order.assignment import list_unassigned
 
@@ -2380,6 +2380,187 @@ def decide_service_order_budget(name: str, payload: str | dict[str, Any] | None 
 	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), workflow_action)
 
 	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def record_quote_follow_up(
+	name: str,
+	channel: str = "WhatsApp",
+	result: str = "Sem resposta",
+	notes: str = "",
+) -> dict[str, Any]:
+	"""Record an operational follow-up contact attempt for an in-flight quote."""
+	_require_attendant_flow_role()
+	doc = frappe.get_doc("Service Order", (name or "").strip())
+	doc.check_permission("write")
+	channel = (channel or "WhatsApp").strip()
+	result = (result or "Sem resposta").strip()
+	notes = (notes or "").strip()
+
+	content = f"Follow-up de Orçamento via {channel} · Resultado: {result}"
+	if notes:
+		content += f"\nObservação: {notes}"
+
+	doc.add_comment(
+		comment_type="Comment",
+		text=content,
+		comment_by=frappe.session.user,
+	)
+	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def get_quotes_crm_panel(
+	status: str = "all",
+	channel: str = "all",
+	query: str = "",
+	limit: int = 50,
+) -> dict[str, Any]:
+	"""CRM pipeline projection for service order quotes without leaking costs."""
+	_require_frontend_role()
+	limit = max(1, min(int(limit or 50), 100))
+
+	filters: dict[str, Any] = {}
+	if status == "pending":
+		filters["workflow_state"] = STATE_AGUARDANDO_APROVACAO
+	elif status == "approved":
+		filters["approval_status"] = APPROVAL_STATUS_APROVADO
+	elif status == "rejected":
+		filters["approval_status"] = APPROVAL_STATUS_REPROVADO
+	elif status == "expired":
+		filters["workflow_state"] = "Orçamento expirado"
+	else:
+		filters["workflow_state"] = [
+			"in",
+			[
+				STATE_AGUARDANDO_APROVACAO,
+				STATE_APROVADO,
+				STATE_REPROVADO,
+				"Orçamento expirado",
+				"Aguardando peça",
+				"Em reparo",
+				"Teste final",
+				STATE_PRONTO_RETIRADA,
+				STATE_ENTREGUE,
+			],
+		]
+
+	if channel and channel != "all":
+		filters["approval_channel"] = channel
+
+	fields = [
+		"name",
+		"customer",
+		"customer_device",
+		"reported_defect",
+		"problem_found",
+		"workflow_state",
+		"approval_status",
+		"approval_channel",
+		"approval_date",
+		"approved_by_attendant",
+		"approval_notes",
+		"budget_version",
+		"os_contact_name",
+		"os_contact_phone",
+		"modified",
+		"creation",
+	]
+
+	or_filters = None
+	if (query or "").strip():
+		q = f"%{query.strip()}%"
+		or_filters = [
+			["name", "like", q],
+			["customer", "like", q],
+			["customer_device", "like", q],
+			["reported_defect", "like", q],
+			["problem_found", "like", q],
+			["os_contact_name", "like", q],
+		]
+
+	orders = frappe.get_list(
+		"Service Order",
+		filters=filters,
+		or_filters=or_filters,
+		fields=fields,
+		order_by="modified desc",
+		limit_page_length=limit,
+	)
+
+	all_quotes = frappe.get_list(
+		"Service Order",
+		filters={"workflow_state": ["in", [STATE_AGUARDANDO_APROVACAO, STATE_APROVADO, STATE_REPROVADO, "Orçamento expirado"]]},
+		fields=["name", "workflow_state", "approval_status", "modified"],
+		limit_page_length=500,
+	)
+
+	pending_count = sum(1 for q in all_quotes if q.workflow_state == STATE_AGUARDANDO_APROVACAO or q.approval_status == "Pendente")
+	approved_count = sum(1 for q in all_quotes if q.approval_status == APPROVAL_STATUS_APROVADO or q.workflow_state == STATE_APROVADO)
+	rejected_count = sum(1 for q in all_quotes if q.approval_status == APPROVAL_STATUS_REPROVADO or q.workflow_state == STATE_REPROVADO)
+	expired_count = sum(1 for q in all_quotes if q.workflow_state == "Orçamento expirado")
+	total_decided = approved_count + rejected_count
+	conversion_rate = round((approved_count / total_decided * 100), 1) if total_decided > 0 else 0.0
+
+	items = []
+	now_time = now_datetime()
+	for row in orders:
+		services = frappe.db.sql(
+			"SELECT SUM(rate * qty) as total FROM `tabService Order Service` WHERE parent = %s",
+			row.name,
+			as_dict=True,
+		)
+		parts = frappe.db.sql(
+			"SELECT SUM(rate * qty) as total FROM `tabService Order Part` WHERE parent = %s",
+			row.name,
+			as_dict=True,
+		)
+		service_total = flt(services[0].total) if services and services[0].total else 0.0
+		parts_total = flt(parts[0].total) if parts and parts[0].total else 0.0
+		grand_total = service_total + parts_total
+
+		days_pending = 0
+		if row.modified:
+			mod_dt = get_datetime(row.modified)
+			days_pending = max(0, (now_time - mod_dt).days)
+		elif row.creation:
+			create_dt = get_datetime(row.creation)
+			days_pending = max(0, (now_time - create_dt).days)
+
+		device_info = frappe.db.get_value("Customer Device", row.customer_device, ["brand", "model"], as_dict=True) if row.customer_device else None
+		device_label = f"{device_info.brand} {device_info.model}".strip() if device_info else (row.customer_device or "Aparelho não identificado")
+
+		items.append(
+			{
+				"name": row.name,
+				"customer": row.customer,
+				"phone": row.os_contact_phone or frappe.db.get_value("Customer", row.customer, "custom_whatsapp") or frappe.db.get_value("Customer", row.customer, "mobile_no") or "",
+				"contact_name": row.os_contact_name or row.customer,
+				"device_label": device_label,
+				"reported_defect": row.reported_defect,
+				"problem_found": row.problem_found,
+				"workflow_state": row.workflow_state,
+				"approval_status": row.approval_status or ("Pendente" if row.workflow_state == STATE_AGUARDANDO_APROVACAO else "Não enviado"),
+				"approval_channel": row.approval_channel,
+				"approval_date": row.approval_date,
+				"approved_by_attendant": row.approved_by_attendant,
+				"approval_notes": row.approval_notes,
+				"budget_version": row.budget_version or 1,
+				"grand_total": grand_total,
+				"days_pending": days_pending,
+			}
+		)
+
+	return {
+		"summary": {
+			"pending_count": pending_count,
+			"approved_count": approved_count,
+			"rejected_count": rejected_count,
+			"expired_count": expired_count,
+			"conversion_rate": conversion_rate,
+		},
+		"items": items,
+	}
 
 
 @frappe.whitelist()

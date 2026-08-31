@@ -21,6 +21,7 @@ import {
   CreditCard,
   FileText,
   History,
+  Hourglass,
   MoreHorizontal,
   Package,
 	PackageCheck,
@@ -105,6 +106,7 @@ import {
 import { login } from "./api/auth";
 import { isAuthRequiredError } from "./api/client";
 import { CheckinWizard } from "./CheckinWizard";
+import { QuotesCrmScreen } from "./QuotesCrmScreen";
 import { WarrantyScreen } from "./WarrantyScreen";
 import { CashierMode } from "./CashierMode";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
@@ -351,6 +353,10 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   "service-order-detail": {
     title: "Detalhe da OS",
     subtitle: "Cliente, aparelho, orçamento, workflow e impressos.",
+  },
+  "quotes-crm": {
+    title: "CRM de Orçamentos",
+    subtitle: "Acompanhamento de propostas, decisões do cliente e follow-up.",
   },
 	warranties: {
 		title: "Garantias",
@@ -2536,6 +2542,10 @@ function NavigationContent({
     );
   }
 
+	if (activeView === "quotes-crm") {
+		return <QuotesCrmScreen onOpenOrder={onOpenServiceOrder} onToast={onToast} />;
+	}
+
 	if (activeView === "warranties") {
 		return <WarrantyScreen onOpenOrder={onOpenServiceOrder} onStartCheckin={onStartCheckin} onToast={onToast} />;
 	}
@@ -4455,6 +4465,347 @@ function ServiceOrderFinanceSnapshot({ detail }: { detail: ServiceOrderDetailRes
   );
 }
 
+function ApprovalDecisionCard({
+  detail,
+  onOpenQuoteSend,
+  onToast,
+  onUpdated,
+}: {
+  detail: ServiceOrderDetailResponse;
+  onOpenQuoteSend?: () => void;
+  onToast: (msg: string, tone?: ToastState["tone"]) => void;
+  onUpdated: (detail: ServiceOrderDetailResponse) => void;
+}) {
+  const [decisionMode, setDecisionMode] = useState<"idle" | "approve" | "reject">("idle");
+  const [channel, setChannel] = useState<"WhatsApp" | "Telefone" | "Presencial" | "Link">("WhatsApp");
+  const [rejectionReason, setRejectionReason] = useState("Preço elevado");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const status = detail.approval_status || (detail.workflow_state === "Aguardando aprovação" ? "Pendente" : detail.workflow_state);
+  const isPending = status === "Pendente" || detail.workflow_state === "Aguardando aprovação";
+  const isApproved = status === "Aprovado" || detail.workflow_state === "Aprovado";
+  const isRejected = status === "Reprovado" || detail.workflow_state === "Reprovado";
+  const isExpired = detail.workflow_state === "Orçamento expirado";
+
+  const handleDecision = async (decision: "approve" | "reject") => {
+    setSubmitting(true);
+    try {
+      const finalNotes = decision === "reject"
+        ? (rejectionReason + (notes.trim() ? ` — ${notes.trim()}` : ""))
+        : notes.trim();
+      const updated = await serviceOrders.decideBudget(detail.name, {
+        decision,
+        channel,
+        notes: finalNotes,
+      });
+      onUpdated(updated);
+      onToast(decision === "approve" ? "Orçamento aprovado com sucesso!" : "Orçamento reprovado e registrado.", "success");
+      setDecisionMode("idle");
+      setNotes("");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Falha ao registrar decisão do orçamento", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-tec-border/15 pb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-bold text-white">Decisão do Orçamento</h3>
+            {isApproved ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+                <CheckCircle2 size={13} /> Aprovado
+              </span>
+            ) : isRejected ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2.5 py-0.5 text-xs font-semibold text-rose-400">
+                <XCircle size={13} /> Reprovado
+              </span>
+            ) : isExpired ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-400">
+                <Clock3 size={13} /> Validade Expirada
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-400">
+                <Hourglass size={13} /> Aguardando Decisão
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-tec-muted">
+            {isPending && "Proposta enviada ao cliente. Registre a resposta obtida ou reenvie o link."}
+            {isApproved && "Orçamento formalmente aceito. A OS está liberada para execução técnica."}
+            {isRejected && "Cliente recusou a proposta. Encaminhe o aparelho para retirada sem reparo."}
+            {isExpired && "Prazo de validade esgotado. Renove a proposta ou finalize o atendimento."}
+          </p>
+        </div>
+        {isPending && onOpenQuoteSend ? (
+          <Button icon={<Send size={15} />} onClick={onOpenQuoteSend} variant="secondary">
+            Reenviar orçamento
+          </Button>
+        ) : null}
+      </div>
+
+      {isPending && decisionMode === "idle" && (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-control border border-tec-border/20 bg-tec-field/30 p-3">
+              <span className="text-xs text-tec-muted">Status de envio</span>
+              <p className="mt-1 font-semibold text-white">
+                {detail.quote_sent ? "Enviado ao cliente" : "Não enviado"}
+              </p>
+            </div>
+            <div className="rounded-control border border-tec-border/20 bg-tec-field/30 p-3">
+              <span className="text-xs text-tec-muted">Canal preferencial</span>
+              <p className="mt-1 font-semibold text-white">{detail.approval.channel || "WhatsApp / Link"}</p>
+            </div>
+            <div className="rounded-control border border-tec-border/20 bg-tec-field/30 p-3">
+              <span className="text-xs text-tec-muted">Total da proposta</span>
+              <p className="mt-1 font-bold text-tec-orange">
+                {formatCurrency(detail.totals.grand_total)}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-500 text-white"
+              icon={<CheckCircle2 size={16} />}
+              onClick={() => { setDecisionMode("approve"); setNotes(""); }}
+              type="button"
+            >
+              Registrar Aprovação no Balcão
+            </Button>
+            <Button
+              className="border-rose-500/40 text-rose-400 hover:bg-rose-500/10"
+              icon={<XCircle size={16} />}
+              onClick={() => { setDecisionMode("reject"); setNotes(""); }}
+              type="button"
+              variant="secondary"
+            >
+              Registrar Recusa / Reprovação
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {isPending && decisionMode === "approve" && (
+        <form
+          className="mt-4 rounded-control border border-emerald-500/30 bg-emerald-950/10 p-4 space-y-3"
+          onSubmit={(e) => { e.preventDefault(); void handleDecision("approve"); }}
+        >
+          <h4 className="text-sm font-bold text-emerald-400">Confirmar Aprovação do Orçamento</h4>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-semibold text-tec-muted">Canal da autorização</label>
+              <select
+                className="tp-input mt-1 w-full"
+                onChange={(e) => setChannel(e.target.value as "WhatsApp" | "Telefone" | "Presencial" | "Link")}
+                value={channel}
+              >
+                <option value="WhatsApp">WhatsApp</option>
+                <option value="Balcão">Presencial / Balcão</option>
+                <option value="Telefone">Ligação Telefônica</option>
+                <option value="Link">Link Digital / Portal</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-tec-muted">Observações (opcional)</label>
+              <input
+                className="tp-input mt-1 w-full"
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Ex.: Aprovado pelo cliente sem alterações"
+                value={notes}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 pt-2">
+            <Button disabled={submitting} type="submit" variant="primary">
+              {submitting ? "Gravando..." : "Confirmar Aprovação"}
+            </Button>
+            <Button disabled={submitting} onClick={() => setDecisionMode("idle")} type="button" variant="secondary">
+              Cancelar
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {isPending && decisionMode === "reject" && (
+        <form
+          className="mt-4 rounded-control border border-rose-500/30 bg-rose-950/10 p-4 space-y-3"
+          onSubmit={(e) => { e.preventDefault(); void handleDecision("reject"); }}
+        >
+          <h4 className="text-sm font-bold text-rose-400">Registrar Reprovação / Recusa do Orçamento</h4>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-semibold text-tec-muted">Motivo da recusa (obrigatório)</label>
+              <select
+                className="tp-input mt-1 w-full"
+                onChange={(e) => setRejectionReason(e.target.value)}
+                value={rejectionReason}
+              >
+                <option value="Preço elevado">Preço elevado / Achou caro</option>
+                <option value="Inviável financeiramente">Inviável financeiramente</option>
+                <option value="Prefere comprar novo">Prefere comprar novo</option>
+                <option value="Prazo incompatível">Prazo incompatível</option>
+                <option value="Desistiu do reparo">Desistiu do reparo</option>
+                <option value="Outro">Outro motivo</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-tec-muted">Canal da resposta</label>
+              <select
+                className="tp-input mt-1 w-full"
+                onChange={(e) => setChannel(e.target.value as "WhatsApp" | "Telefone" | "Presencial" | "Link")}
+                value={channel}
+              >
+                <option value="WhatsApp">WhatsApp</option>
+                <option value="Balcão">Presencial / Balcão</option>
+                <option value="Telefone">Ligação Telefônica</option>
+                <option value="Link">Link Digital / Portal</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-tec-muted">Observações adicionais</label>
+            <input
+              className="tp-input mt-1 w-full"
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Detalhes da recusa..."
+              value={notes}
+            />
+          </div>
+          <div className="flex items-center gap-2 pt-2">
+            <Button className="bg-rose-600 hover:bg-rose-500 text-white" disabled={submitting} type="submit">
+              {submitting ? "Gravando..." : "Confirmar Reprovação"}
+            </Button>
+            <Button disabled={submitting} onClick={() => setDecisionMode("idle")} type="button" variant="secondary">
+              Cancelar
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {(isApproved || isRejected || isExpired) && (
+        <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+          <div className="rounded-control border border-tec-border/20 bg-tec-field/30 p-3">
+            <dt className="text-xs text-tec-muted">Canal da decisão</dt>
+            <dd className="mt-1 font-semibold text-white">{detail.approval.channel || "Não informado"}</dd>
+          </div>
+          <div className="rounded-control border border-tec-border/20 bg-tec-field/30 p-3">
+            <dt className="text-xs text-tec-muted">Registrado por</dt>
+            <dd className="mt-1 font-semibold text-white">{detail.approval.approved_by_attendant || "Sistema"}</dd>
+          </div>
+          <div className="rounded-control border border-tec-border/20 bg-tec-field/30 p-3">
+            <dt className="text-xs text-tec-muted">Data da decisão</dt>
+            <dd className="mt-1 font-semibold text-white">
+              {detail.approval.approval_date ? formatDate(detail.approval.approval_date) : "Não informada"}
+            </dd>
+          </div>
+          <div className="rounded-control border border-tec-border/20 bg-tec-field/30 p-3">
+            <dt className="text-xs text-tec-muted">Total final</dt>
+            <dd className="mt-1 font-bold text-tec-orange">{formatCurrency(detail.totals.grand_total)}</dd>
+          </div>
+        </dl>
+      )}
+
+      {detail.approval.notes ? (
+        <div className="mt-3 rounded-control border border-tec-border/20 bg-tec-field/20 p-3 text-xs text-tec-muted">
+          <span className="font-semibold text-tec-subtle">Notas da decisão:</span> {detail.approval.notes}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function QuoteFollowUpCard({
+  detail,
+  onToast,
+  onUpdated,
+}: {
+  detail: ServiceOrderDetailResponse;
+  onToast: (msg: string, tone?: ToastState["tone"]) => void;
+  onUpdated: (detail: ServiceOrderDetailResponse) => void;
+}) {
+  const [channel, setChannel] = useState("WhatsApp");
+  const [result, setResult] = useState("Sem resposta");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleRecord = async (e: FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const updated = await serviceOrders.recordFollowUp(detail.name, channel, result, notes);
+      onUpdated(updated);
+      onToast("Follow-up registrado com sucesso no histórico da OS.", "success");
+      setNotes("");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Falha ao registrar follow-up", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Card className="p-5">
+      <div className="border-b border-tec-border/15 pb-3">
+        <h3 className="text-lg font-bold text-white">Follow-up de Contato com o Cliente</h3>
+        <p className="mt-1 text-xs text-tec-muted">
+          Registre tentativas de contato, negociações ou dúvidas do cliente enquanto o orçamento está em análise.
+        </p>
+      </div>
+      <form className="mt-4 space-y-3" onSubmit={handleRecord}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold text-tec-muted">Canal utilizado</label>
+            <select
+              className="tp-input mt-1 w-full"
+              onChange={(e) => setChannel(e.target.value)}
+              value={channel}
+            >
+              <option value="WhatsApp">WhatsApp</option>
+              <option value="Ligação Telefônica">Ligação Telefônica</option>
+              <option value="Presencial / Balcão">Presencial / Balcão</option>
+              <option value="E-mail">E-mail</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-tec-muted">Resultado do contato</label>
+            <select
+              className="tp-input mt-1 w-full"
+              onChange={(e) => setResult(e.target.value)}
+              value={result}
+            >
+              <option value="Sem resposta">Sem resposta / Não atendeu</option>
+              <option value="Pediu mais tempo">Pediu mais tempo para decidir</option>
+              <option value="Dúvida técnica">Dúvida sobre peças ou serviços</option>
+              <option value="Negociando desconto">Negociando desconto / parcelamento</option>
+              <option value="Vai decidir hoje">Prometeu responder ainda hoje</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-tec-muted">Observações (opcional)</label>
+          <input
+            className="tp-input mt-1 w-full"
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Ex.: Cliente pediu para ligar novamente às 17h"
+            value={notes}
+          />
+        </div>
+        <div className="flex justify-end pt-1">
+          <Button disabled={submitting} type="submit" variant="secondary">
+            {submitting ? "Gravando..." : "Registrar Follow-up"}
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
 function ServiceOrderStageScreenContent({
   active,
   canViewDirectorFinancial,
@@ -4556,7 +4907,10 @@ function ServiceOrderStageScreenContent({
     return (
       <div className="space-y-4">
         <StageHeading title="Aprovação" description="Decisão do cliente, evidências de aceite e próximo encaminhamento." />
-        <Card className="p-5"><h3 className="text-lg font-bold text-white">Situação da decisão</h3><dl className="mt-4 space-y-3 text-sm"><DetailLine label="Status" value={detail.approval_status ?? "Pendente"} /><DetailLine label="Canal" value={detail.approval.channel ?? "Ainda não informado"} /><DetailLine label="Responsável" value={detail.approval.approved_by_attendant ?? "Ainda não informado"} /><DetailLine label="Data" value={detail.approval.approval_date ? formatDate(detail.approval.approval_date) : "Pendente"} /></dl></Card>
+        <ApprovalDecisionCard detail={detail} onOpenQuoteSend={onOpenQuoteSend} onToast={onToast} onUpdated={onUpdated} />
+        {detail.approval_status === "Pendente" || detail.workflow_state === "Aguardando aprovação" ? (
+          <QuoteFollowUpCard detail={detail} onToast={onToast} onUpdated={onUpdated} />
+        ) : null}
         <BudgetCard detail={detail} onOpenBudgetEditor={onOpenBudgetEditor} onToast={onToast} onUpdated={onUpdated} />
         <TimelineCard events={detail.timeline} onOpenHistory={onOpenHistory} />
       </div>

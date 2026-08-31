@@ -243,10 +243,10 @@ def _technician_actions() -> list[dict[str, Any]]:
 	user = frappe.session.user
 	rows = frappe.get_all(
 		"Service Order",
-		filters={"technician": user, "workflow_state": ["in", ["Em diagn\u00f3stico", "Diagnosticado \u2014 aguardando or\u00e7amento", "Aguardando pe\u00e7a", "Em reparo"]]},
+		filters={"technician": user, "workflow_state": ["in", ["Em diagnóstico", "Diagnosticado — aguardando orçamento", "Aguardando peça", "Em reparo"]]},
 		fields=_clock_fields(),
-		order_by="modified asc",
-		limit_page_length=50,
+		order_by="modified desc",
+		limit_page_length=200,
 	)
 	return _sort_actions([_service_order_action(row, "tecnico") for row in rows])
 

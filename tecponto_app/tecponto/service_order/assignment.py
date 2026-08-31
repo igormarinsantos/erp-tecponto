@@ -60,12 +60,18 @@ def list_unassigned(actor: str, limit: int = 100) -> dict[str, Any]:
 	mode = assignment_config()["mode"]
 	if not is_manager and not (is_technician and mode == "Pull"):
 		frappe.throw(_("Esta fila não está disponível para seu papel ou modo de atribuição."), frappe.PermissionError)
-	rows = frappe.get_all(
-		"Service Order",
-		filters={"technician": ["is", "not set"], "workflow_state": ["not in", list(TERMINAL_STATES)]},
-		fields=["name", "customer", "customer_device", "entry_date", "attendant", "technician", "priority", "workflow_state", "stage_entered_at", "reported_defect", "approval_status", "approval_deadline", "sales_invoice", "modified", "creation"],
-		order_by="creation asc",
-		limit_page_length=max(1, min(int(limit or 100), 100)),
+	terminal_tuple = tuple(TERMINAL_STATES)
+	rows = frappe.db.sql(
+		"""
+		SELECT name, customer, customer_device, entry_date, attendant, technician, priority, workflow_state, stage_entered_at, reported_defect, approval_status, approval_deadline, sales_invoice, modified, creation
+		FROM `tabService Order`
+		WHERE (technician IS NULL OR technician = '')
+		  AND (workflow_state NOT IN %(terminal)s OR workflow_state IS NULL)
+		ORDER BY creation ASC
+		LIMIT %(limit)s
+		""",
+		{"terminal": terminal_tuple, "limit": max(1, min(int(limit or 100), 1000))},
+		as_dict=True,
 	)
 	threshold = flt(assignment_config()["alert_hours"])
 	for row in rows:

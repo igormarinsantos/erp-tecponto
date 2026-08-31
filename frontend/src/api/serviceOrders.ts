@@ -21,6 +21,7 @@ import type {
   TrackingLinkResponse,
 	TechnicalBudgetCatalogItem,
 	TechnicalBudgetResponse,
+  QuotesCrmResponse,
 } from "./types";
 
 const API = "tecponto_app.tecponto.frontend.api";
@@ -175,6 +176,16 @@ export const serviceOrders = {
 	collectPayment(name: string, payload: ServiceOrderPaymentPayload) {
 		return rpc<ServiceOrderPaymentResponse>(`${API}.receive_service_order_payment`, { body: { name, payload } });
 	},
+  recordFollowUp(name: string, channel: string, result: string, notes = "") {
+    return rpc<ServiceOrderDetailResponse>(`${API}.record_quote_follow_up`, {
+      body: { name, channel, result, notes },
+    });
+  },
+  quotesCrm(params: { status?: string; channel?: string; query?: string; limit?: number } = {}) {
+    return rpc<QuotesCrmResponse>(`${API}.get_quotes_crm_panel`, {
+      query: params,
+    });
+  },
 	tradeinCandidates(name: string) {
 		return rpc<{ items: ServiceOrderTradeinCandidate[] }>(`${API}.list_service_order_tradein_candidates`, { query: { name } });
 	},

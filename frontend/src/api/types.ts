@@ -4,6 +4,7 @@ export type NavigationTarget =
   | "mesa-flow"
   | "service-orders"
   | "service-order-detail"
+	| "quotes-crm"
 	| "warranties"
   | "customers"
   | "devices"
@@ -515,6 +516,8 @@ export interface ServiceOrderDetailResponse {
     expired: boolean;
   };
   entry_date: string;
+  quote_sent?: boolean;
+  quote_sent_at?: string;
   modified: string;
   attendant: string | null;
   technician: string | null;
@@ -1050,7 +1053,7 @@ export interface TrackingLinkResponse {
 
 export interface BudgetDecisionPayload {
   decision: "approve" | "reject";
-  channel: "Presencial" | "Telefone" | "WhatsApp";
+  channel: "Presencial" | "Telefone" | "WhatsApp" | "Link";
   notes?: string;
 }
 
@@ -1477,4 +1480,41 @@ export interface StockItemListResponse {
   items: StockItemSummary[];
   count: number;
   fields: string[];
+}
+
+export interface QuotesCrmSummary {
+  pending_count: number;
+  approved_count: number;
+  rejected_count: number;
+  expired_count: number;
+  conversion_rate: number;
+}
+
+export interface QuoteCrmItem {
+  name: string;
+  customer: string;
+  phone: string;
+  contact_name: string;
+  device_label: string;
+  reported_defect: string | null;
+  problem_found: string | null;
+  workflow_state: string;
+  approval_status: string;
+  approval_channel: string | null;
+  approval_date: string | null;
+  approved_by_attendant: string | null;
+  approval_notes: string | null;
+  quote_sent: boolean;
+  quote_sent_at: string | null;
+  quote_valid_until: string | null;
+  budget_version: number;
+  service_total: number;
+  parts_total: number;
+  grand_total: number;
+  days_pending: number;
+}
+
+export interface QuotesCrmResponse {
+  summary: QuotesCrmSummary;
+  items: QuoteCrmItem[];
 }

@@ -58,6 +58,9 @@ from tecponto_app.tecponto.frontend.api import (
 	add_service_order_budget_line,
 	remove_service_order_budget_line,
 	update_service_order_budget_presentation,
+	record_quote_follow_up,
+	get_quotes_crm_panel,
+	send_service_order_quote,
 	add_catalog_service_to_service_order,
 	create_service_order_checkin,
 	decide_service_order_budget,
@@ -341,6 +344,7 @@ def run_foundation_checks() -> dict:
 		device_credential_guard = run_device_credential_non_leak_checks()
 		os2_checkin_choices = run_os2_checkin_choice_checks()
 		os3_cohesive_diagnosis = run_os3_cohesive_diagnosis_and_budget_checks()
+		os4_approval_crm = run_os4_approval_and_quotes_crm_checks()
 		budget_cost_guard = _check_budget_item_cost_guard(users["Tecponto Atendente"])
 		pos_cost_guard = _check_pos_item_cost_guard(
 			users["Tecponto Atendente"],
@@ -418,6 +422,7 @@ def run_foundation_checks() -> dict:
 			"device_credential_guard": device_credential_guard,
 			"os2_checkin_choices": os2_checkin_choices,
 			"os3_cohesive_diagnosis": os3_cohesive_diagnosis,
+			"os4_approval_crm": os4_approval_crm,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
 			"cashier_mode_checks": cashier_mode_checks,
@@ -505,7 +510,7 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 		frappe.db.set_single_value("Tecponto Settings", "unassigned_technician_alert_hours", 4)
 		frappe.clear_cache(doctype="Tecponto Settings")
 		frappe.set_user(technician)
-		available = list_unassigned_service_orders()
+		available = list_unassigned_service_orders(limit=1000)
 		if order not in {item["name"] for item in available["items"]} or contains_sensitive_field(available):
 			raise AssertionError("Fila Pull não trouxe a OS segura e sem técnico.")
 		# The two workers need independent MariaDB sessions. Commit only the fixture
@@ -1307,6 +1312,114 @@ def run_os3_cohesive_diagnosis_and_budget_checks() -> dict:
 			"status": "ok",
 			"diagnosis_persisted": True,
 			"budget_mutations_tested": True,
+			"cost_guard_verified": True,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_os4_approval_and_quotes_crm_checks() -> dict:
+	"""Prove approval decision stage, follow-ups persistence and CRM quote funnel."""
+	previous_user = frappe.session.user
+	try:
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		suffix = frappe.generate_hash(length=8).upper()
+
+		# 1. Create OS in Aguardando aprovação
+		frappe.set_user(attendant)
+		order_name = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			order_name,
+			{
+				"technician": technician,
+				"workflow_state": "Aguardando aprovação",
+				"approval_status": "Pendente",
+				"quote_locked": 1,
+				"os_contact_name": f"Contato OS4 {suffix}",
+				"os_contact_phone": "11988887777",
+			},
+			update_modified=False,
+		)
+		send_service_order_quote(order_name, {"channel": "WhatsApp", "notes": "Proposta enviada pelo atendente."})
+
+		# 2. Record follow-up contact attempt
+		after_followup = record_quote_follow_up(
+			order_name,
+			channel="WhatsApp",
+			result="Pediu mais tempo",
+			notes="Cliente solicitou retorno amanhã às 14h após aprovar com o sócio.",
+		)
+		# Verify comment on document
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Service Order", "reference_name": order_name},
+			fields=["content", "comment_by"],
+		)
+		if not any("Pediu mais tempo" in (c.get("content") or "") for c in comments):
+			raise AssertionError("Follow-up de orçamento não persistiu nos comentários da OS.")
+
+		# 3. Test CRM panel projection and sensitive fields guard
+		crm_panel = get_quotes_crm_panel(status="pending", query=suffix)
+		if not any(item["name"] == order_name for item in crm_panel["items"]):
+			raise AssertionError("OS aguardando aprovação não apareceu no CRM de orçamentos.")
+		crm_item = next(item for item in crm_panel["items"] if item["name"] == order_name)
+		if crm_item["approval_status"] != "Pendente":
+			raise AssertionError("Status no CRM de orçamentos incorreto.")
+		if crm_item["grand_total"] <= 0:
+			raise AssertionError("Total comercial da OS no CRM de orçamentos deve ser maior que zero.")
+
+		# Check cost guard on CRM panel for attendant
+		leaks = contains_sensitive_field(crm_panel)
+		if leaks:
+			raise AssertionError(f"Campos confidenciais vazados no painel CRM de orçamentos: {leaks}")
+
+		# 4. Test approval decision
+		approved_detail = decide_service_order_budget(
+			order_name,
+			payload={
+				"decision": "approve",
+				"channel": "WhatsApp",
+				"notes": "Cliente aprovou troca completa via WhatsApp.",
+			},
+		)
+		if approved_detail["approval_status"] != "Aprovado" or approved_detail["workflow_state"] != "Aprovado":
+			raise AssertionError("Decisão de aprovação não moveu o estado da OS para Aprovado.")
+		if approved_detail["approval"]["channel"] != "WhatsApp":
+			raise AssertionError("Canal de aprovação não foi persistido.")
+
+		# 5. Test rejection decision on a second OS
+		order_name_2 = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			order_name_2,
+			{
+				"technician": technician,
+				"workflow_state": "Aguardando aprovação",
+				"approval_status": "Pendente",
+				"quote_locked": 1,
+			},
+			update_modified=False,
+		)
+
+		rejected_detail = decide_service_order_budget(
+			order_name_2,
+			payload={
+				"decision": "reject",
+				"channel": "Presencial",
+				"notes": "Preço elevado — cliente achou caro e desistiu do reparo.",
+			},
+		)
+		if rejected_detail["approval_status"] != "Reprovado" or rejected_detail["workflow_state"] != "Reprovado":
+			raise AssertionError("Decisão de reprovação não moveu o estado da OS para Reprovado.")
+
+		return {
+			"status": "ok",
+			"followup_persisted": True,
+			"crm_panel_verified": True,
+			"approval_decision_tested": True,
+			"rejection_decision_tested": True,
 			"cost_guard_verified": True,
 		}
 	finally:
