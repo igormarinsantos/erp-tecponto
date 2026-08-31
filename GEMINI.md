@@ -1,4 +1,4 @@
-﻿# TECPONTO ERP — Regras Permanentes do Projeto (GEMINI.md)
+# TECPONTO ERP — Regras Permanentes do Projeto (GEMINI.md)
 
 Este documento define as regras inegociáveis de segurança, o rito de trabalho, os princípios de design e o mapa do ambiente do Tecponto ERP. Estas diretrizes devem ser seguidas rigorosamente em todas as sessões e tarefas.
 
@@ -33,6 +33,8 @@ Este documento define as regras inegociáveis de segurança, o rito de trabalho,
    - Cada entrega/bloco deve ter seu commit atômico, com mensagem descritiva e suite validada.
 4. **Consulta Prévia de Segurança:**
    - Ao tocar em código relacionado a valores financeiros, senhas, transições de estado de OS ou permissões, consultar sempre as regras de segurança antes de alterar.
+5. **Reinicialização do Servidor Local após Mudança Python:**
+   - Após mudar código Python, reiniciar o servidor local (`bench serve`) antes de testar no navegador — senão o `--noreload` mantém a versão antiga em memória e a mudança não aparece, causando falsos "não funciona".
 
 ---
 
