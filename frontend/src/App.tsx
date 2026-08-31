@@ -3976,12 +3976,7 @@ function TechnicalServiceOrderDetail({
 			  {detail.workflow_state === "Em diagnóstico" ? <Button disabled={!diagnosis.trim() || savingDiagnosis} icon={<ArrowRight size={17} />} onClick={() => void completeDiagnosis()} variant="primary">Concluir e repassar</Button> : null}
             </div>
           </Card>
-          <TimelineCard events={detail.timeline} />
-          </> : null}
-
-          {activeStageScreen === "orcamento" ? <>
-          <StageHeading title="Orçamento" description="A composição autorizada para o técnico permanece sem custo, margem ou lucro." />
-		  {detail.workflow_state === "Diagnosticado — aguardando orçamento" && detail.diagnosis.pricing_responsibility === "Técnico" ? <TechnicalBudgetEditor onCompleted={() => onRefresh("Orçamento concluído e encaminhado para aprovação.")} onToast={onToast} serviceOrder={detail.name} /> : <HandoffStatus detail={detail} />}
+		  {detail.workflow_state === "Diagnosticado — aguardando orçamento" && detail.diagnosis.pricing_responsibility === "Técnico" ? <TechnicalBudgetEditor onCompleted={() => onRefresh("Orçamento concluído e encaminhado para aprovação.")} onToast={onToast} serviceOrder={detail.name} /> : null}
           <TimelineCard events={detail.timeline} />
           </> : null}
 
@@ -4348,7 +4343,7 @@ function ServiceOrderHero({
   );
 }
 
-type ServiceOrderStageScreen = "entrada" | "diagnostico" | "orcamento" | "aprovacao" | "execucao" | "retirada";
+type ServiceOrderStageScreen = "entrada" | "diagnostico" | "aprovacao" | "execucao" | "retirada";
 
 const SERVICE_ORDER_STAGE_SCREENS: Array<{
   key: ServiceOrderStageScreen;
@@ -4357,8 +4352,7 @@ const SERVICE_ORDER_STAGE_SCREENS: Array<{
   icon: typeof ClipboardCheck;
 }> = [
   { key: "entrada", label: "Entrada", description: "Check-in e aceite", icon: ClipboardCheck },
-  { key: "diagnostico", label: "Diagnóstico", description: "Laudo técnico", icon: SearchIcon },
-  { key: "orcamento", label: "Orçamento", description: "Composição e envio", icon: FileText },
+  { key: "diagnostico", label: "Diagnóstico e orçamento", description: "Laudo, composição e envio", icon: SearchIcon },
   { key: "aprovacao", label: "Aprovação", description: "Decisão do cliente", icon: CheckCircle2 },
   { key: "execucao", label: "Execução", description: "Peças e reparo", icon: Wrench },
   { key: "retirada", label: "Retirada", description: "Pagamento e entrega", icon: CircleDollarSign },
@@ -4367,7 +4361,7 @@ const SERVICE_ORDER_STAGE_SCREENS: Array<{
 function serviceOrderStageScreenForState(state: string | null): ServiceOrderStageScreen {
   if (state === "Entrada criada") return "entrada";
   if (state === "Em diagnóstico") return "diagnostico";
-  if (state === "Diagnosticado — aguardando orçamento") return "orcamento";
+  if (["Em diagnóstico", "Diagnosticado — aguardando orçamento"].includes(state ?? "")) return "diagnostico";
   if (state === "Aguardando aprovação") return "aprovacao";
   if (["Aprovado", "Aguardando peça", "Em reparo", "Teste final"].includes(state ?? "")) return "execucao";
   return "retirada";
@@ -4512,9 +4506,10 @@ function ServiceOrderStageScreenContent({
   }
 
   if (active === "diagnostico") {
+		const hasBudget = detail.services.length + detail.parts.length > 0;
     return (
       <div className="space-y-4">
-        <StageHeading title="Diagnóstico" description="Laudo técnico e encaminhamento para a precificação responsável." />
+        <StageHeading title="Diagnóstico e orçamento" description="Laudo técnico, composição comercial e envio da versão vigente." />
         <Card className="p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -4525,17 +4520,6 @@ function ServiceOrderStageScreenContent({
           </div>
         </Card>
         {detail.workflow_state === "Em diagnóstico" ? <DiagnosisCompletionCard detail={detail} onComplete={onCompleteDiagnosis} /> : <HandoffStatus detail={detail} />}
-        <TimelineCard events={detail.timeline} onOpenHistory={onOpenHistory} />
-      </div>
-    );
-  }
-
-  if (active === "orcamento") {
-    const hasBudget = detail.services.length + detail.parts.length > 0;
-    return (
-      <div className="space-y-4">
-        <StageHeading title="Orçamento" description="Composição, valores de venda, revisão e envio da versão vigente." />
-        <HandoffStatus detail={detail} />
         <BudgetCard detail={detail} onOpenBudgetEditor={onOpenBudgetEditor} />
         <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
           <div><h3 className="text-lg font-bold text-white">Enviar orçamento</h3><p className="mt-1 text-sm text-tec-muted">O motor exige diagnóstico salvo e ao menos um item antes de avançar.</p></div>
@@ -4613,14 +4597,14 @@ function StageLineList({ lines, title, type = "service" }: { lines: ServiceOrder
   return <section><div className="mb-3 flex items-center justify-between"><h3 className="text-lg font-bold text-white">{title}</h3><span className="rounded-full bg-tec-field px-2.5 py-1 text-xs font-bold text-tec-muted">{lines.length}</span></div>{lines.length ? <div className="overflow-hidden rounded-card border border-tec-border/15">{lines.map((line, index) => <div className="flex flex-wrap items-center justify-between gap-3 border-b border-tec-border/15 bg-tec-field/45 px-4 py-3 last:border-0" key={line.name ?? `${title}-${index}`}><div className="min-w-0"><p className="font-semibold text-white">{line.description || line.item_code || "Item sem descrição"}</p><p className="mt-1 text-xs text-tec-muted">Qtd. {line.qty.toLocaleString("pt-BR")}{type === "part" && line.outcome ? ` · ${line.outcome}` : ""}</p></div>{type === "part" ? <TechnicalPartStatus line={line} /> : <span className="text-sm font-bold text-tec-subtle">{formatCurrency(line.amount ?? (line.unit_price ?? 0) * line.qty)}</span>}</div>)}</div> : <p className="rounded-card border border-dashed border-tec-border/20 p-4 text-sm text-tec-muted">Nenhum item registrado nesta OS.</p>}</section>;
 }
 
-const SERVICE_ORDER_STEPS = ["Entrada", "Diagnóstico", "Orçamento", "Aprovação", "Execução", "Retirada"];
+const SERVICE_ORDER_STEPS = ["Entrada", "Diagnóstico e orçamento", "Aprovação", "Execução", "Retirada"];
 
 function WorkflowStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
   const activeIndex = serviceOrderStepIndex(detail.workflow_state);
   const subtitles = serviceOrderStepSubtitles(detail, activeIndex);
 
   return (
-    <div className="grid gap-2 p-4 xl:grid-cols-6">
+    <div className="grid gap-2 p-4 xl:grid-cols-5">
       {SERVICE_ORDER_STEPS.map((step, index) => {
         const done = index < activeIndex;
         const active = index === activeIndex;
@@ -4698,27 +4682,26 @@ function WorkflowSideStepper({ detail }: { detail: ServiceOrderDetailResponse })
 }
 
 function workflowStepIcon(index: number) {
-  return [ClipboardCheck, SearchIcon, FileText, Send, Wrench, Package][index] ?? FileText;
+  return [ClipboardCheck, SearchIcon, Send, Wrench, Package][index] ?? FileText;
 }
 
 function serviceOrderStepIndex(state: string | null) {
   if (state === "Entrada criada") {
     return 0;
   }
-  if (state === "Em diagnóstico") {
+  if (["Em diagnóstico", "Diagnosticado — aguardando orçamento"].includes(state ?? "")) {
     return 1;
   }
-	if (state === "Diagnosticado — aguardando orçamento") return 2;
-  if (["Aguardando aprovação", "Aprovado", "Reprovado", "Orçamento expirado"].includes(state ?? "")) {
+  if (state === "Aguardando aprovação") {
+    return 2;
+  }
+  if (["Aprovado", "Aguardando peça", "Em reparo", "Teste final"].includes(state ?? "")) {
     return 3;
   }
-  if (["Aguardando peça", "Em reparo", "Teste final", "Sem conserto"].includes(state ?? "")) {
+  if (["Pronto para retirada", "Entregue", "Cancelado", "Reprovado", "Orçamento expirado", "Sem conserto"].includes(state ?? "")) {
     return 4;
   }
-  if (["Pronto para retirada", "Entregue", "Cancelado"].includes(state ?? "")) {
-    return 5;
-  }
-  return 2;
+  return 1;
 }
 
 function serviceOrderStepSubtitles(detail: ServiceOrderDetailResponse, activeIndex: number) {

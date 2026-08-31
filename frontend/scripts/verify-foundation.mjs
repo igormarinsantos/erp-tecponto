@@ -83,7 +83,7 @@ for (const file of sourceFiles) {
 
 const serviceOrderSource = readFileSync(serviceOrderView, "utf8");
 const serviceOrderActionSource = `${serviceOrderSource}\n${readFileSync(serviceOrderFlows, "utf8")}`;
-for (const stage of ["Entrada", "Diagnóstico", "Orçamento", "Aprovação", "Execução", "Retirada"]) {
+for (const stage of ["Entrada", "Diagnóstico e orçamento", "Aprovação", "Execução", "Retirada"]) {
   if (!serviceOrderSource.includes(`label: "${stage}"`)) {
     throw new Error(`Etapa obrigatória ausente na casca da OS: ${stage}`);
   }
