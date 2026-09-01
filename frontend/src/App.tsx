@@ -1062,6 +1062,7 @@ export function App() {
   }
 
   const contextOptions = state.boot.panels.filter((option) => state.boot.user.roles.includes(option.role));
+  (window as unknown as { tecpontoCurrentRoles?: string[] }).tecpontoCurrentRoles = state.boot.user.roles;
   const rolePanels = contextOptions.map((option) => option.panel);
   const visualUser = rolePanels.length > 1
     ? {

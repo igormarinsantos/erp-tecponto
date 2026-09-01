@@ -18,6 +18,13 @@ interface ApprovalRequestModalProps {
   title: string;
 }
 
+export function hasAccumulatedApproverAuthority(approver: string, roles?: string[]): boolean {
+  const runtime = window as unknown as { tecpontoCurrentRoles?: string[]; frappe?: { boot?: { user?: { roles?: string[] } } } };
+  const runtimeRoles = roles ?? runtime.tecpontoCurrentRoles ?? runtime.frappe?.boot?.user?.roles ?? [];
+  const requiredRole = approver === "Gestor" ? "Tecponto Gestor" : approver;
+  return runtimeRoles.includes(requiredRole) || runtimeRoles.includes("System Manager");
+}
+
 export function ApprovalRequestModal({
   approver = "Gestor",
   onClose,
@@ -31,6 +38,7 @@ export function ApprovalRequestModal({
 }: ApprovalRequestModalProps) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const executesDirectly = hasAccumulatedApproverAuthority(approver);
 
   useEffect(() => {
     if (open) {
@@ -62,9 +70,9 @@ export function ApprovalRequestModal({
   };
 
   return (
-    <Modal className="max-w-lg" onClose={onClose} open={open} title="Solicitar aprovação">
+    <Modal className="max-w-lg" onClose={onClose} open={open} title={executesDirectly ? "Executar ação" : "Solicitar aprovação"}>
       <p className="text-sm leading-6 text-tec-subtle">{title}</p>
-      <p className="mt-2 text-sm text-tec-muted">Quem pode aprovar: <strong className="text-white">{approver}</strong></p>
+      <p className="mt-2 text-sm text-tec-muted">{executesDirectly ? <><strong className="text-white">Você já possui a autoridade de {approver}.</strong> A ação será executada e auditada diretamente.</> : <>Quem pode aprovar: <strong className="text-white">{approver}</strong></>}</p>
       <label className="mt-5 block text-sm font-bold text-white">
         Motivo obrigatório
         <textarea
@@ -77,7 +85,7 @@ export function ApprovalRequestModal({
       <div className="mt-5 flex justify-end gap-2">
         <Button onClick={onClose} variant="ghost">Cancelar</Button>
         <Button disabled={!reason.trim() || busy} onClick={() => void submit()} variant="primary">
-          {busy ? "Enviando..." : "Solicitar aprovação"}
+          {busy ? (executesDirectly ? "Executando..." : "Enviando...") : (executesDirectly ? "Executar" : "Solicitar aprovação")}
         </Button>
       </div>
     </Modal>
