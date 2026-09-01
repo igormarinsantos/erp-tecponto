@@ -1222,6 +1222,7 @@ export function App() {
 			  canAssignTechnician={state.boot.user.roles.some((role) => role === "Tecponto Gestor" || role === "System Manager")}
 			  canViewDirectorFinancial={state.boot.user.roles.includes("Tecponto Diretor")}
 			  technicianAssignment={state.boot.features.technician_assignment}
+			  activeTechnicians={state.boot.features.active_technicians}
 			  singleTechnician={state.boot.features.single_technician}
 			  commissionsEnabled={state.boot.features.technician_commissions_enabled}
 			  canManageUsers={state.boot.user.can_manage_users}
@@ -2339,7 +2340,8 @@ function NavigationContent({
   canViewStoreOperations,
 	canAssignTechnician,
 	canViewDirectorFinancial,
-	technicianAssignment,
+	 technicianAssignment,
+	 activeTechnicians,
 	 singleTechnician,
 	 commissionsEnabled,
 	canManageUsers,
@@ -2371,6 +2373,7 @@ function NavigationContent({
 	canAssignTechnician: boolean;
 	canViewDirectorFinancial: boolean;
 	technicianAssignment: BootResponse["features"]["technician_assignment"];
+	 activeTechnicians: number;
 	 singleTechnician: boolean;
 	 commissionsEnabled: boolean;
 	canManageUsers: boolean;
@@ -2473,6 +2476,7 @@ function NavigationContent({
         canViewStoreOperations={canViewStoreOperations}
         isRestrictedTechnician={isRestrictedTechnician}
 		technicianAssignment={technicianAssignment}
+		activeTechnicians={activeTechnicians}
         onOpenOrder={onOpenServiceOrder}
         onToast={onToast}
       />
@@ -2566,7 +2570,7 @@ function NavigationContent({
   }
 
   if (activeView === "administration-settings") {
-    return canManageUsers ? <AdministrationSettingsScreen onBack={() => onNavigate("administration")} onToast={onToast} /> : <Card className="p-5 text-sm font-semibold text-tec-red">Você não possui acesso às configurações.</Card>;
+    return canManageUsers ? <AdministrationSettingsScreen activeTechnicians={activeTechnicians} onBack={() => onNavigate("administration")} onToast={onToast} /> : <Card className="p-5 text-sm font-semibold text-tec-red">Você não possui acesso às configurações.</Card>;
   }
 
   if (activeView === "my-earnings" && commissionsEnabled) {
@@ -2635,6 +2639,7 @@ const MESA_FLOW_QUEUES = [
 ] as const;
 
 function MesaFlowBoard({
+	activeTechnicians,
 	canAssignTechnician,
   canViewStoreOperations,
   isRestrictedTechnician,
@@ -2642,6 +2647,7 @@ function MesaFlowBoard({
   onOpenOrder,
   onToast,
 }: {
+	activeTechnicians: number;
 	canAssignTechnician: boolean;
   canViewStoreOperations: boolean;
   isRestrictedTechnician: boolean;
@@ -2664,18 +2670,18 @@ function MesaFlowBoard({
       // The endpoint scopes the response to the logged-in role; the Mesa never broadens that query in React.
       const response = await serviceOrders.list({ limit: 100 });
       setState({ status: "ready", items: response.items });
-		if (canAssignTechnician || (isRestrictedTechnician && technicianAssignment.mode === "Pull")) {
+		if (canAssignTechnician || (isRestrictedTechnician && (technicianAssignment.mode === "Pull" || activeTechnicians === 1))) {
 			const available = await serviceOrders.listUnassigned(100);
 			setUnassigned(available.items);
 		}
-		if (canAssignTechnician) {
+		if (canAssignTechnician && activeTechnicians >= 2) {
 			const workload = await balcao.getTechnicianWorkload();
 			setTechnicians(workload.items);
 		}
     } catch (caught) {
       setState({ status: "error", message: caught instanceof Error ? caught.message : "Não foi possível carregar a Mesa." });
     }
-  }, [canAssignTechnician, isRestrictedTechnician, technicianAssignment.mode]);
+  }, [activeTechnicians, canAssignTechnician, isRestrictedTechnician, technicianAssignment.mode]);
 
   useEffect(() => {
     void load();
@@ -2720,13 +2726,13 @@ function MesaFlowBoard({
       {state.status === "error" ? <Card className="border-tec-red/30 p-5 text-sm font-semibold text-tec-red">{state.message}</Card> : null}
       {state.status === "loading" ? <Card className="p-6"><div className="h-9 w-9 animate-spin rounded-full border-2 border-tec-orange border-t-transparent" /><p className="mt-3 text-sm font-semibold text-tec-subtle">Organizando a Mesa...</p></Card> : null}
 
-      {state.status === "ready" && canAssignTechnician ? <MesaTechnicianWorkloadBoard items={technicians} mode={technicianAssignment.mode} onAssign={(technician) => {
+	  {state.status === "ready" && canAssignTechnician && activeTechnicians >= 2 ? <MesaTechnicianWorkloadBoard items={technicians} mode={technicianAssignment.mode} onAssign={(technician) => {
         setPreferredTechnician(technician);
         window.requestAnimationFrame(() => document.getElementById("mesa-sem-tecnico")?.scrollIntoView({ behavior: "smooth", block: "center" }));
       }} /> : null}
 
       {state.status === "ready" ? <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-		{unassigned.length ? <MesaAssignmentQueue canAssignTechnician={canAssignTechnician && technicianAssignment.mode === "Dispatch"} canClaim={isRestrictedTechnician && technicianAssignment.mode === "Pull"} canIntervene={canAssignTechnician && technicianAssignment.mode === "Pull"} items={unassigned} onChanged={load} onOpenOrder={onOpenOrder} onToast={onToast} preferredTechnician={preferredTechnician} technicians={technicians} /> : null}
+		{unassigned.length ? <MesaAssignmentQueue canAssignTechnician={canAssignTechnician && technicianAssignment.mode === "Dispatch"} canClaim={isRestrictedTechnician && (technicianAssignment.mode === "Pull" || activeTechnicians === 1)} canIntervene={canAssignTechnician && technicianAssignment.mode === "Pull"} items={unassigned} onChanged={load} onOpenOrder={onOpenOrder} onToast={onToast} preferredTechnician={preferredTechnician} technicians={technicians} /> : null}
         {queues.map((queue) => <MesaFlowQueue canAssignTechnician={canAssignTechnician} key={queue.title} onChanged={load} onOpenOrder={onOpenOrder} onToast={onToast} queue={queue} technicians={technicians} />)}
       </div> : null}
     </div>

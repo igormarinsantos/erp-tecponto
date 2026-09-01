@@ -167,6 +167,10 @@ def record_physical_acceptance(
 	)
 	doc.insert(ignore_permissions=True)
 	_assert_acceptance_evidence(doc)
+	if acceptance_type == "Entrada":
+		from tecponto_app.tecponto.service_order.assignment import advance_auto_assigned_entry
+
+		advance_auto_assigned_entry(order.name)
 	return {"completed": True, "acceptance": doc.name, "acceptance_type": acceptance_type, "method": "physical"}
 
 
@@ -430,6 +434,10 @@ def complete_public_acceptance(
 		from tecponto_app.tecponto.tracking import complete_tracking_budget_acceptance
 
 		complete_tracking_budget_acceptance(doc)
+	elif doc.acceptance_type == "Entrada":
+		from tecponto_app.tecponto.service_order.assignment import advance_auto_assigned_entry
+
+		advance_auto_assigned_entry(doc.service_order)
 	return {"completed": True, "acceptance": doc.name, "service_order": doc.service_order, "acceptance_type": doc.acceptance_type}
 
 

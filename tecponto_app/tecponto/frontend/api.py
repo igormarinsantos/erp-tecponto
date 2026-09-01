@@ -2249,20 +2249,28 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 		{"entry_photos": photo_url},
 		update_modified=True,
 	)
+	from tecponto_app.tecponto.service_order.assignment import auto_assign_single_technician
+
+	auto_assignment = auto_assign_single_technician(order.name, frappe.session.user)
 	from tecponto_app.tecponto.tracking import issue_tracking_link
 
 	tracking = issue_tracking_link(order.name)
+	workflow_state, technician = frappe.db.get_value(
+		"Service Order", order.name, ["workflow_state", "technician"]
+	)
 
 	return {
 		"service_order": {
 			"name": order.name,
-			"workflow_state": "Entrada criada",
+			"workflow_state": workflow_state,
+			"technician": technician,
 			"customer": _get_customer_detail(customer_name),
 			"device": _get_device_detail(device_name),
 			"print_links": _get_service_order_print_links(order.name),
 		},
 		"entry_photo_url": photo_url,
 		"tracking": tracking,
+		"auto_assignment": auto_assignment,
 	}
 
 

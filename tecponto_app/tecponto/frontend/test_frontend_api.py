@@ -151,6 +151,7 @@ from tecponto_app.tecponto.tracking import (
 	start_public_portal_action,
 )
 from tecponto_app.tecponto.frontend.setup import FRONTEND_ROLES, ensure_frontend_foundation
+from tecponto_app.tecponto.service_order.assignment import auto_assign_single_technician
 from tecponto_app.tecponto import technical_budget
 from tecponto_app.tecponto.hr import ensure_hr_foundation
 from tecponto_app.tecponto.product_categories import ensure_product_category_foundation
@@ -506,6 +507,75 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 			user.append("roles", {"role": "Tecponto Tecnico"})
 			user.save(ignore_permissions=True)
 
+		# Adaptive topology: one technician owns new work immediately, a second
+		# technician changes only future orders, and returning to one exposes (but
+		# never silently rewrites) legacy orphans.
+		frappe.set_user(attendant)
+		zero_technician_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", zero_technician_order, "technician", None, update_modified=False)
+		with patch(
+			"tecponto_app.tecponto.service_order.assignment.operation_shape",
+			return_value={"active_technicians": 0, "single_technician": False},
+		):
+			try:
+				auto_assign_single_technician(zero_technician_order, attendant)
+			except frappe.ValidationError:
+				pass
+			else:
+				raise AssertionError("Loja sem técnico aceitou uma nova OS operacional.")
+		one_technician_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			one_technician_order,
+			{"technician": None, "link_acceptance_required": 1, "entry_signature": None},
+			update_modified=False,
+		)
+		with (
+			patch("tecponto_app.tecponto.service_order.assignment.operation_shape", return_value={"active_technicians": 1, "single_technician": True}),
+			patch("tecponto_app.tecponto.service_order.assignment.active_users_with_role", return_value={technician}),
+		):
+			automatic = auto_assign_single_technician(one_technician_order, attendant)
+		if not automatic or frappe.db.get_value("Service Order", one_technician_order, "technician") != technician:
+			raise AssertionError("Loja com um técnico não autoatribuiu a nova OS.")
+		if frappe.db.get_value("Service Order", one_technician_order, "workflow_state") != "Entrada criada":
+			raise AssertionError("Autoatribuição furou o aceite obrigatório da Entrada.")
+		physical_image = BytesIO()
+		physical_color = int(frappe.generate_hash(length=2), 16)
+		Image.new("RGB", (80, 80), color=(physical_color, 245, 245)).save(physical_image, format="JPEG")
+		record_physical_acceptance(
+			one_technician_order,
+			"Entrada",
+			"data:image/jpeg;base64," + b64encode(physical_image.getvalue()).decode(),
+			"aceite-autoatribuicao.jpg",
+			inoperative_term_consent=True,
+		)
+		if frappe.db.get_value("Service Order", one_technician_order, "workflow_state") != "Em diagnóstico":
+			raise AssertionError("Aceite concluído não liberou a OS autoatribuída para diagnóstico.")
+
+		multi_technician_order = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", multi_technician_order, "technician", None, update_modified=False)
+		with (
+			patch("tecponto_app.tecponto.service_order.assignment.operation_shape", return_value={"active_technicians": 2, "single_technician": False}),
+			patch("tecponto_app.tecponto.service_order.assignment.active_users_with_role", return_value={technician, second_technician}),
+		):
+			if auto_assign_single_technician(multi_technician_order, attendant) is not None:
+				raise AssertionError("Loja com dois técnicos autoatribuiu uma OS que deveria ir para a fila.")
+		if frappe.db.get_value("Service Order", multi_technician_order, "technician"):
+			raise AssertionError("Nova OS multi-técnico não permaneceu órfã para Pull/Dispatch.")
+		if frappe.db.get_value("Service Order", one_technician_order, "technician") != technician:
+			raise AssertionError("Transição 1→2 redistribuiu uma OS anterior.")
+
+		frappe.db.set_single_value("Tecponto Settings", "technician_assignment_mode", "Dispatch")
+		frappe.clear_cache(doctype="Tecponto Settings")
+		frappe.set_user(technician)
+		with patch("tecponto_app.tecponto.service_order.assignment.operation_shape", return_value={"single_technician": True}):
+			legacy_claim = claim_service_order(multi_technician_order)
+		if frappe.db.get_value("Service Order", multi_technician_order, "technician") != technician:
+			raise AssertionError("Transição 2→1 não permitiu sanear explicitamente a OS órfã.")
+		legacy_event = frappe.get_doc("Tecponto Service Order Assignment Event", legacy_claim["event"])
+		if legacy_event.event_type != "Claim" or legacy_event.performed_by != technician:
+			raise AssertionError("Saneamento da pendência 2→1 não ficou auditado.")
+
 		order = _create_action_request_service_order(attendant)
 		frappe.db.set_value("Service Order", order, "technician", None, update_modified=False)
 		frappe.db.set_single_value("Tecponto Settings", "technician_assignment_mode", "Pull")
@@ -591,7 +661,7 @@ def run_technician_assignment_checks(manager: str, attendant: str, technician: s
 			pass
 		else:
 			raise AssertionError("Evento de atribuição imutável pôde ser editado.")
-		return {"status": "ok", "claim": claim["event"], "transfer": transfer["event"], "assign": assigned["event"], "intervention": intervention["event"]}
+		return {"status": "ok", "auto_assign": automatic["event"], "legacy_claim": legacy_claim["event"], "claim": claim["event"], "transfer": transfer["event"], "assign": assigned["event"], "intervention": intervention["event"]}
 	finally:
 		frappe.set_user("Administrator")
 		frappe.db.set_single_value("Tecponto Settings", "technician_assignment_mode", previous_mode)

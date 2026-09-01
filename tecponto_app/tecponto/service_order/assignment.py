@@ -11,12 +11,12 @@ from frappe import _
 from frappe.model.workflow import apply_workflow
 from frappe.utils import flt, get_datetime, now_datetime
 
+from tecponto_app.tecponto.lean_operations import TECHNICIAN_ROLE, active_users_with_role, operation_shape
 from tecponto_app.tecponto.operation_config import get_operation_config
 from tecponto_app.tecponto.service_order.stage_sla import BUSINESS_DAY_END, BUSINESS_DAY_START, _commercial_holiday_dates
 
 AUDIT_DOCTYPE = "Tecponto Service Order Assignment Event"
 MANAGER_ROLES = {"System Manager", "Tecponto Gestor"}
-TECHNICIAN_ROLE = "Tecponto Tecnico"
 TERMINAL_STATES = {"Entregue", "Cancelado", "Reprovado", "Orçamento expirado", "Sem conserto"}
 
 
@@ -26,8 +26,62 @@ def assignment_config() -> dict[str, Any]:
 
 def claim(service_order: str, actor: str) -> dict[str, Any]:
 	_require_technician(actor)
-	_require_mode("Pull")
+	if not operation_shape()["single_technician"]:
+		_require_mode("Pull")
 	return _change(service_order, actor, actor, "Claim", expected_assigned=False)
+
+
+def auto_assign_single_technician(service_order: str, actor: str) -> dict[str, Any] | None:
+	"""Assign a new OS to the sole technician without bypassing entry gates."""
+	shape = operation_shape()
+	if shape["active_technicians"] == 0:
+		frappe.throw(
+			_("Ative ao menos um usuário com o papel Técnico antes de criar uma OS."),
+			frappe.ValidationError,
+		)
+	if not shape["single_technician"]:
+		return None
+	technicians = active_users_with_role(TECHNICIAN_ROLE)
+	if len(technicians) != 1:
+		return None
+	technician = next(iter(technicians))
+	result = _change(
+		service_order,
+		technician,
+		actor,
+		"AutoAssign",
+		observation="Atribuição automática: único técnico ativo.",
+		expected_assigned=False,
+	)
+	result["advanced"] = advance_auto_assigned_entry(service_order)
+	return result
+
+
+def advance_auto_assigned_entry(service_order: str) -> bool:
+	"""Attempt the real workflow; preserve ownership when an entry gate blocks it."""
+	if frappe.db.get_value("Service Order", service_order, "workflow_state") != "Entrada criada":
+		return False
+	if not frappe.db.exists(AUDIT_DOCTYPE, {"service_order": service_order, "event_type": "AutoAssign"}):
+		return False
+	savepoint = f"tp_auto_advance_{sha1(service_order.encode()).hexdigest()[:12]}"
+	frappe.db.savepoint(savepoint)
+	previous_user = frappe.session.user
+	try:
+		# This is a server-owned consequence of the audited automatic assignment.
+		# Administrator supplies workflow authority; document hooks still enforce
+		# photo, acceptance, biometrics and every lifecycle gate.
+		frappe.set_user("Administrator")
+		apply_workflow(
+			frappe.as_json({"doctype": "Service Order", "name": service_order}),
+			"Em diagnóstico",
+		)
+		return True
+	except (frappe.ValidationError, frappe.PermissionError):
+		frappe.db.rollback(save_point=savepoint)
+		frappe.clear_messages()
+		return False
+	finally:
+		frappe.set_user(previous_user)
 
 
 def assign(service_order: str, technician: str, actor: str, observation: str = "") -> dict[str, Any]:
@@ -58,7 +112,8 @@ def list_unassigned(actor: str, limit: int = 100) -> dict[str, Any]:
 	is_manager = actor == "Administrator" or bool(roles.intersection(MANAGER_ROLES))
 	is_technician = TECHNICIAN_ROLE in roles
 	mode = assignment_config()["mode"]
-	if not is_manager and not (is_technician and mode == "Pull"):
+	sole_technician_cleanup = is_technician and operation_shape()["single_technician"]
+	if not is_manager and not (is_technician and (mode == "Pull" or sole_technician_cleanup)):
 		frappe.throw(_("Esta fila não está disponível para seu papel ou modo de atribuição."), frappe.PermissionError)
 	terminal_tuple = tuple(TERMINAL_STATES)
 	rows = frappe.db.sql(
