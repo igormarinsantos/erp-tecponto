@@ -188,6 +188,7 @@ SAFE_DEVICE_FIELDS = (
 	"color",
 	"imei_serial",
 	"capacity",
+	"device_access_type",
 	"photos",
 	"registration_date",
 	"modified",
@@ -1518,7 +1519,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"accessories_received": doc.get("accessories_received"),
 		"os_contact_name": doc.get("os_contact_name"),
 		"os_contact_phone": doc.get("os_contact_phone"),
-		"device_access_type": doc.get("device_access_type"),
+		"device_access_type": (_get_device_detail(doc.get("customer_device")) or {}).get("device_access_type") or doc.get("device_access_type"),
 		"diagnosis": {
 			"problem_found": doc.get("problem_found"),
 			"diagnosis_date": str(doc.get("diagnosis_date") or ""),
@@ -2237,8 +2238,7 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.attendance_notes = (data["service_order"].get("attendance_notes") or "").strip()
 	order.entry_operating_condition = (data["service_order"].get("entry_operating_condition") or ENTRY_OPERATING_CONDITION_OK).strip()
 	order.accessories_received = (data["service_order"].get("accessories_received") or "").strip()
-	order.device_access_type = (data["service_order"].get("device_access_type") or "").strip()
-	order.device_access_credential = (data["service_order"].get("device_access_credential") or "").strip()
+	_save_device_access_credential(device_name, data["service_order"])
 	order.is_warranty = cint(data["service_order"].get("is_warranty"))
 	order.original_service_order = (data["service_order"].get("original_service_order") or "").strip() or None
 	initial_budget_lines = data.get("initial_budget_lines") or []
@@ -2350,13 +2350,13 @@ def update_service_order_entry(name: str, payload: str | dict[str, Any] | None =
 	data = _parse_payload(payload)
 	text_fields = {
 		"reported_defect", "physical_state", "attendance_notes", "entry_operating_condition",
-		"accessories_received", "os_contact_name", "os_contact_phone", "device_access_type",
+		"accessories_received", "os_contact_name", "os_contact_phone",
 	}
 	for fieldname in text_fields:
 		if fieldname in data:
 			doc.set(fieldname, (data.get(fieldname) or "").strip())
-	if "device_access_credential" in data and (data.get("device_access_credential") or "").strip():
-		doc.device_access_credential = data["device_access_credential"].strip()
+	if "device_access_type" in data or "device_access_credential" in data:
+		_save_device_access_credential(doc.customer_device, data)
 	if not (doc.reported_defect or "").strip() or not (doc.physical_state or "").strip():
 		frappe.throw(_("Defeito relatado e estado físico são obrigatórios na Entrada."), frappe.ValidationError)
 	if doc.entry_operating_condition not in ENTRY_OPERATING_CONDITIONS:
@@ -4106,6 +4106,8 @@ def _serialize_customer_device(item: dict[str, Any]) -> dict[str, Any]:
 		"color": item.get("color"),
 		"imei_serial": item.get("imei_serial"),
 		"capacity": item.get("capacity"),
+		"device_access_type": item.get("device_access_type"),
+		"has_device_access_credential": bool(item.get("device_access_type")),
 		"photo_url": item.get("photos"),
 		"registration_date": str(item.get("registration_date") or ""),
 		"modified": str(item.get("modified") or ""),
@@ -4490,6 +4492,21 @@ def _get_or_create_checkin_device(data: dict[str, Any], customer_name: str) -> s
 	return device.name
 
 
+def _save_device_access_credential(device_name: str, data: dict[str, Any]) -> None:
+	"""Rotate a device-owned credential; blank input preserves an existing secret."""
+	access_type = (data.get("device_access_type") or "").strip()
+	credential = (data.get("device_access_credential") or "").strip()
+	if not access_type and not credential:
+		return
+	if access_type not in {"PIN", "Padrão de desenho", "Alfanumérica"}:
+		frappe.throw(_("Tipo de acesso do aparelho inválido."), frappe.ValidationError)
+	device = frappe.get_doc("Customer Device", device_name)
+	device.device_access_type = access_type
+	if credential:
+		device.device_access_credential = credential
+	device.save(ignore_permissions=True)
+
+
 def _save_checkin_photo(service_order: str, photo: dict[str, str]) -> str:
 	filename = _safe_filename(photo.get("filename") or f"{service_order}-entrada.png")
 	if "." not in filename:
@@ -4640,7 +4657,7 @@ def _get_device_detail(customer_device: str | None) -> dict[str, Any] | None:
 	item = frappe.db.get_value(
 		"Customer Device",
 		customer_device,
-		["name", "customer", "brand", "model", "color", "imei_serial", "capacity", "photos"],
+		["name", "customer", "brand", "model", "color", "imei_serial", "capacity", "device_access_type", "photos"],
 		as_dict=True,
 	)
 	return dict(item) if item else {"name": customer_device}

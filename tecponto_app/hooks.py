@@ -367,6 +367,7 @@ doc_events = {
 }
 
 after_migrate = [
+	"tecponto_app.tecponto.service_order.device_credentials.migrate_device_credentials",
 	"tecponto_app.tecponto.stock.ensure_moving_average_valuation",
 	"tecponto_app.tecponto.payments.ensure_card_receivables_setup",
 	"tecponto_app.tecponto.hr.ensure_hr_foundation",

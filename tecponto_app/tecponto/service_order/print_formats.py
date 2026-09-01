@@ -167,7 +167,8 @@ def _acceptance_context(doc, acceptance_type: str) -> dict | None:
 def get_internal_service_order_print_context(doc) -> dict:
 	"""Add the device password only for the explicitly internal label format."""
 	context = get_service_order_print_context(doc)
-	context["device"]["password"] = frappe.db.get_value("Customer Device", doc.get("customer_device"), "device_password") or "-"
+	device = frappe.get_doc("Customer Device", doc.get("customer_device"))
+	context["device"]["password"] = device.get_password("device_access_credential") or "-"
 	return context
 
 

@@ -15,7 +15,8 @@
   "device_column_break",
   "imei_serial",
   "capacity",
-  "device_password",
+  "device_access_type",
+  "device_access_credential",
   "condition_section",
   "general_state",
   "notes",
@@ -70,9 +71,16 @@
    "options": "\n32GB\n64GB\n128GB\n256GB\n512GB\n1TB"
   },
   {
-   "fieldname": "device_password",
-   "fieldtype": "Data",
-   "label": "Senha/Padrão",
+   "fieldname": "device_access_type",
+   "fieldtype": "Select",
+   "label": "Tipo de acesso",
+   "options": "\nPIN\nPadrão de desenho\nAlfanumérica",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "device_access_credential",
+   "fieldtype": "Password",
+   "label": "Credencial de acesso",
    "permlevel": 1
   },
   {

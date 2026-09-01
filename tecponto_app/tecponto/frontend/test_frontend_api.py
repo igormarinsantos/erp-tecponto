@@ -1176,12 +1176,13 @@ def run_device_credential_non_leak_checks() -> dict:
 		order_name = _create_action_request_service_order(attendant)
 		frappe.set_user("Administrator")
 		order = frappe.get_doc("Service Order", order_name)
-		order.device_access_type = "Alfanumérica"
-		order.device_access_credential = sentinel
-		order.save(ignore_permissions=True)
-		order.reload()
-		if order.get_password("device_access_credential") != sentinel:
-			raise AssertionError("Credencial da OS não foi persistida pelo armazenamento protegido de Password.")
+		device = frappe.get_doc("Customer Device", order.customer_device)
+		device.device_access_type = "Alfanumérica"
+		device.device_access_credential = sentinel
+		device.save(ignore_permissions=True)
+		device.reload()
+		if device.get_password("device_access_credential") != sentinel:
+			raise AssertionError("Credencial do aparelho não foi persistida pelo armazenamento protegido de Password.")
 
 		customer_templates = {
 			PF_TERMO_ENTRADA: _termo_entrada_html(),
@@ -1259,8 +1260,9 @@ def run_os2_checkin_choice_checks() -> dict:
 			)
 			order_name = response["service_order"]["name"]
 			order = frappe.get_doc("Service Order", order_name)
-			if order.device_access_type != access_type or order.get_password("device_access_credential") != credential:
-				raise AssertionError(f"Credencial do tipo {access_type} não persistiu na OS.")
+			device = frappe.get_doc("Customer Device", order.customer_device)
+			if device.device_access_type != access_type or device.get_password("device_access_credential") != credential:
+				raise AssertionError(f"Credencial do tipo {access_type} não persistiu no aparelho.")
 			expected_term = index == 3
 			if bool(order.link_acceptance_required) != expected_term or response["service_order"]["entry_acceptance_required"] != expected_term:
 				raise AssertionError("Termo de entrada não respeitou a escolha de ligar/testar o aparelho.")
