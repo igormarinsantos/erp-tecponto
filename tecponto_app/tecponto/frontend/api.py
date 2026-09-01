@@ -2241,6 +2241,15 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	_save_device_access_credential(device_name, data["service_order"])
 	order.is_warranty = cint(data["service_order"].get("is_warranty"))
 	order.original_service_order = (data["service_order"].get("original_service_order") or "").strip() or None
+	if order.is_warranty and order.original_service_order:
+		original = frappe.db.get_value("Service Order", order.original_service_order, ["customer", "customer_device", "workflow_state"], as_dict=True)
+		if not original or original.customer != customer_name or original.customer_device != device_name or original.workflow_state != STATE_ENTREGUE:
+			frappe.throw(_("A garantia precisa apontar para uma OS entregue do mesmo cliente e aparelho."), frappe.ValidationError)
+		from tecponto_app.tecponto.service_order.policies import is_same_warranty_defect
+		if not is_same_warranty_defect(order.original_service_order, order.reported_defect):
+			order.is_warranty = 0
+			marker = _("Defeito diferente da OS original {0}: atendimento convertido em OS normal, com valor definido no orçamento.").format(order.original_service_order)
+			order.attendance_notes = "\n".join(filter(None, [order.attendance_notes, marker]))
 	initial_budget_lines = data.get("initial_budget_lines") or []
 	if not isinstance(initial_budget_lines, list):
 		frappe.throw(_("Composição do orçamento inicial inválida."), frappe.ValidationError)

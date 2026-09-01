@@ -150,6 +150,12 @@ def _normalize_defect(value: str | None) -> str:
 	return " ".join((value or "").casefold().split())
 
 
+def is_same_warranty_defect(original_service_order: str, reported_defect: str | None) -> bool:
+	"""Classify only the defect; identity/coverage remain enforced by the warranty policy."""
+	original_defect = frappe.db.get_value("Service Order", original_service_order, "reported_defect")
+	return bool(original_defect and _normalize_defect(original_defect) == _normalize_defect(reported_defect))
+
+
 def _validate_sinal(doc) -> None:
 	if doc.get("sinal_enabled") and flt(doc.get("sinal_value")) <= 0:
 		frappe.throw("Sinal habilitado exige valor maior que zero.")

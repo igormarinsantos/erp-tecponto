@@ -2604,9 +2604,7 @@ def run_warranty_delivery_checks() -> dict:
 		if not frappe.db.get_value("Service Order", warranty_doc.name, "customer_supplied_part_term_required"):
 			raise AssertionError("Peça do cliente não exigiu o termo que exclui cobertura da peça fornecida.")
 
-		different_defect_blocked = False
-		try:
-			create_service_order_checkin(
+		different_defect = create_service_order_checkin(
 				{
 					"customer": {"existing_name": original.customer},
 					"device": {"existing_name": original.customer_device},
@@ -2618,27 +2616,13 @@ def run_warranty_delivery_checks() -> dict:
 					},
 					"entry_photo": {"data_url": photo_data, "filename": "different-defect.jpg"},
 				}
-			)
-		except frappe.ValidationError:
-			different_defect_blocked = True
-		if not different_defect_blocked:
-			raise AssertionError("Defeito diferente foi aceito indevidamente como retrabalho em garantia.")
-
-		normal_order = create_service_order_checkin(
-			{
-				"customer": {"existing_name": original.customer},
-				"device": {"existing_name": original.customer_device},
-				"service_order": {"reported_defect": "Defeito diferente, fora da garantia.", "physical_state": "Sem danos adicionais aparentes."},
-				"entry_photo": {"data_url": photo_data, "filename": "normal-different-defect.jpg"},
-			}
 		)
-		normal_quote = add_catalog_service_to_service_order(
-			normal_order["service_order"]["name"],
-			created_catalog_service,
-			{"qty": 1, "rate": 199.9, "duration": 2, "duration_unit": "Horas"},
-		)
-		if normal_quote["services"][-1].get("unit_price") != 199.9:
-			raise AssertionError("Defeito diferente não abriu OS normal com cobrança regular.")
+		different_doc = frappe.get_doc("Service Order", different_defect["service_order"]["name"])
+		if different_doc.is_warranty or different_doc.original_service_order != original.name:
+			raise AssertionError("Defeito diferente não foi convertido em OS normal rastreável.")
+		normal_quote = add_service_order_budget_line(different_doc.name, {"type": "service", "description": "Serviço manual com valor decidido no balcão", "qty": 1, "rate": 137.45})
+		if normal_quote["services"][-1].get("unit_price") != 137.45:
+			raise AssertionError("OS normal de defeito diferente não aceitou valor manual livre.")
 
 		expired_name = _create_action_request_service_order(attendant)
 		expired = frappe.get_doc("Service Order", expired_name)
@@ -2679,7 +2663,8 @@ def run_warranty_delivery_checks() -> dict:
 			"pickup_date": str(original.pickup_date),
 			"original_warranty_expiry": expected_original_expiry,
 			"rework_inherits_original_expiry": True,
-			"different_defect_blocked": different_defect_blocked,
+			"different_defect_is_normal": True,
+			"different_defect_manual_value": 137.45,
 			"customer_part_excluded_from_warranty": True,
 			"new_configured_warranty_expiry": str(second.warranty_expiry),
 			"screen_queries": sorted(queries),
