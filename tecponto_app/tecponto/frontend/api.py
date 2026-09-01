@@ -1488,6 +1488,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"converted_by": doc.get("path_converted_by"),
 			"converted_at": str(doc.get("path_converted_at") or ""),
 		},
+		"payment_plan": {"timing": doc.get("payment_timing") or "Na retirada", "planned_value": flt(doc.get("planned_advance_value"))},
 		"workflow_state": doc.get("workflow_state"),
 		"approval_status": doc.get("approval_status"),
 		"approval_deadline": str(doc.get("approval_deadline") or ""),
@@ -2221,6 +2222,14 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.caminho = (data["service_order"].get("caminho") or "Completo").strip()
 	if order.caminho not in {"Rápido", "Completo"}:
 		frappe.throw(_("Escolha se o atendimento já tem preço ou precisa de avaliação."), frappe.ValidationError)
+	order.payment_timing = (data["service_order"].get("payment_timing") or "Na retirada").strip()
+	order.planned_advance_value = flt(data["service_order"].get("planned_advance_value"))
+	if order.payment_timing not in {"Na retirada", "Adiantado", "Sinal"}:
+		frappe.throw(_("Escolha quando o cliente pretende pagar."), frappe.ValidationError)
+	if order.payment_timing in {"Adiantado", "Sinal"} and order.planned_advance_value <= 0:
+		frappe.throw(_("Informe o valor combinado para adiantamento ou sinal."), frappe.ValidationError)
+	order.sinal_enabled = cint(order.payment_timing == "Sinal")
+	order.sinal_value = order.planned_advance_value if order.sinal_enabled else 0
 	order.link_acceptance_required = cint(data["service_order"].get("will_power_on_test"))
 	order.priority = "Normal"
 	order.reported_defect = data["service_order"]["reported_defect"].strip()

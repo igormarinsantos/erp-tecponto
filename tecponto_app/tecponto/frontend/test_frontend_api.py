@@ -1289,7 +1289,7 @@ def run_fast_complete_path_checks() -> dict:
 			response = create_service_order_checkin({
 				"customer": {"customer_name": f"Cliente caminho {suffix}-{index}", "mobile_no": "11999998888", "custom_whatsapp": "11999998888", "custom_nao_possui_cpf": 1, "custom_rg": f"RG-{suffix}-{index}"},
 				"device": {"brand": "Teste", "model": f"Caminho-{index}", "imei_serial": f"PATH-{suffix}-{index}"},
-				"service_order": {"caminho": path, "reported_defect": "Serviço de teste", "physical_state": "Sem avarias", "will_power_on_test": False, "include_initial_budget": path == "Rápido"},
+				"service_order": {"caminho": path, "reported_defect": "Serviço de teste", "physical_state": "Sem avarias", "will_power_on_test": False, "include_initial_budget": path == "Rápido", "payment_timing": "Sinal" if path == "Rápido" else "Na retirada", "planned_advance_value": 25 if path == "Rápido" else 0},
 				"initial_budget_lines": ([{"type": "service", "description": "Serviço rápido", "qty": 1, "rate": 100}] if path == "Rápido" else []),
 				"entry_photo": {"data_url": photo, "filename": f"path-{index}.png"},
 			})
@@ -1304,6 +1304,8 @@ def run_fast_complete_path_checks() -> dict:
 		full_doc = frappe.get_doc("Service Order", full)
 		if fast_doc.caminho != "Rápido" or fast_doc.workflow_state not in {"Entrada criada", "Em reparo"}:
 			raise AssertionError("Criação rápida não persistiu ou entrou no ramo incorreto.")
+		if fast_doc.payment_timing != "Sinal" or flt(fast_doc.planned_advance_value) != 25 or not fast_doc.sinal_enabled:
+			raise AssertionError("Decisão de pagamento na criação não alimentou o motor de sinal existente.")
 		if full_doc.caminho != "Completo" or full_doc.workflow_state not in {"Entrada criada", "Em diagnóstico"}:
 			raise AssertionError("Criação completa não persistiu ou entrou no ramo incorreto.")
 		from frappe.model.workflow import apply_workflow

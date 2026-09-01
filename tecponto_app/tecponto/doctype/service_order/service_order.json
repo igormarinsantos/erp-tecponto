@@ -21,6 +21,8 @@
   "priority",
   "workflow_state",
   "stage_entered_at",
+  "payment_timing",
+  "planned_advance_value",
   "path_conversion_reason",
   "path_conversion_new_value",
   "path_conversion_notes",
@@ -203,6 +205,19 @@
    "hidden": 1,
    "label": "Entrada na etapa",
    "read_only": 1
+  },
+  {
+   "default": "Na retirada",
+   "fieldname": "payment_timing",
+   "fieldtype": "Select",
+   "label": "Momento do pagamento",
+   "options": "Na retirada\nAdiantado\nSinal",
+   "reqd": 1
+  },
+  {
+   "fieldname": "planned_advance_value",
+   "fieldtype": "Currency",
+   "label": "Valor combinado de adiantamento/sinal"
   },
   {
    "fieldname": "path_conversion_reason",
