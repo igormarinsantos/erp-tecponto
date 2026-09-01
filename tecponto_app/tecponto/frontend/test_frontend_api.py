@@ -1072,25 +1072,6 @@ def run_print_document_checks() -> dict:
 		)
 		order.reload()
 
-		from tecponto_app.tecponto.service_order.customer_supplied_part import build_customer_supplied_part_term
-
-		term = build_customer_supplied_part_term(order)
-		frappe.get_doc(
-			{
-				"doctype": "OS Acceptance",
-				"service_order": order.name,
-				"acceptance_type": "Orçamento",
-				"signer_role": "Dono",
-				"status": "Concluído",
-				"token_hash": frappe.generate_hash(length=32),
-				"expires_on": add_days(now_datetime(), 1),
-				"issued_by": attendant,
-				"customer_part_term_version": term["version"],
-				"customer_part_term_text": term["text"],
-				"customer_part_term_accepted_on": now_datetime(),
-			}
-		).insert(ignore_permissions=True)
-
 		payment = frappe.get_doc(
 			{
 				"doctype": "Tecponto Service Order Payment",
@@ -2428,7 +2409,7 @@ def run_warranty_mode_checks() -> dict:
 				"customer": {"existing_name": original.customer},
 				"device": {"existing_name": original.customer_device},
 				"service_order": {
-					"reported_defect": "Retorno em garantia para validar retrabalho.",
+					"reported_defect": original.reported_defect,
 					"physical_state": "Sem danos adicionais aparentes.",
 					"is_warranty": 1,
 					"original_service_order": original.name,
