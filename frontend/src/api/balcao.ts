@@ -6,6 +6,7 @@ import type {
   CreateCustomerDevicePayload,
   CreateCustomerDeviceResponse,
   CustomerDeviceListResponse,
+  CustomerDeviceHistoryResponse,
   CustomerSearchResponse,
 	RegistryKind,
 	RegistryRecordResponse,
@@ -109,6 +110,9 @@ export const balcao = {
     return rpc<CustomerDeviceListResponse>(`${API}.list_customer_devices`, {
       query: { query, limit, customer },
     });
+  },
+  getDeviceHistory(name: string) {
+    return rpc<CustomerDeviceHistoryResponse>(`${API}.get_customer_device_history`, { query: { name } });
   },
   createDevice(payload: CreateCustomerDevicePayload) {
     return rpc<CreateCustomerDeviceResponse>(`${API}.create_customer_device`, {

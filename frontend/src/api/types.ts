@@ -1232,9 +1232,30 @@ export interface CustomerDeviceSummary {
   color: string | null;
   imei_serial: string | null;
   capacity: string | null;
+  device_access_type?: string | null;
+  has_device_access_credential?: boolean;
   photo_url: string | null;
   registration_date: string;
   modified: string;
+}
+
+export interface CustomerDeviceHistoryEntry {
+  name: string;
+  entry_date: string;
+  workflow_state: string;
+  reported_defect: string | null;
+  services: string[];
+  is_warranty: boolean;
+  original_service_order: string | null;
+  warranty_expiry: string;
+  warranty_active: boolean;
+  pickup_date: string;
+}
+
+export interface CustomerDeviceHistoryResponse {
+  device: CustomerDeviceSummary;
+  items: CustomerDeviceHistoryEntry[];
+  count: number;
 }
 
 export interface CustomerDeviceListResponse {

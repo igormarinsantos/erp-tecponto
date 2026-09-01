@@ -3349,6 +3349,36 @@ def list_customer_devices(query: str = "", limit: int = 12, customer: str = "") 
 
 
 @frappe.whitelist()
+def get_customer_device_history(name: str) -> dict[str, Any]:
+	"""Safe, device-scoped history shown separately from the new check-in."""
+	_require_frontend_role()
+	name = (name or "").strip()
+	if not name or not frappe.db.exists("Customer Device", name):
+		frappe.throw(_("Aparelho não encontrado."), frappe.DoesNotExistError)
+	if is_restricted_technician() and name not in set(frappe.get_all("Service Order", filters={"technician": frappe.session.user}, pluck="customer_device")):
+		frappe.throw(_("Aparelho fora da sua atuação."), frappe.PermissionError)
+	rows = frappe.get_all(
+		"Service Order",
+		filters={"customer_device": name},
+		fields=["name", "entry_date", "workflow_state", "reported_defect", "is_warranty", "original_service_order", "warranty_expiry", "pickup_date"],
+		order_by="entry_date desc",
+		limit_page_length=30,
+	)
+	items = []
+	for row in rows:
+		doc = frappe.get_doc("Service Order", row.name)
+		items.append({
+			**dict(row),
+			"entry_date": str(row.entry_date or ""),
+			"pickup_date": str(row.pickup_date or ""),
+			"warranty_expiry": str(row.warranty_expiry or ""),
+			"services": [service.description or service.item_code for service in (doc.get("services") or [])],
+			"warranty_active": bool(row.warranty_expiry and getdate(row.warranty_expiry) >= getdate(today())),
+		})
+	return {"device": _get_device_detail(name), "items": items, "count": len(items)}
+
+
+@frappe.whitelist()
 def create_customer_device(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
 	_require_checkin_role()
 	data = _parse_payload(payload)

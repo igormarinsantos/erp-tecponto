@@ -42,6 +42,8 @@ export type {
   CreateCustomerDevicePayload,
   CreateCustomerDeviceResponse,
   CustomerDeviceListResponse,
+  CustomerDeviceHistoryEntry,
+  CustomerDeviceHistoryResponse,
   CustomerDeviceSummary,
 	CustomerSearchResponse,
   CustomerSummary,

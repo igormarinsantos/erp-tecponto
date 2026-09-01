@@ -52,6 +52,7 @@ import {
   type CheckinPayload,
   type CheckinResponse,
   type CustomerDeviceSummary,
+  type CustomerDeviceHistoryEntry,
   type CustomerSummary,
   type WarrantyCandidate,
 } from "./api";
@@ -250,6 +251,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
   const [deviceQuery, setDeviceQuery] = useState("");
   const [deviceRows, setDeviceRows] = useState<CustomerDeviceSummary[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<CustomerDeviceSummary | null>(null);
+  const [deviceHistory, setDeviceHistory] = useState<CustomerDeviceHistoryEntry[]>([]);
   const [newDevice, setNewDevice] = useState<NewDeviceForm>(defaultDevice);
   const [deviceMeta, setDeviceMeta] = useState<DeviceMeta>({ type: "Celular" });
   const [deviceMicrostep, setDeviceMicrostep] = useState<DeviceMicrostep>("choice");
@@ -285,6 +287,15 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
       ),
     [serviceSelections],
   );
+
+  useEffect(() => {
+	if (!selectedDevice?.name) { setDeviceHistory([]); return; }
+	let cancelled = false;
+	balcao.getDeviceHistory(selectedDevice.name).then((response) => {
+		if (!cancelled) setDeviceHistory(response.items);
+	}).catch(() => { if (!cancelled) setDeviceHistory([]); });
+	return () => { cancelled = true; };
+  }, [selectedDevice?.name]);
 
   useEffect(() => {
     if (!open) {
@@ -561,6 +572,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
                     onSearch={searchDevices}
                     selectedCustomer={selectedCustomer}
                     selectedDevice={selectedDevice}
+                    deviceHistory={deviceHistory}
                     setDeviceMeta={setDeviceMeta}
                     setDeviceMicrostep={setDeviceMicrostep}
                     setDeviceQuery={setDeviceQuery}
@@ -1162,6 +1174,7 @@ function DeviceStep({
   onSearch,
   selectedCustomer,
   selectedDevice,
+  deviceHistory,
   setDeviceMeta,
   setDeviceMicrostep,
   setDeviceQuery,
@@ -1176,6 +1189,7 @@ function DeviceStep({
   onSearch: () => void;
   selectedCustomer: CustomerSummary | null;
   selectedDevice: CustomerDeviceSummary | null;
+  deviceHistory: CustomerDeviceHistoryEntry[];
   setDeviceMeta: (value: DeviceMeta) => void;
   setDeviceMicrostep: (value: DeviceMicrostep) => void;
   setDeviceQuery: (value: string) => void;
@@ -1185,6 +1199,22 @@ function DeviceStep({
   const updateDevice = (patch: Partial<NewDeviceForm>) => {
     setNewDevice((current) => ({ ...current, ...patch }));
   };
+
+  const historyPanel = selectedDevice && deviceHistory.length ? (
+    <div className="mt-4 rounded-card border border-tec-border/15 bg-tec-panel/50 p-4">
+      <p className="text-sm font-bold text-white">Histórico deste aparelho</p>
+      <div className="mt-3 space-y-2">
+        {deviceHistory.map((entry) => (
+          <div className="rounded-control border border-tec-border/10 bg-tec-field/60 p-3 text-xs" key={entry.name}>
+            <div className="flex flex-wrap justify-between gap-2 font-bold text-white"><span>{entry.name} · {entry.workflow_state}</span><span>{entry.entry_date.slice(0, 10)}</span></div>
+            <p className="mt-1 text-tec-muted">{entry.reported_defect || "Sem defeito informado"}</p>
+            {entry.services.length ? <p className="mt-1 text-tec-muted">Serviços: {entry.services.join(", ")}</p> : null}
+            {entry.warranty_active ? <p className="mt-1 font-semibold text-tec-success">Garantia vigente até {entry.warranty_expiry}</p> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  ) : null;
 
   if (deviceMicrostep === "choice") {
     return (
@@ -1255,8 +1285,9 @@ function DeviceStep({
                   selectedDevice.imei_serial ?? "Sem IMEI",
                   selectedDevice.capacity ?? "Sem capacidade",
                 ]}
-                onClear={() => setSelectedDevice(null)}
-              />
+               onClear={() => setSelectedDevice(null)}
+/>
+              {historyPanel}
               {!selectedDevice.imei_serial ? (
                 <p className="mt-3 rounded-card border border-tec-red/30 bg-tec-red/10 p-3 text-sm text-tec-red">
                   Este aparelho está sem IMEI/serial no cadastro e não pode abrir OS até ser corrigido.
@@ -1447,8 +1478,9 @@ function DeviceStep({
                 selectedDevice.imei_serial ?? "Sem IMEI",
                 selectedDevice.capacity ?? "Sem capacidade",
               ]}
-              onClear={() => setSelectedDevice(null)}
+            onClear={() => setSelectedDevice(null)}
             />
+            {historyPanel}
             {!selectedDevice.imei_serial ? (
               <p className="mt-3 rounded-card border border-tec-red/30 bg-tec-red/10 p-3 text-sm text-tec-red">
                 Este aparelho está sem IMEI/serial no cadastro e não pode abrir OS até ser corrigido.
