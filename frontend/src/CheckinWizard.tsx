@@ -266,6 +266,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
     device_access_credential: "",
     include_initial_budget: false,
     will_power_on_test: false,
+    caminho: "Completo" as "Rápido" | "Completo",
   });
   const [serviceSelections, setServiceSelections] = useState<ServiceSelections>(defaultServiceSelections);
   const [warrantyCandidates, setWarrantyCandidates] = useState<WarrantyCandidate[]>([]);
@@ -469,6 +470,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
         device_access_credential: serviceOrder.device_access_credential.trim(),
         include_initial_budget: serviceOrder.include_initial_budget,
         will_power_on_test: serviceOrder.will_power_on_test,
+        caminho: serviceOrder.caminho,
         is_warranty: Boolean(originalServiceOrder),
         original_service_order: originalServiceOrder || undefined,
       },
@@ -1727,10 +1729,11 @@ function ServiceDataStep({
     device_access_credential: string;
     include_initial_budget: boolean;
     will_power_on_test: boolean;
+    caminho: "Rápido" | "Completo";
   };
 	initialBudgetLines: InitialBudgetLine[];
   setOriginalServiceOrder: (value: string) => void;
-  setServiceOrder: React.Dispatch<React.SetStateAction<{ reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; contact_name: string; contact_phone: string; device_access_type: string; device_access_credential: string; include_initial_budget: boolean; will_power_on_test: boolean }>>;
+  setServiceOrder: React.Dispatch<React.SetStateAction<{ reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; contact_name: string; contact_phone: string; device_access_type: string; device_access_credential: string; include_initial_budget: boolean; will_power_on_test: boolean; caminho: "Rápido" | "Completo" }>>;
 	setInitialBudgetLines: React.Dispatch<React.SetStateAction<InitialBudgetLine[]>>;
   setSelections: (value: ServiceSelections | ((current: ServiceSelections) => ServiceSelections)) => void;
   warrantyCandidates: WarrantyCandidate[];
@@ -1761,6 +1764,10 @@ function ServiceDataStep({
 		  {serviceOrder.device_access_type === "Padrão de desenho" ? null : <Field inputMode={serviceOrder.device_access_type === "PIN" ? "numeric" : "text"} label={serviceOrder.device_access_type === "PIN" ? "PIN do aparelho" : "Senha alfanumérica"} onChange={(value) => setServiceOrder((current) => ({ ...current, device_access_credential: serviceOrder.device_access_type === "PIN" ? value.replace(/\D/g, "") : value }))} placeholder="Dado interno protegido" type="password" value={serviceOrder.device_access_credential} />}
         </div>
 		{serviceOrder.device_access_type === "Padrão de desenho" ? <PatternCredentialInput onChange={(value) => setServiceOrder((current) => ({ ...current, device_access_credential: value }))} value={serviceOrder.device_access_credential} /> : null}
+		<div className="mt-4 grid gap-2 sm:grid-cols-2" role="group" aria-label="Caminho da ordem de serviço">
+		  <button className={`rounded-control border px-4 py-3 text-left ${serviceOrder.caminho === "Rápido" ? "border-tec-success/50 bg-tec-success/10 text-white" : "border-tec-border/20 bg-tec-field text-tec-muted"}`} onClick={() => setServiceOrder((current) => ({ ...current, caminho: "Rápido", include_initial_budget: true }))} type="button"><span className="block font-bold">Já sei o preço</span><span className="mt-1 block text-xs">Caminho rápido: execução e retirada.</span></button>
+		  <button className={`rounded-control border px-4 py-3 text-left ${serviceOrder.caminho === "Completo" ? "border-tec-orange/50 bg-tec-orange/10 text-white" : "border-tec-border/20 bg-tec-field text-tec-muted"}`} onClick={() => setServiceOrder((current) => ({ ...current, caminho: "Completo" }))} type="button"><span className="block font-bold">Precisa avaliar</span><span className="mt-1 block text-xs">Diagnóstico, orçamento e aprovação.</span></button>
+		</div>
 		<button className={`mt-4 w-full rounded-control border px-4 py-3 text-left text-sm ${serviceOrder.include_initial_budget ? "border-tec-success/40 bg-tec-success/10 text-tec-success" : "border-tec-border/20 bg-tec-field text-tec-muted"}`} onClick={() => setServiceOrder((current) => ({ ...current, include_initial_budget: !current.include_initial_budget }))} type="button">
 		  <span className="block font-semibold">{serviceOrder.include_initial_budget ? "Orçamento inicial incluído" : "Incluir orçamento inicial (opcional)"}</span>
 		  <span className="mt-1 block text-xs">Usa o mesmo motor de orçamento da OS, sem criar orçamento paralelo.</span>

@@ -15,11 +15,17 @@
   "customer_device",
   "entry_date",
   "attendant",
+  "caminho",
   "identification_column_break",
   "technician",
   "priority",
   "workflow_state",
   "stage_entered_at",
+  "path_conversion_reason",
+  "path_conversion_new_value",
+  "path_conversion_notes",
+  "path_converted_by",
+  "path_converted_at",
   "entry_section",
   "reported_defect",
   "attendance_notes",
@@ -159,6 +165,15 @@
    "options": "User"
   },
   {
+   "default": "Completo",
+   "fieldname": "caminho",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Caminho da OS",
+   "options": "Rápido\nCompleto",
+   "reqd": 1
+  },
+  {
    "fieldname": "identification_column_break",
    "fieldtype": "Column Break"
   },
@@ -187,6 +202,37 @@
    "fieldtype": "Datetime",
    "hidden": 1,
    "label": "Entrada na etapa",
+   "read_only": 1
+  },
+  {
+   "fieldname": "path_conversion_reason",
+   "fieldtype": "Small Text",
+   "label": "Motivo da conversão para caminho completo",
+   "read_only": 1
+  },
+  {
+   "fieldname": "path_conversion_new_value",
+   "fieldtype": "Currency",
+   "label": "Novo valor após conversão",
+   "read_only": 1
+  },
+  {
+   "fieldname": "path_conversion_notes",
+   "fieldtype": "Text",
+   "label": "Observação da conversão",
+   "read_only": 1
+  },
+  {
+   "fieldname": "path_converted_by",
+   "fieldtype": "Link",
+   "label": "Convertida por",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "path_converted_at",
+   "fieldtype": "Datetime",
+   "label": "Convertida em",
    "read_only": 1
   },
   {

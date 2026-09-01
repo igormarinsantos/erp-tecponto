@@ -1480,6 +1480,14 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 	pricing_default = "Técnico" if operation_shape()["single_operator"] and pricing_available else "Balcão"
 	return {
 		"name": doc.name,
+		"caminho": doc.get("caminho") or "Completo",
+		"path_conversion": {
+			"reason": doc.get("path_conversion_reason"),
+			"new_value": flt(doc.get("path_conversion_new_value")),
+			"notes": doc.get("path_conversion_notes"),
+			"converted_by": doc.get("path_converted_by"),
+			"converted_at": str(doc.get("path_converted_at") or ""),
+		},
 		"workflow_state": doc.get("workflow_state"),
 		"approval_status": doc.get("approval_status"),
 		"approval_deadline": str(doc.get("approval_deadline") or ""),
@@ -2210,6 +2218,9 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.entry_date = now_datetime()
 	order.attendant = frappe.session.user
 	order.workflow_state = "Entrada criada"
+	order.caminho = (data["service_order"].get("caminho") or "Completo").strip()
+	if order.caminho not in {"Rápido", "Completo"}:
+		frappe.throw(_("Escolha se o atendimento já tem preço ou precisa de avaliação."), frappe.ValidationError)
 	order.link_acceptance_required = cint(data["service_order"].get("will_power_on_test"))
 	order.priority = "Normal"
 	order.reported_defect = data["service_order"]["reported_defect"].strip()
@@ -2268,6 +2279,55 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 		"tracking": tracking,
 		"auto_assignment": auto_assignment,
 	}
+
+
+@frappe.whitelist()
+def convert_fast_service_order(name: str, reason: str, new_value: float, notes: str = "") -> dict[str, Any]:
+	"""Atomically convert a priced fast job into the full approval journey."""
+	_require_frontend_role()
+	reason = (reason or "").strip()
+	notes = (notes or "").strip()
+	new_value = flt(new_value)
+	if not reason or new_value <= 0:
+		frappe.throw(_("Informe o motivo e o novo valor da OS."), frappe.ValidationError)
+	roles = set(frappe.get_roles(frappe.session.user))
+	if not roles.intersection({"Tecponto Tecnico", "Tecponto Gestor", "System Manager"}) and frappe.session.user != "Administrator":
+		frappe.throw(_("Somente Técnico ou Gestor pode converter o caminho da OS."), frappe.PermissionError)
+	rows = frappe.db.sql("SELECT name FROM `tabService Order` WHERE name=%s FOR UPDATE", ((name or "").strip(),), as_dict=True)
+	if not rows:
+		frappe.throw(_("Ordem de serviço não encontrada."), frappe.DoesNotExistError)
+	doc = frappe.get_doc("Service Order", rows[0].name)
+	if (doc.get("caminho") or "Completo") != "Rápido" or doc.get("workflow_state") not in {"Entrada criada", "Em reparo"}:
+		frappe.throw(_("Somente uma OS rápida em entrada ou execução pode ser convertida."), frappe.ValidationError)
+	current_total = flt(doc.get("grand_total"))
+	delta = new_value - current_total
+	if delta > 0:
+		from tecponto_app.tecponto.service_order.billing import _get_labor_item
+		doc.append("services", {"item_code": _get_labor_item(), "description": "Ajuste após avaliação técnica", "qty": 1, "rate": delta})
+	elif delta < 0:
+		doc.discount = flt(doc.get("discount")) + abs(delta)
+	doc.caminho = "Completo"
+	doc.path_conversion_reason = reason
+	doc.path_conversion_new_value = new_value
+	doc.path_conversion_notes = notes
+	doc.path_converted_by = frappe.session.user
+	doc.path_converted_at = now_datetime()
+	doc.approval_status = "Pendente"
+	doc.approval_channel = None
+	doc.approval_date = None
+	doc.quote_locked = 0
+	doc.save(ignore_permissions=True)
+	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), "Reorçar")
+	doc.reload()
+	frappe.get_doc({"doctype": "Comment", "comment_type": "Info", "reference_doctype": "Service Order", "reference_name": doc.name, "content": f"Caminho Rápido convertido para Completo por {frappe.session.user}. Motivo: {frappe.utils.escape_html(reason)}. Novo valor: R$ {new_value:.2f}."}).insert(ignore_permissions=True)
+	actor = frappe.session.user
+	try:
+		# Consequência automática da conversão auditada; o motor de envio continua único.
+		frappe.set_user("Administrator")
+		send_service_order_quote(doc.name, {"channel": "WhatsApp", "notes": notes or "Novo valor após avaliação técnica."})
+	finally:
+		frappe.set_user(actor)
+	return get_service_order_detail(doc.name)
 
 
 @frappe.whitelist()

@@ -63,6 +63,7 @@ from tecponto_app.tecponto.frontend.api import (
 	send_service_order_quote,
 	add_catalog_service_to_service_order,
 	create_service_order_checkin,
+	convert_fast_service_order,
 	decide_service_order_budget,
 	list_warranty_candidates,
 	search_service_order_warranties,
@@ -1289,6 +1290,59 @@ def run_os2_checkin_choice_checks() -> dict:
 		if not line or flt(line.qty) != 2 or flt(line.rate) != 75:
 			raise AssertionError("Composição do orçamento inicial não persistiu no orçamento real da OS.")
 		return {"status": "ok", "credential_types": sorted(orders), "initial_budget_persisted": True, "conditional_entry_term": True}
+	finally:
+		frappe.set_user(previous_user)
+
+
+def run_fast_complete_path_checks() -> dict:
+	"""Prove both creation branches and the audited fast-to-full conversion."""
+	previous_user = frappe.session.user
+	try:
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		frappe.set_user(attendant)
+		suffix = frappe.generate_hash(length=8).upper()
+		photo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAghX7JQAAAABJRU5ErkJggg=="
+
+		def create(path: str, index: int) -> str:
+			response = create_service_order_checkin({
+				"customer": {"customer_name": f"Cliente caminho {suffix}-{index}", "mobile_no": "11999998888", "custom_whatsapp": "11999998888", "custom_nao_possui_cpf": 1, "custom_rg": f"RG-{suffix}-{index}"},
+				"device": {"brand": "Teste", "model": f"Caminho-{index}", "imei_serial": f"PATH-{suffix}-{index}"},
+				"service_order": {"caminho": path, "reported_defect": "Serviço de teste", "physical_state": "Sem avarias", "will_power_on_test": False, "include_initial_budget": path == "Rápido"},
+				"initial_budget_lines": ([{"type": "service", "description": "Serviço rápido", "qty": 1, "rate": 100}] if path == "Rápido" else []),
+				"entry_photo": {"data_url": photo, "filename": f"path-{index}.png"},
+			})
+			return response["service_order"]["name"]
+
+		fast = create("Rápido", 1)
+		full = create("Completo", 2)
+		fast_doc = frappe.get_doc("Service Order", fast)
+		full_doc = frappe.get_doc("Service Order", full)
+		if fast_doc.caminho != "Rápido" or fast_doc.workflow_state not in {"Entrada criada", "Em reparo"}:
+			raise AssertionError("Criação rápida não persistiu ou entrou no ramo incorreto.")
+		if full_doc.caminho != "Completo" or full_doc.workflow_state not in {"Entrada criada", "Em diagnóstico"}:
+			raise AssertionError("Criação completa não persistiu ou entrou no ramo incorreto.")
+		from frappe.model.workflow import apply_workflow
+		if fast_doc.workflow_state == "Entrada criada":
+			frappe.db.set_value("Service Order", fast, "technician", technician, update_modified=False)
+			frappe.set_user(technician)
+			apply_workflow(frappe.as_json({"doctype": "Service Order", "name": fast}), "Iniciar execução")
+		if full_doc.workflow_state == "Entrada criada":
+			frappe.db.set_value("Service Order", full, "technician", technician, update_modified=False)
+			frappe.set_user(technician)
+			apply_workflow(frappe.as_json({"doctype": "Service Order", "name": full}), "Em diagnóstico")
+		frappe.set_user(technician)
+		if frappe.db.get_value("Service Order", fast, "workflow_state") != "Em reparo" or frappe.db.get_value("Service Order", full, "workflow_state") != "Em diagnóstico":
+			raise AssertionError("As bifurcações não levaram Rápido à execução e Completo ao diagnóstico.")
+		converted = convert_fast_service_order(fast, "Defeito adicional encontrado", 175, "Cliente precisa aprovar o novo valor.")
+		converted_doc = frappe.get_doc("Service Order", fast)
+		if converted_doc.caminho != "Completo" or converted_doc.workflow_state != "Aguardando aprovação" or flt(converted_doc.path_conversion_new_value) != 175 or flt(converted["totals"]["grand_total"]) != 175:
+			raise AssertionError("Conversão rápida para completa não persistiu caminho, estado e novo valor.")
+		if not frappe.db.exists("Comment", {"reference_doctype": "Service Order", "reference_name": fast, "content": ["like", "%convertido para Completo%"]}):
+			raise AssertionError("Conversão não gerou evento auditado na timeline.")
+		if not frappe.db.exists("Communication", {"reference_doctype": "Service Order", "reference_name": fast, "sent_or_received": "Sent"}):
+			raise AssertionError("Conversão não registrou o aviso do novo valor ao cliente.")
+		return {"status": "ok", "fast_branch": "Em reparo", "complete_branch": "Em diagnóstico", "conversion_state": converted["workflow_state"], "conversion_audited": True}
 	finally:
 		frappe.set_user(previous_user)
 

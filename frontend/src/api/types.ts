@@ -495,6 +495,8 @@ export interface StockTransferResponse {
 
 export interface ServiceOrderDetailResponse {
   name: string;
+  caminho: "Rápido" | "Completo";
+  path_conversion: { reason: string | null; new_value: number; notes: string | null; converted_by: string | null; converted_at: string };
   workflow_state: string | null;
   approval_status: string | null;
   approval_deadline: string;
@@ -945,6 +947,7 @@ export interface CheckinPayload {
     general_state?: string;
   };
   service_order: {
+    caminho?: "Rápido" | "Completo";
     reported_defect: string;
     physical_state: string;
     attendance_notes?: string;

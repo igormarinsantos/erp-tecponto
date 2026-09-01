@@ -3503,6 +3503,7 @@ function ServiceOrderDetail({
         onOpenBudgetEditor={setBudgetLineType}
         onOpenQuoteSend={() => setQuoteSendOpen(true)}
       />
+      <FastPathConversionCard detail={detail} onConverted={(updated) => { setState({ status: "ready", detail: updated }); onToast("OS convertida para o caminho completo; novo valor enviado para aprovação."); }} onToast={onToast} />
 
       <ServiceOrderStageTabs active={activeStageScreen} detail={detail} onChange={setActiveStageScreen} />
 
@@ -3858,6 +3859,24 @@ function TrackingLinkBanner({
   );
 }
 
+function FastPathConversionCard({ detail, onConverted, onToast }: { detail: ServiceOrderDetailResponse; onConverted: (detail: ServiceOrderDetailResponse) => void; onToast: (message: string, tone?: ToastState["tone"]) => void }) {
+  const [busy, setBusy] = useState(false);
+  if (detail.caminho !== "Rápido" || !["Entrada criada", "Em reparo"].includes(detail.workflow_state ?? "")) return null;
+  const convert = async () => {
+    const reason = window.prompt("O que o técnico encontrou além do previsto?")?.trim();
+    if (!reason) return;
+    const rawValue = window.prompt("Qual é o novo valor total para aprovação do cliente?", String(detail.totals.grand_total || ""));
+    const newValue = Number(String(rawValue ?? "").replace(",", "."));
+    if (!Number.isFinite(newValue) || newValue <= 0) { onToast("Informe um novo valor válido.", "error"); return; }
+    const notes = window.prompt("Observação para o cliente (opcional)", "Encontramos um serviço adicional durante a execução.") ?? "";
+    setBusy(true);
+    try { onConverted(await serviceOrders.convertFast(detail.name, reason, newValue, notes)); }
+    catch (caught) { onToast(caught instanceof Error ? caught.message : "Não foi possível converter a OS.", "error"); }
+    finally { setBusy(false); }
+  };
+  return <Card className="border-tec-amber/30 bg-tec-amber/5 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wide text-tec-amber">Caminho rápido</p><p className="mt-1 text-sm text-tec-subtle">Se apareceu algo além do combinado, converta e peça aprovação do novo valor.</p></div><Button disabled={busy} onClick={() => void convert()} variant="secondary">{busy ? "Convertendo..." : "Converter para completo"}</Button></div></Card>;
+}
+
 function TechnicalServiceOrderDetail({
   detail,
   onBack,
@@ -3932,6 +3951,7 @@ function TechnicalServiceOrderDetail({
         showActionsMenu={false}
         showBudgetAction={false}
       />
+      <FastPathConversionCard detail={detail} onConverted={() => void onRefresh("OS convertida para o caminho completo e enviada para aprovação.")} onToast={onToast} />
       <ServiceOrderStageTabs active={activeStageScreen} detail={detail} onChange={setActiveStageScreen} />
 
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -4388,11 +4408,12 @@ function ServiceOrderStageTabs({
   onChange: (screen: ServiceOrderStageScreen) => void;
 }) {
   const current = serviceOrderStageScreenForState(detail.workflow_state);
+  const stageScreens = detail.caminho === "Rápido" ? SERVICE_ORDER_STAGE_SCREENS.filter((stage) => !["diagnostico", "aprovacao"].includes(stage.key)) : SERVICE_ORDER_STAGE_SCREENS;
 
   return (
     <Card className="p-2">
       <nav aria-label="Etapas da ordem de serviço" className="grid gap-1 sm:grid-cols-2 xl:grid-cols-6">
-        {SERVICE_ORDER_STAGE_SCREENS.map(({ key, label, description, icon: Icon }) => {
+        {stageScreens.map(({ key, label, description, icon: Icon }) => {
           const selected = active === key;
           const isCurrent = current === key;
           return (
@@ -5118,15 +5139,21 @@ function StageLineList({ lines, title, type = "service" }: { lines: ServiceOrder
   return <section><div className="mb-3 flex items-center justify-between"><h3 className="text-lg font-bold text-white">{title}</h3><span className="rounded-full bg-tec-field px-2.5 py-1 text-xs font-bold text-tec-muted">{lines.length}</span></div>{lines.length ? <div className="overflow-hidden rounded-card border border-tec-border/15">{lines.map((line, index) => <div className="flex flex-wrap items-center justify-between gap-3 border-b border-tec-border/15 bg-tec-field/45 px-4 py-3 last:border-0" key={line.name ?? `${title}-${index}`}><div className="min-w-0"><p className="font-semibold text-white">{line.description || line.item_code || "Item sem descrição"}</p><p className="mt-1 text-xs text-tec-muted">Qtd. {line.qty.toLocaleString("pt-BR")}{type === "part" && line.outcome ? ` · ${line.outcome}` : ""}</p></div>{type === "part" ? <TechnicalPartStatus line={line} /> : <span className="text-sm font-bold text-tec-subtle">{formatCurrency(line.amount ?? (line.unit_price ?? 0) * line.qty)}</span>}</div>)}</div> : <p className="rounded-card border border-dashed border-tec-border/20 p-4 text-sm text-tec-muted">Nenhum item registrado nesta OS.</p>}</section>;
 }
 
-const SERVICE_ORDER_STEPS = ["Entrada", "Diagnóstico e orçamento", "Aprovação", "Execução", "Retirada"];
+const COMPLETE_SERVICE_ORDER_STEPS = ["Entrada", "Diagnóstico e orçamento", "Aprovação", "Execução", "Pago", "Retirada"];
+const FAST_SERVICE_ORDER_STEPS = ["Entrada / preço", "Execução", "Pago", "Retirada"];
+
+function serviceOrderSteps(detail: ServiceOrderDetailResponse) {
+  return detail.caminho === "Rápido" ? FAST_SERVICE_ORDER_STEPS : COMPLETE_SERVICE_ORDER_STEPS;
+}
 
 function WorkflowStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
-  const activeIndex = serviceOrderStepIndex(detail.workflow_state);
-  const subtitles = serviceOrderStepSubtitles(detail, activeIndex);
+  const steps = serviceOrderSteps(detail);
+  const activeIndex = serviceOrderStepIndex(detail.workflow_state, detail.caminho);
+  const subtitles = serviceOrderStepSubtitles(detail, activeIndex, steps);
 
   return (
     <div className="grid gap-2 p-4 xl:grid-cols-5">
-      {SERVICE_ORDER_STEPS.map((step, index) => {
+      {steps.map((step, index) => {
         const done = index < activeIndex;
         const active = index === activeIndex;
         const StepIcon = workflowStepIcon(index);
@@ -5170,20 +5197,21 @@ function WorkflowStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
 }
 
 function WorkflowSideStepper({ detail }: { detail: ServiceOrderDetailResponse }) {
-  const activeIndex = serviceOrderStepIndex(detail.workflow_state);
-  const subtitles = serviceOrderStepSubtitles(detail, activeIndex);
+  const steps = serviceOrderSteps(detail);
+  const activeIndex = serviceOrderStepIndex(detail.workflow_state, detail.caminho);
+  const subtitles = serviceOrderStepSubtitles(detail, activeIndex, steps);
 
   return (
     <Card className="p-4">
       <p className="text-xs font-bold uppercase tracking-wide text-tec-muted">Etapas do reparo</p>
       <ol className="mt-4 space-y-0">
-        {SERVICE_ORDER_STEPS.map((step, index) => {
+        {steps.map((step, index) => {
           const done = index < activeIndex;
           const active = index === activeIndex;
           const StepIcon = workflowStepIcon(index);
           return (
             <li className="relative flex min-h-12 gap-3 pb-3 last:pb-0" key={step}>
-              {index < SERVICE_ORDER_STEPS.length - 1 ? <span className={cx("absolute left-3.5 top-7 h-[calc(100%-16px)] w-px", done ? "bg-tec-success/50" : "bg-tec-border/30")} /> : null}
+              {index < steps.length - 1 ? <span className={cx("absolute left-3.5 top-7 h-[calc(100%-16px)] w-px", done ? "bg-tec-success/50" : "bg-tec-border/30")} /> : null}
               <span className={cx(
                 "relative z-10 grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold",
                 active ? "bg-tec-orange text-tec-ink shadow-glow" : done ? "bg-tec-success/20 text-tec-success" : "bg-tec-field text-tec-muted",
@@ -5206,7 +5234,13 @@ function workflowStepIcon(index: number) {
   return [ClipboardCheck, SearchIcon, Send, Wrench, Package][index] ?? FileText;
 }
 
-function serviceOrderStepIndex(state: string | null) {
+function serviceOrderStepIndex(state: string | null, path: "Rápido" | "Completo" = "Completo") {
+  if (path === "Rápido") {
+    if (state === "Entrada criada") return 0;
+    if (["Em reparo", "Teste final"].includes(state ?? "")) return 1;
+    if (state === "Pronto para retirada") return 2;
+    return 3;
+  }
   if (state === "Entrada criada") {
     return 0;
   }
@@ -5220,13 +5254,13 @@ function serviceOrderStepIndex(state: string | null) {
     return 3;
   }
   if (["Pronto para retirada", "Entregue", "Cancelado", "Reprovado", "Orçamento expirado", "Sem conserto"].includes(state ?? "")) {
-    return 4;
+    return state === "Pronto para retirada" ? 4 : 5;
   }
   return 1;
 }
 
-function serviceOrderStepSubtitles(detail: ServiceOrderDetailResponse, activeIndex: number) {
-  return SERVICE_ORDER_STEPS.map((step, index) => {
+function serviceOrderStepSubtitles(detail: ServiceOrderDetailResponse, activeIndex: number, steps: string[]) {
+  return steps.map((step, index) => {
     if (step === "Entrada") {
       return formatDate(detail.entry_date);
     }

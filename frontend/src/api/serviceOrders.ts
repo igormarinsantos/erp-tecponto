@@ -38,6 +38,9 @@ export interface ServiceOrderQueryParams extends Record<string, string | number 
 }
 
 export const serviceOrders = {
+	convertFast(name: string, reason: string, newValue: number, notes = "") {
+		return rpc<ServiceOrderDetailResponse>(`${API}.convert_fast_service_order`, { body: { name, reason, new_value: newValue, notes } });
+	},
 	technicalBudget(name: string) {
 		return rpc<TechnicalBudgetResponse>(`${TECHNICAL_BUDGET_API}.get_budget`, { query: { name } });
 	},

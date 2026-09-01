@@ -12,11 +12,37 @@ MANAGER_ROLES = {"Tecponto Gestor", "System Manager"}
 
 
 def validate_repare_rules(doc, method=None) -> None:
+	_validate_path(doc)
 	_validate_warranty(doc)
 	_validate_sinal(doc)
 	_validate_billed_cancellation(doc)
 	_validate_diagnosis_handoff(doc)
 	_validate_budget_submission(doc)
+	_validate_rapid_execution(doc)
+
+
+def _validate_path(doc) -> None:
+	path = doc.get("caminho") or "Completo"
+	if path not in {"Rápido", "Completo"}:
+		frappe.throw("Caminho da OS inválido.")
+	if doc.is_new():
+		doc.caminho = path
+		return
+	previous = doc.get_doc_before_save()
+	if previous and previous.get("caminho") == "Rápido" and path == "Completo" and not doc.get("path_conversion_reason"):
+		frappe.throw("Converta a OS rápida pelo fluxo auditado, informando o motivo.")
+	if previous and previous.get("caminho") == "Completo" and path == "Rápido":
+		frappe.throw("Uma OS completa não pode voltar ao caminho rápido.")
+
+
+def _validate_rapid_execution(doc) -> None:
+	if doc.get("workflow_state") != "Em reparo" or (doc.get("caminho") or "Completo") != "Rápido":
+		return
+	previous = doc.get_doc_before_save() if not doc.is_new() else None
+	if not previous or previous.get("workflow_state") != "Entrada criada":
+		return
+	if not _has_identified_budget_line(doc):
+		frappe.throw("Caminho rápido exige preço e ao menos um serviço ou peça antes da execução.")
 
 
 def _validate_diagnosis_handoff(doc) -> None:

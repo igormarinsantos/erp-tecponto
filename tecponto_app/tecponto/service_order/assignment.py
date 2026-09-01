@@ -71,9 +71,10 @@ def advance_auto_assigned_entry(service_order: str) -> bool:
 		# Administrator supplies workflow authority; document hooks still enforce
 		# photo, acceptance, biometrics and every lifecycle gate.
 		frappe.set_user("Administrator")
+		path = frappe.db.get_value("Service Order", service_order, "caminho") or "Completo"
 		apply_workflow(
 			frappe.as_json({"doctype": "Service Order", "name": service_order}),
-			"Em diagnóstico",
+			"Iniciar execução" if path == "Rápido" else "Em diagnóstico",
 		)
 		return True
 	except (frappe.ValidationError, frappe.PermissionError):
@@ -168,7 +169,7 @@ def _change(service_order: str, technician: str, actor: str, event_type: str, ob
 		if event_type == "Claim" and row.workflow_state == "Entrada criada":
 			apply_workflow(
 				frappe.as_json({"doctype": doc.doctype, "name": doc.name}),
-				"Em diagnóstico",
+				"Iniciar execução" if (doc.get("caminho") or "Completo") == "Rápido" else "Em diagnóstico",
 			)
 		audit = frappe.get_doc({
 			"doctype": AUDIT_DOCTYPE,
