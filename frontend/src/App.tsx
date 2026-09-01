@@ -5954,6 +5954,12 @@ function BudgetLineModal({
     }
     let cancelled = false;
     setLoadingItems(true);
+    if (lineType === "service" && serviceEntryMode === "manual") {
+      setLoadingItems(false);
+      setItems([]);
+      setCatalogItems([]);
+      return;
+    }
     const request = lineType === "service" && serviceEntryMode === "catalog"
       ? serviceCatalog.list(query).then((response) => ({ catalog: response.items, items: [] as BudgetItemSummary[] }))
       : serviceOrders.searchBudgetItems(query, lineType).then((response) => ({ catalog: [] as ServiceCatalogService[], items: response.items }));
@@ -6016,7 +6022,7 @@ function BudgetLineModal({
   const parsedQty = Number(qty.replace(",", "."));
   const parsedRate = Number(rate.replace(",", "."));
   const parsedDuration = Number(duration.replace(",", "."));
-  const canSubmit = (isService && serviceEntryMode === "catalog" ? Boolean(selectedCatalogService) : customerSuppliedPart ? Boolean(description.trim()) : Boolean(selectedItem)) && parsedQty > 0 && parsedRate >= 0 && (serviceEntryMode !== "catalog" || !duration || parsedDuration >= 0) && (isService || customerSuppliedPart || Boolean(warehouse));
+  const canSubmit = (isService ? (serviceEntryMode === "catalog" ? Boolean(selectedCatalogService) : Boolean(description.trim())) : customerSuppliedPart ? Boolean(description.trim()) : Boolean(selectedItem)) && parsedQty > 0 && parsedRate >= 0 && (serviceEntryMode !== "catalog" || !duration || parsedDuration >= 0) && (isService || customerSuppliedPart || Boolean(warehouse));
 
   function selectItem(item: BudgetItemSummary) {
     setSelectedItem(item);
@@ -6041,7 +6047,7 @@ function BudgetLineModal({
       setError("Selecione um serviço do catálogo ou use Serviço avulso.");
       return;
     }
-    if ((!isService || serviceEntryMode === "manual") && !selectedItem && !customerSuppliedPart) {
+    if (!isService && !selectedItem && !customerSuppliedPart) {
       setError("Selecione um item para o orçamento.");
       return;
     }
@@ -6062,7 +6068,7 @@ function BudgetLineModal({
           })
         : await serviceOrders.addBudgetLine(detail.name, {
             description: description.trim(),
-						item_code: customerSuppliedPart ? undefined : selectedItem!.item_code,
+						item_code: isService || customerSuppliedPart ? undefined : selectedItem!.item_code,
             qty: parsedQty,
             rate: parsedRate,
             type: activeLineType,
@@ -6097,7 +6103,7 @@ function BudgetLineModal({
               <button className={cx("flex-1 rounded-control px-3 py-2 text-sm font-bold transition", serviceEntryMode === "manual" ? "bg-tec-orange text-tec-ink" : "text-tec-subtle hover:text-white")} onClick={() => setServiceEntryMode("manual")} type="button">Serviço avulso</button>
             </div>
           ) : null}
-          <label className="block">
+          {!(isService && serviceEntryMode === "manual") ? <><label className="block">
             <span className="mb-2 block text-xs font-bold uppercase text-tec-muted">{isService && serviceEntryMode === "catalog" ? "Buscar no catálogo" : "Buscar item"}</span>
             <input
               autoFocus
@@ -6146,13 +6152,13 @@ function BudgetLineModal({
             ) : (
               <p className="p-4 text-sm font-semibold text-tec-subtle">{isService && serviceEntryMode === "catalog" ? "Nenhum serviço no catálogo. Use Serviço avulso para não interromper o atendimento." : "Nenhum item encontrado para esse tipo."}</p>
             )}
-          </div>
+          </div></> : <div className="rounded-card border border-tec-blue/25 bg-tec-blue/10 p-4 text-sm text-tec-subtle">Digite a descrição e o valor ao lado. O motor usa o item interno de mão de obra automaticamente.</div>}
         </section>
 
         <aside className="space-y-4 rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
           <div>
             <p className="text-xs font-bold uppercase text-tec-muted">Linha selecionada</p>
-            <p className="mt-1 text-lg font-bold text-white">{selectedCatalogService?.service_name ?? selectedItem?.item_name ?? "Nenhum item"}</p>
+            <p className="mt-1 text-lg font-bold text-white">{selectedCatalogService?.service_name ?? selectedItem?.item_name ?? (isService && serviceEntryMode === "manual" ? description || "Serviço avulso" : "Nenhum item")}</p>
       <p className="mt-1 text-xs text-tec-muted">{budgetLineTypeDescription(activeLineType)}</p>
           </div>
 

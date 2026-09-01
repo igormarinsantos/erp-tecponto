@@ -1297,6 +1297,9 @@ def run_fast_complete_path_checks() -> dict:
 
 		fast = create("Rápido", 1)
 		full = create("Completo", 2)
+		manual = add_service_order_budget_line(full, {"type": "service", "description": "Serviço avulso livre", "qty": 1, "rate": 80})
+		if not any(line.get("description") == "Serviço avulso livre" and line.get("unit_price") == 80 for line in manual["services"]):
+			raise AssertionError("Serviço avulso livre não persistiu no orçamento da OS.")
 		fast_doc = frappe.get_doc("Service Order", fast)
 		full_doc = frappe.get_doc("Service Order", full)
 		if fast_doc.caminho != "Rápido" or fast_doc.workflow_state not in {"Entrada criada", "Em reparo"}:
