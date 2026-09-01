@@ -1429,22 +1429,26 @@ def run_os4_approval_and_quotes_crm_checks() -> dict:
 			raise AssertionError("Decisão de reprovação não moveu o estado da OS para Reprovado.")
 
 		# Em andamento é definido exclusivamente pela retirada física.
-		crm_in_progress = get_quotes_crm_panel(status="in_progress")
+		crm_in_progress = get_quotes_crm_panel(status="rejected", in_progress=True)
 		if not any(item["name"] == order_name_2 for item in crm_in_progress["items"]):
 			raise AssertionError("OS recusada sem retirada saiu indevidamente de Em andamento no CRM.")
-		list_in_progress = list_service_orders(status="in_progress", limit=100)
+		list_in_progress = list_service_orders(status="Reprovado", in_progress=True, limit=100)
 		if not any(item["name"] == order_name_2 for item in list_in_progress["items"]):
 			raise AssertionError("OS recusada sem retirada saiu indevidamente da lista Em andamento.")
-		kanban_in_progress = get_service_order_kanban(status="in_progress", limit_per_column=40)
+		kanban_in_progress = get_service_order_kanban(status="Reprovado", in_progress=True, limit_per_column=40)
 		if not any(item["name"] == order_name_2 for column in kanban_in_progress["columns"] for item in column["items"]):
 			raise AssertionError("OS recusada sem retirada saiu indevidamente da Mesa Em andamento.")
 		frappe.db.set_value("Service Order", order_name_2, "pickup_date", now_datetime(), update_modified=False)
-		if any(item["name"] == order_name_2 for item in get_quotes_crm_panel(status="in_progress")["items"]):
+		if any(item["name"] == order_name_2 for item in get_quotes_crm_panel(status="rejected", in_progress=True)["items"]):
 			raise AssertionError("OS retirada continuou indevidamente em andamento no CRM.")
-		if any(item["name"] == order_name_2 for item in list_service_orders(status="in_progress", limit=100)["items"]):
+		if any(item["name"] == order_name_2 for item in list_service_orders(status="Reprovado", in_progress=True, limit=100)["items"]):
 			raise AssertionError("OS retirada continuou indevidamente na lista Em andamento.")
-		if any(item["name"] == order_name_2 for column in get_service_order_kanban(status="in_progress", limit_per_column=40)["columns"] for item in column["items"]):
+		if any(item["name"] == order_name_2 for column in get_service_order_kanban(status="Reprovado", in_progress=True, limit_per_column=40)["columns"] for item in column["items"]):
 			raise AssertionError("OS retirada continuou indevidamente na Mesa Em andamento.")
+		if not any(item["name"] == order_name_2 for item in get_quotes_crm_panel(status="rejected", in_progress=False)["items"]):
+			raise AssertionError("Período/histórico do CRM não incluiu a OS retirada com o status combinado.")
+		if not any(item["name"] == order_name_2 for item in list_service_orders(status="Reprovado", in_progress=False, limit=100)["items"]):
+			raise AssertionError("Período/histórico da lista não incluiu a OS retirada com o status combinado.")
 
 		return {
 			"status": "ok",

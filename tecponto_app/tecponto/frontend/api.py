@@ -935,6 +935,7 @@ def list_service_orders(
 	limit: int = 20,
 	query: str | None = None,
 	status: str | None = None,
+	in_progress: int | bool | str | None = True,
 	from_date: str | None = None,
 	to_date: str | None = None,
 ) -> dict[str, Any]:
@@ -943,6 +944,7 @@ def list_service_orders(
 	filters, or_filters = _service_order_search_filters(
 		query=query,
 		status=status,
+		in_progress=in_progress,
 		from_date=from_date,
 		to_date=to_date,
 	)
@@ -1341,14 +1343,18 @@ def get_service_order_kanban(
 	limit_per_column: int = 18,
 	query: str | None = None,
 	status: str | None = None,
+	in_progress: int | bool | str | None = True,
 	from_date: str | None = None,
 	to_date: str | None = None,
 ) -> dict[str, Any]:
 	_require_frontend_role()
 	limit = max(1, min(int(limit_per_column or 18), 40))
 	columns = []
+	legacy_in_progress = status == "in_progress"
+	selected_status = "all" if legacy_in_progress else status
+	in_progress_only = legacy_in_progress if in_progress is None else str(in_progress).strip().lower() in {"1", "true", "yes"}
 	for state in get_service_order_workflow_state_names():
-		if status and status not in {"all", "in_progress"} and status != state:
+		if selected_status and selected_status != "all" and selected_status != state:
 			items = []
 			count = 0
 		else:
@@ -1358,7 +1364,7 @@ def get_service_order_kanban(
 				from_date=from_date,
 				to_date=to_date,
 			)
-			if status == "in_progress":
+			if in_progress_only:
 				filters["pickup_date"] = ["is", "not set"]
 			filters = _with_service_order_scope(filters)
 			items = frappe.get_list(
@@ -2457,28 +2463,26 @@ def record_quote_follow_up(
 
 @frappe.whitelist()
 def get_quotes_crm_panel(
-	status: str = "in_progress",
+	status: str = "all",
 	channel: str = "all",
 	query: str = "",
 	limit: int = 50,
+	in_progress: int | bool | str | None = True,
+	from_date: str = "",
+	to_date: str = "",
 ) -> dict[str, Any]:
 	"""CRM pipeline projection for service order quotes without leaking costs."""
 	_require_frontend_role()
 	limit = max(1, min(int(limit or 50), 100))
 
-	filters: dict[str, Any] = {}
-	if status in {"", "in_progress"}:
-		filters["pickup_date"] = ["is", "not set"]
-	if status == "pending":
-		filters["workflow_state"] = STATE_AGUARDANDO_APROVACAO
-	elif status == "approved":
-		filters["approval_status"] = APPROVAL_STATUS_APROVADO
-	elif status == "rejected":
-		filters["approval_status"] = APPROVAL_STATUS_REPROVADO
-	elif status == "expired":
-		filters["workflow_state"] = "Orçamento expirado"
-	else:
-		filters["workflow_state"] = [
+	status = (status or "all").strip()
+	legacy_in_progress = status == "in_progress"
+	in_progress_only = legacy_in_progress if in_progress is None else str(in_progress).strip().lower() in {"1", "true", "yes"}
+	if legacy_in_progress:
+		status = "all"
+
+	filters: dict[str, Any] = {
+		"workflow_state": [
 			"in",
 			[
 				STATE_AGUARDANDO_APROVACAO,
@@ -2491,7 +2495,27 @@ def get_quotes_crm_panel(
 				STATE_PRONTO_RETIRADA,
 				STATE_ENTREGUE,
 			],
-		]
+		],
+	}
+	if in_progress_only:
+		filters["pickup_date"] = ["is", "not set"]
+	if status == "pending":
+		filters["workflow_state"] = STATE_AGUARDANDO_APROVACAO
+	elif status == "approved":
+		filters["approval_status"] = APPROVAL_STATUS_APROVADO
+	elif status == "rejected":
+		filters["approval_status"] = APPROVAL_STATUS_REPROVADO
+	elif status == "expired":
+		filters["workflow_state"] = "Orçamento expirado"
+
+	from_date = (from_date or "").strip()
+	to_date = (to_date or "").strip()
+	if from_date and to_date:
+		filters["modified"] = ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]
+	elif from_date:
+		filters["modified"] = [">=", f"{from_date} 00:00:00"]
+	elif to_date:
+		filters["modified"] = ["<=", f"{to_date} 23:59:59"]
 
 	if channel and channel != "all":
 		filters["approval_channel"] = channel
@@ -3891,16 +3915,19 @@ def list_stock_items(query: str = "", limit: int = 12, scope: str = "parts-stock
 def _service_order_search_filters(
 	query: str | None = None,
 	status: str | None = None,
+	in_progress: int | bool | str | None = None,
 	from_date: str | None = None,
 	to_date: str | None = None,
 ) -> tuple[dict[str, Any], list[list[str]]]:
 	filters: dict[str, Any] = {}
 	or_filters: list[list[str]] = []
 
-	status = (status or "in_progress").strip()
-	if status == "in_progress":
+	status = (status or "").strip()
+	legacy_in_progress = status == "in_progress"
+	in_progress_only = (not status or legacy_in_progress) if in_progress is None else str(in_progress).strip().lower() in {"1", "true", "yes"}
+	if in_progress_only:
 		filters["pickup_date"] = ["is", "not set"]
-	elif status and status != "all":
+	if status and status not in {"all", "in_progress"}:
 		filters["workflow_state"] = status
 
 	from_date = (from_date or "").strip()

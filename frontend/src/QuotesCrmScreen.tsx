@@ -36,6 +36,21 @@ function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value.replace(" ", "T")));
 }
 
+type CrmPeriodMode = "none" | "7d" | "14d" | "custom";
+
+function formatDateParam(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function crmPeriodParams(mode: CrmPeriodMode, fromDate: string, toDate: string) {
+  if (mode === "none") return {};
+  if (mode === "custom") return { from_date: fromDate || undefined, to_date: toDate || undefined };
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - (mode === "14d" ? 13 : 6));
+  return { from_date: formatDateParam(start), to_date: formatDateParam(end) };
+}
+
 function readPrivateEvidence(file: File) {
   const allowed = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
   if (!allowed.includes(file.type)) throw new Error("Envie uma foto, imagem ou PDF.");
@@ -77,7 +92,10 @@ export function QuotesCrmScreen({
 }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<QuotesCrmResponse | null>(null);
-  const [statusFilter, setStatusFilter] = useState("in_progress");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [periodMode, setPeriodMode] = useState<CrmPeriodMode>("none");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
   const [openActionsOrder, setOpenActionsOrder] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -99,6 +117,8 @@ export function QuotesCrmScreen({
       const res = await serviceOrders.quotesCrm({
         status: statusFilter !== "all" ? statusFilter : undefined,
         query: searchQuery.trim() || undefined,
+		in_progress: periodMode === "none",
+		...crmPeriodParams(periodMode, fromDate, toDate),
       });
       setData(res);
     } catch (error) {
@@ -106,7 +126,7 @@ export function QuotesCrmScreen({
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, searchQuery, onToast]);
+  }, [statusFilter, periodMode, fromDate, toDate, searchQuery, onToast]);
 
   useEffect(() => {
     void loadData();
@@ -231,11 +251,34 @@ export function QuotesCrmScreen({
 
       {/* Filters & Search */}
       <Card className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-tec-border/15 pb-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-tec-subtle">Recorte</p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {periodMode === "none" ? "Aparelhos na loja" : "Histórico por período"}
+              </p>
+              <p className="mt-0.5 text-xs text-tec-muted">
+                {periodMode === "none" ? "Padrão: sai somente quando a retirada é registrada." : "Inclui orçamentos de aparelhos já retirados."}
+              </p>
+            </div>
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <div className="flex rounded-control border border-tec-border/40 bg-tec-field/50 p-1" aria-label="Modo de visualização">
+                <button aria-label="Visualização em grid" className={`rounded px-2 py-1 ${viewMode === "grid" ? "bg-tec-orange text-white" : "text-tec-muted"}`} onClick={() => setViewMode("grid")} type="button"><LayoutGrid size={16} /></button>
+                <button aria-label="Visualização em linha" className={`rounded px-2 py-1 ${viewMode === "list" ? "bg-tec-orange text-white" : "text-tec-muted"}`} onClick={() => setViewMode("list")} type="button"><List size={16} /></button>
+              </div>
+              <div className="relative flex-1 sm:w-80">
+                <input type="text" placeholder="Buscar por cliente, aparelho ou OS..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void loadData(); }} className="tp-input w-full pr-8" />
+                <Search className="absolute right-2.5 top-2.5 text-tec-muted" size={15} />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-tec-subtle">Status do orçamento</p>
+            <div className="flex flex-wrap items-center gap-2">
             {[
-              { id: "in_progress", label: "Em andamento" },
-              { id: "all", label: "Todos" },
+              { id: "all", label: "Todos os status" },
               { id: "pending", label: "Pendentes" },
               { id: "approved", label: "Aprovados" },
               { id: "rejected", label: "Recusados" },
@@ -254,22 +297,21 @@ export function QuotesCrmScreen({
                 {tab.label}
               </button>
             ))}
-          </div>
-          <div className="flex w-full items-center gap-2 sm:w-auto">
-            <div className="flex rounded-control border border-tec-border/40 bg-tec-field/50 p-1" aria-label="Modo de visualização">
-              <button aria-label="Visualização em grid" className={`rounded px-2 py-1 ${viewMode === "grid" ? "bg-tec-orange text-white" : "text-tec-muted"}`} onClick={() => setViewMode("grid")} type="button"><LayoutGrid size={16} /></button>
-              <button aria-label="Visualização em linha" className={`rounded px-2 py-1 ${viewMode === "list" ? "bg-tec-orange text-white" : "text-tec-muted"}`} onClick={() => setViewMode("list")} type="button"><List size={16} /></button>
             </div>
-            <div className="relative flex-1 sm:w-80">
-              <input
-                type="text"
-                placeholder="Buscar por cliente, aparelho ou OS..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") void loadData(); }}
-                className="tp-input w-full pr-8"
-              />
-              <Search className="absolute right-2.5 top-2.5 text-tec-muted" size={15} />
+          </div>
+
+          <div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-bold uppercase tracking-wide text-tec-subtle">Período opcional</p>
+              {periodMode !== "none" ? <button className="text-xs font-bold text-tec-orange" onClick={() => { setPeriodMode("none"); setFromDate(""); setToDate(""); }} type="button">Remover período</button> : null}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {([{"id":"7d","label":"Últimos 7 dias"},{"id":"14d","label":"Últimos 14 dias"},{"id":"custom","label":"Personalizado"}] as Array<{id: CrmPeriodMode; label: string}>).map((option) => <button className={`rounded-control px-3 py-1.5 text-xs font-bold ${periodMode === option.id ? "bg-tec-orange text-white" : "border border-tec-border/30 text-tec-subtle"}`} key={option.id} onClick={() => setPeriodMode(option.id)} type="button">{option.label}</button>)}
+              {periodMode === "custom" ? <>
+                <input aria-label="Data inicial do CRM" className="tp-input w-auto" onChange={(event) => setFromDate(event.target.value)} type="date" value={fromDate} />
+                <span className="text-xs text-tec-muted">até</span>
+                <input aria-label="Data final do CRM" className="tp-input w-auto" onChange={(event) => setToDate(event.target.value)} type="date" value={toDate} />
+              </> : null}
             </div>
           </div>
         </div>

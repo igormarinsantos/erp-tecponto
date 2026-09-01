@@ -30,6 +30,7 @@ const TECHNICAL_BUDGET_API = "tecponto_app.tecponto.technical_budget";
 
 export interface ServiceOrderQueryParams extends Record<string, string | number | boolean | undefined> {
   from_date?: string;
+  in_progress?: boolean;
   limit?: number;
   query?: string;
   status?: string;
@@ -181,7 +182,7 @@ export const serviceOrders = {
       body: { name, channel, result, notes },
     });
   },
-  quotesCrm(params: { status?: string; channel?: string; query?: string; limit?: number } = {}) {
+  quotesCrm(params: { status?: string; channel?: string; query?: string; limit?: number; in_progress?: boolean; from_date?: string; to_date?: string } = {}) {
     return rpc<QuotesCrmResponse>(`${API}.get_quotes_crm_panel`, {
       query: params,
     });

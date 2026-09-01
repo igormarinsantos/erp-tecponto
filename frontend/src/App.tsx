@@ -194,8 +194,8 @@ interface TecpontoContextMenuState {
   x: number;
   y: number;
 }
-type QueueFilter = "all" | "in_progress" | "Aguardando aprovação" | "Entrada criada" | "Em diagnóstico" | "Diagnosticado — aguardando orçamento" | "Aguardando peça" | "Em reparo" | "Teste final" | "Pronto para retirada" | "Entregue" | "Reprovado";
-type DashboardPeriodMode = "7d" | "14d" | "custom";
+type QueueFilter = "all" | "Aguardando aprovação" | "Entrada criada" | "Em diagnóstico" | "Diagnosticado — aguardando orçamento" | "Aprovado" | "Aguardando peça" | "Em reparo" | "Teste final" | "Pronto para retirada" | "Entregue" | "Reprovado";
+type DashboardPeriodMode = "none" | "7d" | "14d" | "custom";
 
 function commercialName() {
   return window.tecpontoBoot?.identity?.display_name || "Empresa";
@@ -223,7 +223,7 @@ const BARCODE_MIN_LENGTH = 6;
 const BARCODE_KEY_INTERVAL_MS = 100;
 const DEFAULT_DASHBOARD_PERIOD: DashboardPeriodFilter = {
   fromDate: "",
-  mode: "7d",
+  mode: "none",
   toDate: "",
 };
 const DEFAULT_SERVICE_ORDER_FILTERS: ServiceOrderFilterState = {
@@ -231,11 +231,10 @@ const DEFAULT_SERVICE_ORDER_FILTERS: ServiceOrderFilterState = {
   period: DEFAULT_DASHBOARD_PERIOD,
 	priority: "all",
   query: "",
-  status: "in_progress",
+  status: "all",
 };
 const QUEUE_FILTERS: Array<{ label: string; value: QueueFilter }> = [
-  { label: "Em andamento", value: "in_progress" },
-  { label: "Todos", value: "all" },
+  { label: "Todos os status", value: "all" },
   { label: "Aguardando aprovação", value: "Aguardando aprovação" },
   { label: "Aguardando orçamento", value: "Diagnosticado — aguardando orçamento" },
   { label: "Entrada criada", value: "Entrada criada" },
@@ -2886,8 +2885,8 @@ function ServiceOrderFilterBar({
       onClear={resetFilters}
       onSelect={(status) => onChange({ ...filters, status: status as QueueFilter })}
       onSecondarySelect={(mode) => updatePeriodMode(mode as DashboardPeriodMode)}
-      secondaryActive={filters.status === "in_progress" ? undefined : filters.period.mode}
-      secondaryFilters={filters.status === "in_progress" ? undefined : DASHBOARD_PERIOD_OPTIONS.map((option) => ({ key: option.value, label: option.label }))}
+      secondaryActive={filters.period.mode === "none" ? undefined : filters.period.mode}
+      secondaryFilters={DASHBOARD_PERIOD_OPTIONS.map((option) => ({ key: option.value, label: option.label }))}
       primary={<>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0 flex-1 space-y-3">
@@ -2904,14 +2903,17 @@ function ServiceOrderFilterBar({
 
             <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-tec-muted">
               <span>{resultCount} OS no recorte</span>
-				{filters.status === "in_progress" ? <span>Todo o período · sai somente na retirada</span> : null}
+				{filters.period.mode === "none"
+					? <span>Recorte padrão: aparelhos na loja · sai somente na retirada</span>
+					: <span>Histórico pelo período selecionado · inclui retiradas</span>}
             </div>
+			<p className="pt-1 text-xs font-bold uppercase tracking-wide text-tec-subtle">Status da OS</p>
           </div>
         </div>
       </>}
     >
 				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-					{filters.status !== "in_progress" && filters.period.mode === "custom" ? <div className="sm:col-span-2 xl:col-span-3">
+					{filters.period.mode === "custom" ? <div className="sm:col-span-2 xl:col-span-3">
 						<span className="mb-2 inline-flex items-center gap-2 text-xs font-semibold text-tec-muted"><Clock3 size={14} />Periodo personalizado</span>
 						<div className="flex flex-wrap items-center gap-2">
 							<input aria-label="Data inicial do filtro de OS" className="h-9 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-semibold text-tec-text outline-none focus:border-tec-orange/70" onChange={(event) => onChange({ ...filters, period: { ...filters.period, fromDate: event.target.value } })} type="date" value={filters.period.fromDate} />
@@ -9313,14 +9315,13 @@ function filterOrdersByDashboardPeriod(orders: ServiceOrderSummary[], filter: Da
 }
 
 function filterOrdersForServiceOrderScreen(orders: ServiceOrderSummary[], filters: ServiceOrderFilterState) {
-	const periodFilteredOrders = filters.status === "in_progress"
-		? orders
-		: filterOrdersByDashboardPeriod(orders, filters.period);
+	const showingStoreInventory = filters.period.mode === "none";
+	const periodFilteredOrders = showingStoreInventory ? orders : filterOrdersByDashboardPeriod(orders, filters.period);
   return periodFilteredOrders.filter((order) => {
-	if (filters.status === "in_progress" && order.pickup_date) {
+	if (showingStoreInventory && order.pickup_date) {
 		return false;
 	}
-    if (filters.status !== "all" && filters.status !== "in_progress" && order.workflow_state !== filters.status) {
+    if (filters.status !== "all" && order.workflow_state !== filters.status) {
       return false;
     }
 		if (filters.priority !== "all" && order.priority !== filters.priority) {
@@ -9342,15 +9343,14 @@ function toServiceOrderQueryParams(filters: ServiceOrderFilterState, limit: numb
   if (query) {
     params.query = query;
   }
-  if (filters.status === "in_progress") {
-	params.status = "in_progress";
-  } else if (filters.status !== "all") {
+  params.in_progress = filters.period.mode === "none";
+  if (filters.status !== "all") {
     params.status = filters.status;
   }
 
   // Physical custody defines in-progress: no date window may hide an order
   // whose device has not been picked up.
-  if (filters.status !== "in_progress") {
+  if (filters.period.mode !== "none") {
     if (filters.period.mode === "custom") {
       if (filters.period.fromDate) {
         params.from_date = filters.period.fromDate;
@@ -9401,6 +9401,9 @@ function normalizeSearchText(value: string) {
 }
 
 function getDashboardPeriodBounds(filter: DashboardPeriodFilter) {
+  if (filter.mode === "none") {
+    return null;
+  }
   const now = new Date();
   const end = endOfDay(filter.mode === "custom" && filter.toDate ? parseDateInput(filter.toDate) : now);
   let start: Date | null;

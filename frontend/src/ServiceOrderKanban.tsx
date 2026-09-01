@@ -15,7 +15,7 @@ import { cx } from "./ui/utils";
 
 type ToastTone = "success" | "error";
 type WorkflowFlow = "approve" | "reject" | "pickup";
-type KanbanPeriodMode = "7d" | "14d" | "custom";
+type KanbanPeriodMode = "none" | "7d" | "14d" | "custom";
 
 export interface ServiceOrderKanbanFilters {
   period: {
@@ -694,6 +694,9 @@ function formatDate(value: string) {
 }
 
 function matchesKanbanFilters(item: ServiceOrderSummary, filters: ServiceOrderKanbanFilters) {
+  if (filters.period.mode === "none" && item.pickup_date) {
+    return false;
+  }
   if (filters.status !== "all" && item.workflow_state !== filters.status) {
     return false;
   }
@@ -736,7 +739,11 @@ function toKanbanQueryParams(filters: ServiceOrderKanbanFilters): ServiceOrderQu
   if (filters.status !== "all") {
     params.status = filters.status;
   }
+  params.in_progress = filters.period.mode === "none";
 
+  if (filters.period.mode === "none") {
+    return params;
+  }
   if (filters.period.mode === "custom") {
     if (filters.period.fromDate) {
       params.from_date = filters.period.fromDate;
@@ -756,6 +763,9 @@ function toKanbanQueryParams(filters: ServiceOrderKanbanFilters): ServiceOrderQu
 }
 
 function getKanbanPeriodBounds(period: ServiceOrderKanbanFilters["period"]) {
+  if (period.mode === "none") {
+    return null;
+  }
   const now = new Date();
   const end = endOfKanbanDay(period.mode === "custom" && period.toDate ? parseKanbanDateInput(period.toDate) : now);
   let start: Date | null;
