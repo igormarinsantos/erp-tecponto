@@ -2886,8 +2886,8 @@ function ServiceOrderFilterBar({
       onClear={resetFilters}
       onSelect={(status) => onChange({ ...filters, status: status as QueueFilter })}
       onSecondarySelect={(mode) => updatePeriodMode(mode as DashboardPeriodMode)}
-      secondaryActive={filters.period.mode}
-      secondaryFilters={DASHBOARD_PERIOD_OPTIONS.map((option) => ({ key: option.value, label: option.label }))}
+      secondaryActive={filters.status === "in_progress" ? undefined : filters.period.mode}
+      secondaryFilters={filters.status === "in_progress" ? undefined : DASHBOARD_PERIOD_OPTIONS.map((option) => ({ key: option.value, label: option.label }))}
       primary={<>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0 flex-1 space-y-3">
@@ -2904,13 +2904,14 @@ function ServiceOrderFilterBar({
 
             <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-tec-muted">
               <span>{resultCount} OS no recorte</span>
+				{filters.status === "in_progress" ? <span>Todo o período · sai somente na retirada</span> : null}
             </div>
           </div>
         </div>
       </>}
     >
 				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-					{filters.period.mode === "custom" ? <div className="sm:col-span-2 xl:col-span-3">
+					{filters.status !== "in_progress" && filters.period.mode === "custom" ? <div className="sm:col-span-2 xl:col-span-3">
 						<span className="mb-2 inline-flex items-center gap-2 text-xs font-semibold text-tec-muted"><Clock3 size={14} />Periodo personalizado</span>
 						<div className="flex flex-wrap items-center gap-2">
 							<input aria-label="Data inicial do filtro de OS" className="h-9 rounded-control border border-tec-border/20 bg-tec-field px-3 text-xs font-semibold text-tec-text outline-none focus:border-tec-orange/70" onChange={(event) => onChange({ ...filters, period: { ...filters.period, fromDate: event.target.value } })} type="date" value={filters.period.fromDate} />
@@ -9312,7 +9313,10 @@ function filterOrdersByDashboardPeriod(orders: ServiceOrderSummary[], filter: Da
 }
 
 function filterOrdersForServiceOrderScreen(orders: ServiceOrderSummary[], filters: ServiceOrderFilterState) {
-  return filterOrdersByDashboardPeriod(orders, filters.period).filter((order) => {
+	const periodFilteredOrders = filters.status === "in_progress"
+		? orders
+		: filterOrdersByDashboardPeriod(orders, filters.period);
+  return periodFilteredOrders.filter((order) => {
 	if (filters.status === "in_progress" && order.pickup_date) {
 		return false;
 	}
@@ -9344,18 +9348,22 @@ function toServiceOrderQueryParams(filters: ServiceOrderFilterState, limit: numb
     params.status = filters.status;
   }
 
-  if (filters.period.mode === "custom") {
-    if (filters.period.fromDate) {
-      params.from_date = filters.period.fromDate;
-    }
-    if (filters.period.toDate) {
-      params.to_date = filters.period.toDate;
-    }
-  } else {
-    const bounds = getDashboardPeriodBounds(filters.period);
-    if (bounds) {
-      params.from_date = formatDateInputValue(bounds.start);
-      params.to_date = formatDateInputValue(bounds.end);
+  // Physical custody defines in-progress: no date window may hide an order
+  // whose device has not been picked up.
+  if (filters.status !== "in_progress") {
+    if (filters.period.mode === "custom") {
+      if (filters.period.fromDate) {
+        params.from_date = filters.period.fromDate;
+      }
+      if (filters.period.toDate) {
+        params.to_date = filters.period.toDate;
+      }
+    } else {
+      const bounds = getDashboardPeriodBounds(filters.period);
+      if (bounds) {
+        params.from_date = formatDateInputValue(bounds.start);
+        params.to_date = formatDateInputValue(bounds.end);
+      }
     }
   }
 
