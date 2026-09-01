@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from base64 import b64encode
 from datetime import datetime
@@ -2488,6 +2489,38 @@ def run_warranty_mode_checks() -> dict:
 	finally:
 		if created_catalog_service and frappe.db.exists("Tecponto Service", created_catalog_service):
 			frappe.delete_doc("Tecponto Service", created_catalog_service, ignore_permissions=True, force=True)
+		frappe.set_user(previous_user)
+
+
+def run_pickup_token_checks() -> dict:
+	"""Prove token validation, one-time consumption and the audited no-token escape."""
+	from tecponto_app.tecponto.frontend.api import _validate_pickup_token
+	previous_user = frappe.session.user
+	try:
+		attendant = _find_or_create_user("Tecponto Atendente")
+		frappe.set_user(attendant)
+		token = "RET8A2X9"
+		name = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", name, {"pickup_token": token, "pickup_token_hash": hashlib.sha256(token.encode()).hexdigest()}, update_modified=False)
+		_validate_pickup_token(name, {"pickup_token": token}, consume=True)
+		used = frappe.db.get_value("Service Order", name, ["pickup_token_used_at", "pickup_token_used_by"], as_dict=True)
+		if not used.pickup_token_used_at or used.pickup_token_used_by != attendant:
+			raise AssertionError("Uso do token não ficou registrado.")
+		reuse_blocked = False
+		try:
+			_validate_pickup_token(name, {"pickup_token": token}, consume=True)
+		except frappe.ValidationError:
+			reuse_blocked = True
+		if not reuse_blocked:
+			raise AssertionError("Token de retirada foi reutilizado.")
+		escape_name = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", escape_name, {"pickup_token": "ESCAPE99", "pickup_token_hash": hashlib.sha256(b"ESCAPE99").hexdigest()}, update_modified=False)
+		_validate_pickup_token(escape_name, {"without_token": 1, "without_token_reason": "Cliente perdeu o comprovante; identidade conferida."}, consume=True)
+		escape = frappe.db.get_value("Service Order", escape_name, ["pickup_without_token", "pickup_without_token_reason", "pickup_token_used_by"], as_dict=True)
+		if not escape.pickup_without_token or not escape.pickup_without_token_reason or escape.pickup_token_used_by != attendant:
+			raise AssertionError("Escape sem token não ficou auditado.")
+		return {"status": "ok", "token_used_once": True, "reuse_blocked": True, "escape_audited": True}
+	finally:
 		frappe.set_user(previous_user)
 
 

@@ -136,6 +136,8 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
   const [pickedUpDoc, setPickedUpDoc] = useState("");
   const [thirdPartyAuthorized, setThirdPartyAuthorized] = useState(false);
   const [notes, setNotes] = useState("");
+  const [pickupToken, setPickupToken] = useState("");
+  const [withoutToken, setWithoutToken] = useState(false);
   const [acceptance, setAcceptance] = useState<AcceptanceIssueResponse | null>(null);
 	const [physicalAcceptanceName, setPhysicalAcceptanceName] = useState<string | null>(null);
 	const [physicalFile, setPhysicalFile] = useState<File | null>(null);
@@ -154,6 +156,8 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
     setPickedUpDoc("");
     setThirdPartyAuthorized(false);
     setNotes("");
+    setPickupToken("");
+    setWithoutToken(false);
     setAcceptance(null);
 		setPhysicalAcceptanceName(null);
 		setPhysicalFile(null);
@@ -257,6 +261,9 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
       picked_up_doc: pickedUpDoc.trim(),
       pickup_notes: notes.trim(),
       third_party: thirdParty,
+		pickup_token: pickupToken.trim(),
+		without_token: withoutToken,
+		without_token_reason: withoutToken ? notes.trim() : "",
 		third_party_auth: thirdParty && thirdPartyAuthorized ? "Autorização de retirada por terceiro confirmada no balcão." : "",
     };
 
@@ -313,6 +320,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
               placeholder="Ex.: aparelho conferido no balcão, cliente recebeu orientações de garantia."
               value={notes}
             />
+			<div className="mt-4 rounded-card border border-tec-orange/25 bg-tec-orange/5 p-3"><Field label="Token de retirada" onChange={setPickupToken} value={pickupToken} /><label className="mt-3 flex gap-2 text-sm text-tec-subtle"><input checked={withoutToken} onChange={(event) => setWithoutToken(event.target.checked)} type="checkbox" />Liberar sem token (exige observação acima e fica auditado)</label></div>
           </div>
           <div className="rounded-card border border-tec-border/20 bg-tec-panel-strong p-4">
 				<div className="flex items-center gap-3"><QrCode className="text-tec-orange" size={20} /><div><h3 className="font-bold text-white">Aceite por link</h3><p className="text-sm text-tec-muted">O cliente confirma com selfie, assinatura e consentimento LGPD no próprio aparelho.</p></div></div>
@@ -364,7 +372,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
           </div>
           <Button
             className="w-full"
-            disabled={!canSubmit || submitting}
+            disabled={!canSubmit || submitting || (withoutToken ? !notes.trim() : !pickupToken.trim())}
             icon={<CheckCircle2 size={17} />}
             onClick={submit}
             variant="primary"

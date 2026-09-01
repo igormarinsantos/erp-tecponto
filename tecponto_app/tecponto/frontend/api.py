@@ -2213,6 +2213,9 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	device_name = _get_or_create_checkin_device(data["device"], customer_name)
 	order = frappe.new_doc("Service Order")
 	order.naming_series = "OS-.YYYY.-.#####"
+	pickup_token = frappe.generate_hash(length=8).upper()
+	order.pickup_token = pickup_token
+	order.pickup_token_hash = hashlib.sha256(pickup_token.encode()).hexdigest()
 	order.customer = customer_name
 	order.os_contact_name = (data["service_order"].get("contact_name") or "").strip()
 	order.os_contact_phone = (data["service_order"].get("contact_phone") or "").strip()
@@ -2296,6 +2299,8 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 		"entry_photo_url": photo_url,
 		"tracking": tracking,
 		"auto_assignment": auto_assignment,
+		"pickup_token": pickup_token,
+		"pickup_token_message": _("Guarde o código de retirada {0}. Ele será exigido na entrega do aparelho.").format(pickup_token),
 	}
 
 
@@ -2761,6 +2766,7 @@ def complete_service_order_pickup(name: str, payload: str | dict[str, Any] | Non
 	doc = frappe.get_doc("Service Order", name)
 	if doc.get("workflow_state") != STATE_PRONTO_RETIRADA:
 		frappe.throw(_("A OS precisa estar Pronto para retirada."), frappe.ValidationError)
+	without_token, without_token_reason = _validate_pickup_token(doc.name, data)
 
 	acceptance_name = (data.get("acceptance_name") or "").strip()
 	if not acceptance_name:
@@ -2772,10 +2778,32 @@ def complete_service_order_pickup(name: str, payload: str | dict[str, Any] | Non
 	if not doc.get("customer_signature") and not has_completed_physical_acceptance(doc.name, "Retirada"):
 		frappe.throw(_("A assinatura de retirada ou via física arquivada ainda não foi registrada."), frappe.ValidationError)
 
-	frappe.db.set_value(doc.doctype, doc.name, "pickup_date", now_datetime(), update_modified=False)
+	used_at = now_datetime()
+	frappe.db.set_value(doc.doctype, doc.name, {"pickup_date": used_at, "pickup_token_used_at": used_at, "pickup_token_used_by": frappe.session.user, "pickup_without_token": without_token, "pickup_without_token_reason": without_token_reason or None}, update_modified=False)
 	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), STATE_ENTREGUE)
+	frappe.get_doc({"doctype": "Comment", "comment_type": "Info", "reference_doctype": doc.doctype, "reference_name": doc.name, "content": (_("Retirada validada com token de uso único.") if not without_token else _("Retirada liberada sem token por {0}. Justificativa: {1}").format(frappe.session.user, frappe.utils.escape_html(without_token_reason)))}).insert(ignore_permissions=True)
 
 	return get_service_order_detail(doc.name)
+
+
+def _validate_pickup_token(name: str, data: dict[str, Any], *, consume: bool = False) -> tuple[int, str]:
+	rows = frappe.db.sql("SELECT name FROM `tabService Order` WHERE name=%s FOR UPDATE", (name,), as_dict=True)
+	if not rows:
+		frappe.throw(_("Ordem de serviço não encontrada."), frappe.DoesNotExistError)
+	doc = frappe.get_doc("Service Order", name)
+	provided_token = (data.get("pickup_token") or "").strip().upper()
+	without_token = cint(data.get("without_token"))
+	reason = (data.get("without_token_reason") or "").strip()
+	if doc.get("pickup_token_used_at"):
+		frappe.throw(_("O token de retirada desta OS já foi utilizado."), frappe.ValidationError)
+	if without_token:
+		if not reason:
+			frappe.throw(_("Informe a justificativa obrigatória para liberar sem token."), frappe.ValidationError)
+	elif not provided_token or hashlib.sha256(provided_token.encode()).hexdigest() != (doc.get("pickup_token_hash") or ""):
+		frappe.throw(_("Token de retirada inválido."), frappe.ValidationError)
+	if consume:
+		frappe.db.set_value(doc.doctype, doc.name, {"pickup_token_used_at": now_datetime(), "pickup_token_used_by": frappe.session.user, "pickup_without_token": without_token, "pickup_without_token_reason": reason or None}, update_modified=False)
+	return without_token, reason
 
 
 @frappe.whitelist()

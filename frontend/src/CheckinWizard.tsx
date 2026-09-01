@@ -2210,7 +2210,7 @@ function CheckinSuccess({
   };
 
   const sendTrackingWhatsApp = () => {
-	const text = `Olá! Acompanhe o status do seu reparo ${brandName} por este link seguro: ${created.tracking.link}`;
+	const text = `Olá! Acompanhe o status do seu reparo ${brandName} por este link seguro: ${created.tracking.link}\nCódigo de retirada: ${created.pickup_token}. Guarde este código; ele será exigido na entrega.`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
   };
 
@@ -2224,6 +2224,7 @@ function CheckinSuccess({
             ? "OS criada com a foto salva. Como o aparelho será ligado/testado, conclua o termo de entrada antes do avanço técnico."
             : "OS criada com a foto salva. Esta entrada não exige termo porque o aparelho não será ligado nem testado."}
         </p>
+		<div className="mt-4 rounded-control border border-tec-orange/30 bg-tec-orange/10 p-3"><p className="text-xs font-bold uppercase text-tec-orange">Token de retirada</p><p className="mt-1 font-mono text-2xl font-bold tracking-widest text-white">{created.pickup_token}</p><p className="mt-1 text-xs text-tec-muted">Uso único. Também segue no WhatsApp e no comprovante.</p></div>
         <div className="mt-5 flex flex-wrap gap-2">
           <Button
             onClick={() => {

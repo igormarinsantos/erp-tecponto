@@ -102,6 +102,12 @@
   "pickup_photos",
   "customer_signature",
   "pickup_notes",
+  "pickup_token",
+  "pickup_token_hash",
+  "pickup_token_used_at",
+  "pickup_token_used_by",
+  "pickup_without_token",
+  "pickup_without_token_reason",
   "estadia_section",
   "estadia_enabled",
   "estadia_start_date",
@@ -661,6 +667,44 @@
    "fieldname": "pickup_notes",
    "fieldtype": "Small Text",
    "label": "Observação da retirada"
+  },
+  {
+   "fieldname": "pickup_token",
+   "fieldtype": "Password",
+   "label": "Token de retirada",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "pickup_token_hash",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Hash do token"
+  },
+  {
+   "fieldname": "pickup_token_used_at",
+   "fieldtype": "Datetime",
+   "label": "Token utilizado em",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pickup_token_used_by",
+   "fieldtype": "Link",
+   "label": "Token utilizado por",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "pickup_without_token",
+   "fieldtype": "Check",
+   "label": "Retirada liberada sem token",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pickup_without_token_reason",
+   "fieldtype": "Small Text",
+   "label": "Justificativa da retirada sem token",
+   "read_only": 1
   },
   {
    "fieldname": "estadia_section",

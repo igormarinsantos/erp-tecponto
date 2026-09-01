@@ -132,6 +132,7 @@ def get_service_order_print_context(doc) -> dict:
 		"has_customer_supplied_part": bool(customer_parts),
 		"diagnosis_date": _date(doc.get("diagnosis_date")),
 		"pickup_date": _datetime(doc.get("pickup_date")),
+		"pickup_token": doc.get_password("pickup_token") if doc.get("pickup_token") else "",
 		"warranty_expiry": _date(doc.get("warranty_expiry")),
 		"os_url": portal_lookup_url,
 		"internal_os_url": internal_os_url,
@@ -471,6 +472,7 @@ def _termo_retirada_html() -> str:
 	  {% if tp.company.logo_url %}<img class="tp-brand-logo" src="{{ tp.company.logo_url }}" alt="{{ tp.company.display_name }}">{% endif %}
       <h1>Termo de Retirada</h1>
       <p>Ordem de Serviço {{ doc.name }}</p>
+	  {% if tp.pickup_token %}<p><strong>Código de retirada: {{ tp.pickup_token }}</strong></p>{% endif %}
 	  <p>{{ tp.company.display_name }}{% if tp.company.legal_name and tp.company.legal_name != tp.company.display_name %} · {{ tp.company.legal_name }}{% endif %}{% if tp.company.cnpj %} · CNPJ {{ tp.company.cnpj }}{% endif %}</p>
     </div>
     <div class="tp-muted">Retirada: {{ tp.pickup_date }}</div>

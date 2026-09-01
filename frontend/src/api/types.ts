@@ -1023,6 +1023,8 @@ export interface CheckinResponse {
   service_order: Pick<ServiceOrderDetailResponse, "name" | "workflow_state" | "customer" | "device" | "print_links"> & { entry_acceptance_required: boolean };
   entry_photo_url: string;
   tracking: TrackingLinkResponse;
+  pickup_token: string;
+  pickup_token_message: string;
 }
 
 
@@ -1047,6 +1049,9 @@ export interface PickupPayload {
   third_party_auth?: string;
   pickup_notes?: string;
   acceptance_name?: string;
+  pickup_token?: string;
+  without_token?: boolean;
+  without_token_reason?: string;
 }
 
 export interface DashboardMetrics {
