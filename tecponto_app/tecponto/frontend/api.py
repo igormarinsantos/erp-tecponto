@@ -36,7 +36,6 @@ from tecponto_app.tecponto.service_order.print_formats import (
 )
 from tecponto_app.tecponto.workflow import _get_service_order_transitions, get_service_order_workflow_state_names
 from tecponto_app.tecponto import service_catalog
-from tecponto_app.tecponto import defect_service_mapping
 from tecponto_app.tecponto import part_requests
 from tecponto_app.tecponto.lean_operations import operation_shape, technician_commissions_enabled
 from tecponto_app.tecponto.operation_config import get_operation_config
@@ -2211,7 +2210,7 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.entry_date = now_datetime()
 	order.attendant = frappe.session.user
 	order.workflow_state = "Entrada criada"
-	order.link_acceptance_required = 1
+	order.link_acceptance_required = cint(data["service_order"].get("will_power_on_test"))
 	order.priority = "Normal"
 	order.reported_defect = data["service_order"]["reported_defect"].strip()
 	order.physical_state = data["service_order"]["physical_state"].strip()
@@ -2222,15 +2221,11 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 	order.device_access_credential = (data["service_order"].get("device_access_credential") or "").strip()
 	order.is_warranty = cint(data["service_order"].get("is_warranty"))
 	order.original_service_order = (data["service_order"].get("original_service_order") or "").strip() or None
-	selected_defects = _checkin_defects(data["service_order"].get("defects"))
-	suggested_services = defect_service_mapping.resolve_services(selected_defects)
 	initial_budget_lines = data.get("initial_budget_lines") or []
 	if not isinstance(initial_budget_lines, list):
 		frappe.throw(_("Composição do orçamento inicial inválida."), frappe.ValidationError)
 	# Prazo pertence ao diagnóstico/orçamento, não à Entrada.
 	order.estimated_deadline = None
-	if cint(data["service_order"].get("include_initial_budget")) and not initial_budget_lines:
-		_append_checkin_service_suggestions(order, suggested_services)
 	order.insert(ignore_permissions=True)
 	if cint(data["service_order"].get("include_initial_budget")):
 		from tecponto_app.tecponto.service_order.billing import _get_labor_item
@@ -2264,6 +2259,7 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 			"name": order.name,
 			"workflow_state": workflow_state,
 			"technician": technician,
+			"entry_acceptance_required": bool(order.link_acceptance_required),
 			"customer": _get_customer_detail(customer_name),
 			"device": _get_device_detail(device_name),
 			"print_links": _get_service_order_print_links(order.name),
@@ -2300,36 +2296,6 @@ def update_service_order_entry(name: str, payload: str | dict[str, Any] | None =
 	# out of generic forms while the check-in operator may rotate it explicitly.
 	doc.save(ignore_permissions=True)
 	return get_service_order_detail(doc.name)
-
-
-@frappe.whitelist()
-def get_checkin_delivery_suggestion(
-	payload: str | dict[str, Any] | None = None,
-	defects: str | list[str] | tuple[str, ...] | None = None,
-	lead_time_business_hours: float = 0,
-) -> dict[str, Any]:
-	_require_checkin_role()
-	data = _parse_payload(payload)
-	# Keep the transition safe for a browser that still has the previous bundle
-	# cached: it posted defects directly instead of under `payload`.
-	if not data:
-		data = {"defects": defects or [], "lead_time_business_hours": lead_time_business_hours}
-	return defect_service_mapping.calculate_delivery_suggestion(
-		_checkin_defects(data.get("defects")),
-		lead_time_business_hours=data.get("lead_time_business_hours") or 0,
-	)
-
-
-@frappe.whitelist()
-def list_defect_service_mappings(include_inactive: bool = True) -> dict[str, Any]:
-	_require_frontend_role()
-	return defect_service_mapping.list_mappings(include_inactive=bool(cint(include_inactive)))
-
-
-@frappe.whitelist()
-def save_defect_service_mapping(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
-	_require_service_catalog_editor()
-	return {"item": defect_service_mapping.save_mapping(_parse_payload(payload))}
 
 
 @frappe.whitelist()
@@ -4453,39 +4419,6 @@ def _get_or_create_checkin_device(data: dict[str, Any], customer_name: str) -> s
 	)
 	device.insert(ignore_permissions=True)
 	return device.name
-
-
-def _checkin_defects(value: str | list[str] | tuple[str, ...] | None) -> list[str]:
-	if isinstance(value, str):
-		try:
-			value = json.loads(value)
-		except (TypeError, ValueError):
-			value = []
-	if not isinstance(value, (list, tuple)):
-		return []
-	return list(dict.fromkeys((item or "").strip() for item in value if isinstance(item, str) and item.strip()))
-
-
-def _append_checkin_service_suggestions(order: Any, services: list[dict[str, Any]]) -> None:
-	"""Pre-populate the editable budget from active, server-resolved catalog rows."""
-	if not services:
-		return
-	from tecponto_app.tecponto.service_order.billing import _get_labor_item
-
-	for service in services:
-		order.append(
-			"services",
-			{
-				"item_code": _get_labor_item(),
-			"catalog_service": service["name"],
-			"service_category": service.get("category"),
-				"description": service["service_name"],
-				"qty": 1,
-				"rate": 0 if order.get("is_warranty") else flt(service["default_labor_price"]),
-				"service_duration": flt(service["default_duration"]),
-				"duration_unit": service["duration_unit"],
-			},
-		)
 
 
 def _save_checkin_photo(service_order: str, photo: dict[str, str]) -> str:

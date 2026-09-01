@@ -12,7 +12,6 @@ import {
   Gauge,
   Grid2X2,
   Handshake,
-  Link2,
   MessageCircle,
   PackageSearch,
   Search,
@@ -135,7 +134,6 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
           { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e regras", children: [
             { id: "services", icon: Wrench, label: "Catálogo de serviços", subtitle: "Mão de obra" },
             { id: "service-categories", icon: Grid2X2, label: "Categorias de serviço", subtitle: "Organização do catálogo" },
-            { id: "defect-service-mapping", icon: Link2, label: "Mapeamento defeito→serviço", subtitle: "Sugestões no check-in" },
           ] },
         ],
       },
@@ -249,7 +247,6 @@ export const panelDefinitions: Record<RolePanel, PanelDefinition> = {
           { id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e regras", children: [
             { id: "services", icon: Wrench, label: "Catálogo de serviços", subtitle: "Mão de obra" },
             { id: "service-categories", icon: Grid2X2, label: "Categorias de serviço", subtitle: "Organização do catálogo" },
-            { id: "defect-service-mapping", icon: Link2, label: "Mapeamento defeito→serviço", subtitle: "Sugestões no check-in" },
           ] },
         ],
       },
@@ -354,7 +351,6 @@ const pillarForTarget: Partial<Record<NavigationTarget, string>> = {
   customers: "Administração",
   devices: "Administração",
   services: "Administração",
-  "defect-service-mapping": "Administração",
 };
 
 function withSubmenus(nav: NavSection[]): NavSection[] {
@@ -401,15 +397,12 @@ function withSubmenus(nav: NavSection[]): NavSection[] {
         continue;
       }
       if (item.id === "services") {
-        (["services", "service-categories", "defect-service-mapping"] as NavigationTarget[]).forEach((target) => consumed.add(target));
+        (["services", "service-categories"] as NavigationTarget[]).forEach((target) => consumed.add(target));
         const serviceChildren: NavItem[] = [
           { id: "services", icon: Wrench, label: "Catálogo de serviços", subtitle: "Mão de obra" },
         ];
         if (flatItems.some((source) => source.id === "service-categories")) {
           serviceChildren.push({ id: "service-categories", icon: Grid2X2, label: "Categorias de serviço", subtitle: "Organização do catálogo" });
-        }
-        if (flatItems.some((source) => source.id === "defect-service-mapping")) {
-          serviceChildren.push({ id: "defect-service-mapping", icon: Link2, label: "Mapeamento defeito→serviço", subtitle: "Sugestões no check-in" });
         }
         grouped.push({ id: "services", icon: Wrench, label: "Serviços", subtitle: "Catálogo e regras", children: [
           ...serviceChildren,

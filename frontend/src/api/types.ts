@@ -10,7 +10,6 @@ export type NavigationTarget =
   | "devices"
   | "services"
   | "service-categories"
-  | "defect-service-mapping"
   | "trade-ins"
   | "parts-stock"
   | "repair-parts"
@@ -36,15 +35,6 @@ export interface ProductCategoryNode {
   active: boolean;
   sell_online: boolean;
   children: ProductCategoryNode[];
-}
-
-export interface DefectServiceMapping {
-  name: string;
-  defect: string;
-  catalog_service: string;
-  catalog_service_label: string;
-  active: boolean;
-  modified: string;
 }
 
 export interface OwnEarningItem {
@@ -956,7 +946,6 @@ export interface CheckinPayload {
   };
   service_order: {
     reported_defect: string;
-    defects?: string[];
     physical_state: string;
     attendance_notes?: string;
     entry_operating_condition?: "Liga e permite teste" | "Liga parcialmente" | "Não liga / sem condições de teste";
@@ -966,6 +955,7 @@ export interface CheckinPayload {
     device_access_type?: "PIN" | "Padrão de desenho" | "Alfanumérica";
     device_access_credential?: string;
     include_initial_budget?: boolean;
+    will_power_on_test?: boolean;
     is_warranty?: boolean;
     original_service_order?: string;
     estimated_deadline?: string;
@@ -1024,26 +1014,11 @@ export interface ServiceWarrantySearchResponse {
 }
 
 export interface CheckinResponse {
-  service_order: Pick<ServiceOrderDetailResponse, "name" | "workflow_state" | "customer" | "device" | "print_links">;
+  service_order: Pick<ServiceOrderDetailResponse, "name" | "workflow_state" | "customer" | "device" | "print_links"> & { entry_acceptance_required: boolean };
   entry_photo_url: string;
   tracking: TrackingLinkResponse;
 }
 
-export interface DeliverySuggestion {
-  suggested_delivery_date: string;
-  total_business_hours: number;
-  stage_business_hours: number;
-  service_business_hours: number;
-  lead_time_business_hours: number;
-  mapped_services: Array<{
-    name: string;
-    service_name: string;
-    default_labor_price: number;
-    default_duration: number;
-    duration_unit: "Horas" | "Dias úteis";
-  }>;
-  has_estimate: boolean;
-}
 
 export interface TrackingLinkResponse {
   tracking: string;

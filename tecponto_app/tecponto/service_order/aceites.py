@@ -21,17 +21,6 @@ def validate_aceites(doc, method=None) -> None:
 	_validate_delivery_acceptance(doc)
 
 
-def require_link_acceptance_for_new_orders(doc, method=None) -> None:
-	"""Mark every newly created OS as link-acceptance based.
-
-	Existing rows remain explicitly legacy-compatible.  This is deliberately set in
-	the model hook, so a Desk-created OS has exactly the same legal acceptance
-	requirement as one created through the React check-in.
-	"""
-	if doc.is_new() and doc.meta.has_field("link_acceptance_required"):
-		doc.link_acceptance_required = 1
-
-
 def mark_pickup_without_repair(doc, method=None) -> None:
 	"""Preserve the no-repair route after the workflow reaches Entregue."""
 	if doc.get("workflow_state") != STATE_PRONTO_RETIRADA:
@@ -48,6 +37,11 @@ def _validate_entry_acceptance(doc) -> None:
 	if not doc.get("entry_photos"):
 		frappe.throw("Foto de entrada e obrigatoria antes de iniciar o atendimento.")
 
+	# O termo de entrada existe somente quando a loja declarou que vai ligar ou
+	# testar o aparelho. Entradas sem teste seguem sem aceite intermediário.
+	if not doc.get("link_acceptance_required"):
+		return
+
 	from tecponto_app.tecponto.acceptance import (
 		assert_completed_acceptance_evidence,
 		assert_completed_inoperative_device_term,
@@ -57,11 +51,7 @@ def _validate_entry_acceptance(doc) -> None:
 		requires_inoperative_device_term,
 	)
 
-	assert_completed_acceptance_evidence(
-		doc.name,
-		"Entrada",
-		required=bool(doc.get("link_acceptance_required")),
-	)
+	assert_completed_acceptance_evidence(doc.name, "Entrada", required=True)
 	if doc.meta.has_field("entry_signature") and not doc.get("entry_signature") and not has_completed_physical_acceptance(doc.name, "Entrada"):
 		frappe.throw("Assinatura de entrada ou via física arquivada é obrigatória antes de iniciar o atendimento.")
 	if requires_inoperative_device_term(doc):
@@ -89,20 +79,9 @@ def _validate_approval_acceptance(doc) -> None:
 	approval_channel = doc.get("approval_channel")
 	if approval_channel in REMOTE_APPROVAL_CHANNELS and not _has_quote_dispatch_evidence(doc):
 		frappe.throw("Registre o envio do orçamento antes de confirmar uma decisão remota.")
-	# The public rejection flow records a mandatory reason but intentionally does
-	# not collect selfie/signature. Those evidences are required only when the
-	# customer authorizes the financially relevant repair.
-	if approval_channel == "Link" and workflow_state == STATE_APROVADO:
-		from tecponto_app.tecponto.acceptance import (
-			assert_completed_acceptance_evidence,
-			assert_completed_customer_supplied_part_term,
-		)
-		from tecponto_app.tecponto.service_order.customer_supplied_part import requires_customer_supplied_part_term
-
-		assert_completed_acceptance_evidence(doc.name, "Orçamento", required=True)
-		if requires_customer_supplied_part_term(doc):
-			assert_completed_customer_supplied_part_term(doc.name)
-	elif approval_channel != "Link" and workflow_state == STATE_APROVADO:
+	# Budget approval is deliberately lightweight. A public link is itself the
+	# decision channel; manual channels retain a real uploaded/linked record.
+	if approval_channel != "Link" and workflow_state == STATE_APROVADO:
 		if not _has_manual_approval_evidence(doc):
 			frappe.throw("Aprovação manual (balcão/whatsapp/telefone) exige comprovante, termo assinado ou documento anexado à OS.")
 

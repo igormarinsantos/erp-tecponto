@@ -221,7 +221,7 @@
    "default": "0",
    "fieldname": "link_acceptance_required",
    "fieldtype": "Check",
-   "label": "Exige aceite por link",
+   "label": "Exige termo de entrada",
    "read_only": 1
   },
   {

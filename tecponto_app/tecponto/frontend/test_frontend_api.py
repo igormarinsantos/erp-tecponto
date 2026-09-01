@@ -64,8 +64,6 @@ from tecponto_app.tecponto.frontend.api import (
 	add_catalog_service_to_service_order,
 	create_service_order_checkin,
 	decide_service_order_budget,
-	get_checkin_delivery_suggestion,
-	list_defect_service_mappings,
 	list_warranty_candidates,
 	search_service_order_warranties,
 	open_store_cash_session,
@@ -109,7 +107,6 @@ from tecponto_app.tecponto.frontend.api import (
 	save_catalog_reference,
 	save_catalog_service,
 	save_stage_sla,
-	save_defect_service_mapping,
 	list_user_accounts,
 	save_user_account,
 	set_user_password,
@@ -146,7 +143,6 @@ from tecponto_app.tecponto.tracking import (
 	issue_service_order_tracking_link,
 	on_service_order_updated,
 	revoke_service_order_tracking_link,
-	start_public_tracking_budget_acceptance,
 	lookup_public_portal,
 	start_public_portal_action,
 )
@@ -369,7 +365,6 @@ def run_foundation_checks() -> dict:
 		product_variant_checks = run_product_variant_checks()
 		marketplace_listing_checks = run_marketplace_listing_checks()
 		marketplace_reporting_checks = run_marketplace_reporting_checks()
-		defect_service_mapping_checks = run_defect_service_mapping_checks()
 		stage_sla_checks = run_stage_sla_checks()
 		stage_clock_checks = run_stage_clock_checks()
 		public_acceptance_checks = run_public_acceptance_checks()
@@ -442,7 +437,6 @@ def run_foundation_checks() -> dict:
 			"product_variant_checks": product_variant_checks,
 			"marketplace_listing_checks": marketplace_listing_checks,
 			"marketplace_reporting_checks": marketplace_reporting_checks,
-			"defect_service_mapping_checks": defect_service_mapping_checks,
 			"stage_sla_checks": stage_sla_checks,
 			"stage_clock_checks": stage_clock_checks,
 			"public_acceptance_checks": public_acceptance_checks,
@@ -1275,6 +1269,7 @@ def run_os2_checkin_choice_checks() -> dict:
 						"device_access_type": access_type,
 						"device_access_credential": credential,
 						"include_initial_budget": index == 1,
+						"will_power_on_test": index == 3,
 					},
 					"initial_budget_lines": ([{"type": "service", "description": "Serviço inicial OS.2", "qty": 2, "rate": 75}] if index == 1 else []),
 					"entry_photo": {"data_url": photo, "filename": f"os2-{index}.png"},
@@ -1284,13 +1279,16 @@ def run_os2_checkin_choice_checks() -> dict:
 			order = frappe.get_doc("Service Order", order_name)
 			if order.device_access_type != access_type or order.get_password("device_access_credential") != credential:
 				raise AssertionError(f"Credencial do tipo {access_type} não persistiu na OS.")
+			expected_term = index == 3
+			if bool(order.link_acceptance_required) != expected_term or response["service_order"]["entry_acceptance_required"] != expected_term:
+				raise AssertionError("Termo de entrada não respeitou a escolha de ligar/testar o aparelho.")
 			orders[access_type] = order_name
 
 		budget_order = frappe.get_doc("Service Order", orders["PIN"])
 		line = next((row for row in budget_order.services if row.description == "Serviço inicial OS.2"), None)
 		if not line or flt(line.qty) != 2 or flt(line.rate) != 75:
 			raise AssertionError("Composição do orçamento inicial não persistiu no orçamento real da OS.")
-		return {"status": "ok", "credential_types": sorted(orders), "initial_budget_persisted": True}
+		return {"status": "ok", "credential_types": sorted(orders), "initial_budget_persisted": True, "conditional_entry_term": True}
 	finally:
 		frappe.set_user(previous_user)
 
@@ -1649,26 +1647,7 @@ def run_os5_workflow_automations_checks() -> dict:
 		tracking_res = issue_tracking_link(order_2)
 		token = tracking_res["link"].rstrip("/").rsplit("/", 1)[-1]
 		frappe.set_user("Guest")
-		budget_info = start_public_tracking_budget_acceptance(token, "12345678909")
-		budget_token = budget_info["link"].rstrip("/").rsplit("/", 1)[-1]
-
-		camera_image = BytesIO()
-		camera_seed = int(frappe.generate_hash(length=8), 16)
-		Image.new(
-			"RGB",
-			(24, 24),
-			color=(camera_seed & 0xFF, (camera_seed >> 8) & 0xFF, (camera_seed >> 16) & 0xFF),
-		).save(camera_image, format="JPEG")
-		camera_selfie = "data:image/jpeg;base64," + b64encode(camera_image.getvalue()).decode()
-		signature_image = BytesIO()
-		signature_canvas = Image.new("RGB", (640, 180), color=(250, 250, 250))
-		signature_draw = ImageDraw.Draw(signature_canvas)
-		signature_draw.line([(40, 120), (180, 50), (300, 135), (430, 45), (580, 110)], fill=(32, 36, 40), width=5)
-		signature_canvas.save(signature_image, format="PNG")
-		signature_data = "data:image/png;base64," + b64encode(signature_image.getvalue()).decode()
-
-		save_public_acceptance_selfie(budget_token, camera_selfie)
-		complete_public_acceptance(budget_token, signature_data, 1)
+		decide_public_tracking_budget(token, "approve", "Aprovado pelo cliente no link.")
 
 		approved_link_order = frappe.get_doc("Service Order", order_2)
 		if approved_link_order.workflow_state != "Em reparo":
@@ -1948,56 +1927,7 @@ def run_public_tracking_budget_checks() -> dict:
 		leaks = contains_sensitive_field(public_budget)
 		if leaks:
 			raise AssertionError(f"Orçamento público expôs campo sensível: {', '.join(leaks)}")
-		identity_mismatch_blocked = False
-		try:
-			start_public_tracking_budget_acceptance(approve_token, "000.000.000-00")
-		except frappe.PermissionError:
-			identity_mismatch_blocked = True
-		if not identity_mismatch_blocked:
-			raise AssertionError("Aprovação pública aceitou CPF/RG que não pertence ao titular da OS.")
-		rg_order = prepare_order()
-		frappe.db.set_value(
-			"Customer",
-			frappe.db.get_value("Service Order", rg_order, "customer"),
-			{"custom_cpf": "", "custom_rg": "MG-12.345.678", "custom_nao_possui_cpf": 1},
-			update_modified=False,
-		)
-		rg_link = issue_tracking_link(rg_order)
-		rg_token = rg_link["link"].rstrip("/").rsplit("/", 1)[-1]
-		rg_acceptance = start_public_tracking_budget_acceptance(rg_token, "mg 12.345.678")
-		if frappe.db.get_value("OS Acceptance", rg_acceptance["acceptance"], "identity_document_type") != "RG":
-			raise AssertionError("Aceite de orçamento não aceitou RG do titular quando CPF não está disponível.")
-		# Restore the fixture's CPF path for the remaining deadline scenario.
-		frappe.db.set_value(
-			"Customer",
-			frappe.db.get_value("Service Order", rg_order, "customer"),
-			{"custom_cpf": "12345678909", "custom_nao_possui_cpf": 0},
-			update_modified=False,
-		)
-
-		budget_acceptance = start_public_tracking_budget_acceptance(approve_token, "123.456.789-09")
-		budget_token = budget_acceptance["link"].rstrip("/").rsplit("/", 1)[-1]
-		budget_acceptance_doc = frappe.get_doc("OS Acceptance", budget_acceptance["acceptance"])
-		if budget_token in frappe.as_json(budget_acceptance_doc.as_dict()) or budget_acceptance_doc.identity_document_type != "CPF":
-			raise AssertionError("Aceite de orçamento não protegeu o token ou não auditou o tipo de documento validado.")
-		camera_image = BytesIO()
-		camera_seed = int(frappe.generate_hash(length=8), 16)
-		Image.new(
-			"RGB",
-			(24, 24),
-			color=(camera_seed & 0xFF, (camera_seed >> 8) & 0xFF, (camera_seed >> 16) & 0xFF),
-		).save(camera_image, format="JPEG")
-		camera_selfie = "data:image/jpeg;base64," + b64encode(camera_image.getvalue()).decode()
-		signature_image = BytesIO()
-		signature_canvas = Image.new("RGB", (640, 180), color=(250, 250, 250))
-		signature_draw = ImageDraw.Draw(signature_canvas)
-		signature_draw.line([(40, 120), (180, 50), (300, 135), (430, 45), (580, 110)], fill=(32, 36, 40), width=5)
-		signature_draw.rectangle((620, 160, 635, 175), fill=(camera_seed % 255, 36, 40))
-		signature_canvas.save(signature_image, format="PNG")
-		signature_data = "data:image/png;base64," + b64encode(signature_image.getvalue()).decode()
-		save_public_acceptance_selfie(budget_token, camera_selfie)
-		approval = complete_public_acceptance(budget_token, signature_data, 1)
-		budget_acceptance_doc.reload()
+		approval = decide_public_tracking_budget(approve_token, "approve", "Aprovado pelo cliente no link.")
 		approved_doc = frappe.get_doc("Service Order", approve_order)
 		if (
 			not approval.get("completed")
@@ -2006,12 +1936,11 @@ def run_public_tracking_budget_checks() -> dict:
 			or approved_doc.approval_channel != "Link"
 			or not approved_doc.approval_date
 			or not approved_doc.quote_locked
-			or budget_acceptance_doc.status != "Concluído"
 		):
-			raise AssertionError("Aprovação pelo link não reexecutou o motor com canal Link e timestamp.")
+			raise AssertionError("Aprovação simples pelo link não reexecutou o motor com canal Link e timestamp.")
 		decision_repeat_blocked = False
 		try:
-			start_public_tracking_budget_acceptance(approve_token, "12345678909")
+			decide_public_tracking_budget(approve_token, "approve", "Tentativa repetida")
 		except frappe.ValidationError:
 			decision_repeat_blocked = True
 		if not decision_repeat_blocked:
@@ -2040,7 +1969,7 @@ def run_public_tracking_budget_checks() -> dict:
 		frappe.set_user("Guest")
 		expired_blocked = False
 		try:
-			start_public_tracking_budget_acceptance(expired_token, "12345678909")
+			decide_public_tracking_budget(expired_token, "approve", "Fora do prazo")
 		except frappe.ValidationError:
 			expired_blocked = True
 		if not expired_blocked or frappe.db.get_value("Service Order", expired_order, "workflow_state") != "Aguardando aprovação":
@@ -2053,9 +1982,7 @@ def run_public_tracking_budget_checks() -> dict:
 			"rejected_state": rejected_doc.workflow_state,
 			"rejection_reason_required": rejection_reason_required,
 			"decision_repeat_blocked": decision_repeat_blocked,
-			"identity_mismatch_blocked": identity_mismatch_blocked,
-			"rg_identity_accepted": True,
-			"budget_acceptance": budget_acceptance_doc.name,
+			"simple_link_approval": True,
 			"expired_blocked": expired_blocked,
 			"sensitive_guard": {"leaked_fields": leaks},
 		}
@@ -2154,104 +2081,6 @@ def run_tracking_lifecycle_checks() -> dict:
 			"sensitive_guard": {"leaked_fields": leaks},
 		}
 	finally:
-		frappe.set_user(previous_user)
-
-
-def run_defect_service_mapping_checks() -> dict:
-	"""Prove defects drive editable service suggestions and never block check-in."""
-	previous_user = frappe.session.user
-	created_mapping = None
-	created_order = None
-	try:
-		ensure_frontend_foundation()
-		manager = _find_or_create_user("Tecponto Gestor")
-		attendant = _find_or_create_user("Tecponto Atendente")
-		frappe.set_user(manager)
-		mappings = list_defect_service_mappings(include_inactive=True)["items"]
-		screen_mapping = next((item for item in mappings if item["defect"] == "Tela quebrada" and item["active"]), None)
-		battery_mapping = next((item for item in mappings if item["defect"] == "Bateria descarregando r\u00e1pido" and item["active"]), None)
-		if not screen_mapping or not battery_mapping:
-			raise AssertionError("Semente de mapeamento defeito -> servico nao foi criada.")
-
-		suffix = frappe.generate_hash(length=8).upper()
-		created_mapping = save_defect_service_mapping(
-			{
-				"defect": f"Defeito teste {suffix}",
-				"catalog_service": screen_mapping["catalog_service"],
-				"active": True,
-			}
-		)["item"]["name"]
-		if not created_mapping:
-			raise AssertionError("Gestor nao conseguiu editar/criar o mapeamento.")
-
-		frappe.set_user(attendant)
-		attendant_mappings = list_defect_service_mappings(include_inactive=True)["items"]
-		attendant_leaks = contains_sensitive_field(attendant_mappings)
-		if attendant_leaks:
-			raise AssertionError(f"Consulta de mapeamentos vazou campo sensível: {', '.join(attendant_leaks)}")
-		no_defect = get_checkin_delivery_suggestion({"defects": [], "lead_time_business_hours": 0})
-		if no_defect["suggested_delivery_date"] or no_defect["mapped_services"]:
-			raise AssertionError("Previsao foi calculada sem defeito/servico mapeado.")
-		single = get_checkin_delivery_suggestion({"defects": ["Tela quebrada"], "lead_time_business_hours": 0})
-		multiple = get_checkin_delivery_suggestion(
-			{"defects": ["Tela quebrada", "Bateria descarregando r\u00e1pido"], "lead_time_business_hours": 0}
-		)
-		if (
-			not single["suggested_delivery_date"]
-			or [service["name"] for service in single["mapped_services"]] != [screen_mapping["catalog_service"]]
-			or multiple["service_business_hours"] <= single["service_business_hours"]
-		):
-			raise AssertionError("Defeitos mapeados nao sugeriram servicos/prazos distintos.")
-
-		write_blocked = False
-		try:
-			save_defect_service_mapping({"name": created_mapping, "defect": f"Defeito teste {suffix}", "catalog_service": battery_mapping["catalog_service"], "active": True})
-		except frappe.PermissionError:
-			write_blocked = True
-		if not write_blocked:
-			raise AssertionError("Atendente alterou mapeamento defeito -> servico.")
-
-		photo = BytesIO()
-		Image.new("RGB", (24, 24), color=(20, 40, 60)).save(photo, format="JPEG")
-		photo_data = "data:image/jpeg;base64," + b64encode(photo.getvalue()).decode()
-		checkin = create_service_order_checkin(
-			{
-				"customer": {
-					"customer_name": f"Cliente mapa {suffix}",
-					"mobile_no": "11999998888",
-					"custom_whatsapp": "11999998888",
-					"custom_nao_possui_cpf": 1,
-					"custom_rg": f"RG-MAP-{suffix}",
-				},
-				"device": {"brand": "Apple", "model": "iPhone mapa", "imei_serial": f"35{int(suffix, 16) % 10**13:013d}"},
-				"service_order": {
-					"reported_defect": "Tela quebrada e bateria descarregando rapido.",
-					"defects": ["Tela quebrada", "Bateria descarregando r\u00e1pido"],
-					"physical_state": "Sem danos adicionais aparentes.",
-					"include_initial_budget": True,
-				},
-				"entry_photo": {"data_url": photo_data, "filename": f"mapping-{suffix}.jpg"},
-			}
-		)
-		created_order = checkin["service_order"]["name"]
-		services = frappe.get_doc("Service Order", created_order).get("services") or []
-		if {row.catalog_service for row in services} != {screen_mapping["catalog_service"], battery_mapping["catalog_service"]}:
-			raise AssertionError("Check-in nao preencheu o orcamento com os servicos sugeridos.")
-
-		return {
-			"status": "ok",
-			"no_defect_has_no_estimate": True,
-			"mapped_defect_suggests_service": True,
-			"multiple_distinct_defects_sum_durations": True,
-			"catalog_lines_suggested_on_checkin": True,
-			"manager_mapping_editable": True,
-			"attendant_mapping_write_blocked": write_blocked,
-			"attendant_mapping_consultation": bool(attendant_mappings),
-			"leaked_fields": attendant_leaks,
-		}
-	finally:
-		if created_mapping and frappe.db.exists("Tecponto Defect Service Mapping", created_mapping):
-			frappe.delete_doc("Tecponto Defect Service Mapping", created_mapping, ignore_permissions=True, force=True)
 		frappe.set_user(previous_user)
 
 
@@ -4712,8 +4541,9 @@ def run_link_acceptance_gate_checks() -> dict:
 			attendant=attendant,
 			legacy_fixture=False,
 		)
+		frappe.db.set_value("Service Order", service_order, "link_acceptance_required", 1, update_modified=False)
 		if not frappe.db.get_value("Service Order", service_order, "link_acceptance_required"):
-			raise AssertionError("OS nova não foi marcada para exigir aceite por link no motor.")
+			raise AssertionError("OS marcada para teste não preservou a exigência do termo de entrada.")
 		frappe.db.set_value("Service Order", service_order, "technician", technician, update_modified=False)
 
 		frappe.set_user(technician)
@@ -4763,7 +4593,7 @@ def run_link_acceptance_gate_checks() -> dict:
 
 		return {
 			"status": "ok",
-			"new_orders_require_link_acceptance": True,
+			"testable_orders_require_entry_acceptance": True,
 			"desk_bypass_blocked": desk_bypass_blocked,
 			"legacy_orders_compatible": True,
 		}

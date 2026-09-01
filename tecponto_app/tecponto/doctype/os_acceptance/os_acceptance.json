@@ -7,7 +7,7 @@
  "field_order": ["service_order", "acceptance_type", "acceptance_method", "signer_role", "signer_name", "signer_document", "signer_authorization", "tracking_link", "budget_version", "identity_document_type", "identity_verified_on", "status", "token_hash", "selfie_file", "selfie_exception", "selfie_exception_reason", "selfie_exception_by", "selfie_exception_on", "selfie_exception_request", "signature_file", "physical_evidence_file", "physical_evidence_hash", "physical_collected_by", "physical_collected_on", "consent_version", "consented_on", "inoperative_device_term_version", "inoperative_device_term_text", "inoperative_device_term_accepted_on", "customer_part_term_version", "customer_part_term_text", "customer_part_term_accepted_on", "accepted_ip", "accepted_user_agent", "expires_on", "issued_by", "used_on"],
  "fields": [
   {"fieldname":"service_order","fieldtype":"Link","label":"Ordem de serviço","options":"Service Order","reqd":1,"in_list_view":1,"read_only":1},
-  {"fieldname":"acceptance_type","fieldtype":"Select","label":"Tipo de aceite","options":"Entrada\nRetirada\nOrçamento","reqd":1,"in_list_view":1,"read_only":1},
+  {"fieldname":"acceptance_type","fieldtype":"Select","label":"Tipo de aceite","options":"Entrada\nRetirada","reqd":1,"in_list_view":1,"read_only":1},
   {"fieldname":"acceptance_method","fieldtype":"Select","label":"Método de aceite","options":"Digital\nFísico","default":"Digital","reqd":1,"in_list_view":1,"read_only":1},
   {"fieldname":"signer_role","fieldtype":"Select","label":"Quem assina","options":"Dono\nTerceiro","default":"Dono","reqd":1,"read_only":1},
   {"fieldname":"signer_name","fieldtype":"Data","label":"Nome de quem assina","read_only":1},

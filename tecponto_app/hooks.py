@@ -293,7 +293,6 @@ doc_events = {
 	"Service Order": {
 		"before_validate": [
 			"tecponto_app.tecponto.stock.apply_service_order_stock_defaults",
-			"tecponto_app.tecponto.service_order.aceites.require_link_acceptance_for_new_orders",
 			"tecponto_app.tecponto.service_order.aceites.mark_pickup_without_repair",
 		],
 		"validate": [
@@ -385,7 +384,6 @@ after_migrate = [
 	"tecponto_app.tecponto.service_order.print_formats.ensure_service_order_print_formats",
 	"tecponto_app.tecponto.tracking.ensure_tracking_lifecycle",
 	"tecponto_app.tecponto.service_catalog.ensure_service_catalog",
-	"tecponto_app.tecponto.defect_service_mapping.ensure_defect_service_mappings",
 	"tecponto_app.tecponto.product_categories.ensure_product_category_foundation",
 	"tecponto_app.tecponto.product_variants.ensure_product_variant_attributes",
 	"tecponto_app.tecponto.listing_metadata.ensure_listing_metadata_fields",

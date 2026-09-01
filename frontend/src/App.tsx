@@ -119,7 +119,6 @@ import { VariantProductModal } from "./VariantProductModal";
 import { ListingMetadataModal } from "./ListingMetadataModal";
 import { ProductCategoryScreen } from "./ProductCategoryScreen";
 import { ProductVariantAttributesScreen } from "./ProductVariantAttributesScreen";
-import { DefectServiceMappingScreen } from "./DefectServiceMappingScreen";
 import { NotificationHistoryScreen } from "./NotificationHistoryScreen";
 import { MyEarningsScreen } from "./MyEarningsScreen";
 import { PartRequestModal, PartRequestsScreen } from "./PartRequestsScreen";
@@ -376,10 +375,6 @@ const viewTitles: Record<NavigationTarget, { title: string; subtitle: string }> 
   "service-categories": {
     title: "Categorias de serviço",
     subtitle: "Organização da mão de obra e dos prazos sugeridos.",
-  },
-  "defect-service-mapping": {
-    title: "Mapeamento defeito→serviço",
-    subtitle: "Sugestões editáveis que conectam defeito, serviço e prazo.",
   },
   "trade-ins": {
     title: "Trocas",
@@ -2599,10 +2594,6 @@ function NavigationContent({
 
   if (activeView === "service-categories") {
     return <ServiceCategoriesScreen canEdit={canEditServiceCatalog} onToast={onToast} />;
-  }
-
-  if (activeView === "defect-service-mapping") {
-    return <DefectServiceMappingScreen canEdit={canEditServiceCatalog} onToast={onToast} />;
   }
 
   if (activeView === "product-categories") {

@@ -15,13 +15,7 @@ from tecponto_app.tecponto.service_order.inoperative_device import (
 	public_inoperative_device_term,
 	requires_inoperative_device_term,
 )
-from tecponto_app.tecponto.service_order.customer_supplied_part import (
-	build_customer_supplied_part_term,
-	requires_customer_supplied_part_term,
-)
-
-
-ACCEPTANCE_TYPES = {"Entrada", "Retirada", "Orçamento"}
+ACCEPTANCE_TYPES = {"Entrada", "Retirada"}
 SIGNER_ROLES = {"Dono", "Terceiro"}
 PENDING_STATUS = "Pendente"
 TOKEN_TTL_HOURS = 24
@@ -54,7 +48,6 @@ def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str 
 
 	token = secrets.token_urlsafe(32)
 	term = build_inoperative_device_term(order) if acceptance_type == "Entrada" and requires_inoperative_device_term(order) else None
-	customer_part_term = build_customer_supplied_part_term(order) if acceptance_type == "Orçamento" and requires_customer_supplied_part_term(order) else None
 	doc = frappe.get_doc(
 		{
 			"doctype": "OS Acceptance",
@@ -71,8 +64,6 @@ def issue_acceptance(service_order: str, acceptance_type: str, signer_role: str 
 			"signer_authorization": order.get("third_party_auth") if signer_role == "Terceiro" else "",
 			"inoperative_device_term_version": term["version"] if term else "",
 			"inoperative_device_term_text": term["text"] if term else "",
-			"customer_part_term_version": customer_part_term["version"] if customer_part_term else "",
-			"customer_part_term_text": customer_part_term["text"] if customer_part_term else "",
 		}
 	)
 	doc.insert(ignore_permissions=True)
@@ -110,11 +101,8 @@ def record_physical_acceptance(
 	order.check_permission("read")
 	content, extension = _decode_physical_evidence(file_data, file_name)
 	term = build_inoperative_device_term(order) if acceptance_type == "Entrada" and requires_inoperative_device_term(order) else None
-	customer_part_term = build_customer_supplied_part_term(order) if acceptance_type == "Orçamento" and requires_customer_supplied_part_term(order) else None
 	if term and not frappe.utils.cint(inoperative_term_consent):
 		frappe.throw(_("Confirme o termo adicional antes de arquivar o aceite físico."), frappe.ValidationError)
-	if customer_part_term and not frappe.utils.cint(customer_part_term_consent):
-		frappe.throw(_("Confirme o termo da peça do cliente antes de arquivar o aceite físico."), frappe.ValidationError)
 
 	# A physical copy supersedes only a pending copy of the same legal action.
 	frappe.db.set_value(
@@ -159,9 +147,6 @@ def record_physical_acceptance(
 			"inoperative_device_term_version": term["version"] if term else "",
 			"inoperative_device_term_text": term["text"] if term else "",
 			"inoperative_device_term_accepted_on": accepted_on if term else None,
-			"customer_part_term_version": customer_part_term["version"] if customer_part_term else "",
-			"customer_part_term_text": customer_part_term["text"] if customer_part_term else "",
-			"customer_part_term_accepted_on": accepted_on if customer_part_term else None,
 			"used_on": accepted_on,
 		}
 	)
@@ -172,59 +157,6 @@ def record_physical_acceptance(
 
 		advance_auto_assigned_entry(order.name)
 	return {"completed": True, "acceptance": doc.name, "acceptance_type": acceptance_type, "method": "physical"}
-
-
-def issue_budget_acceptance_from_tracking(tracking, identity_document: str) -> dict:
-	"""Create a one-time budget-approval acceptance after server-side identity proof.
-
-	The tracking token grants public *viewing* access. The customer must additionally
-	match the CPF/RG held on the Customer record before we issue the separate selfie
-	and signature token for a financially relevant approval.
-	"""
-	order = frappe.get_doc("Service Order", tracking.service_order)
-	if order.get("workflow_state") != "Aguardando aprovação":
-		frappe.throw(_("Este orçamento não está mais disponível para decisão."), frappe.ValidationError)
-	if order.get("approval_deadline") and order.approval_deadline <= now_datetime():
-		frappe.throw(_("O prazo de aprovação deste orçamento expirou."), frappe.ValidationError)
-
-	document_type = _validate_customer_identity(order.customer, identity_document)
-	frappe.db.set_value(
-		"OS Acceptance",
-		{"service_order": order.name, "acceptance_type": "Orçamento", "status": PENDING_STATUS},
-		"status",
-		"Invalidado",
-		update_modified=False,
-	)
-
-	token = secrets.token_urlsafe(32)
-	customer_part_term = build_customer_supplied_part_term(order) if requires_customer_supplied_part_term(order) else None
-	doc = frappe.get_doc(
-		{
-			"doctype": "OS Acceptance",
-			"service_order": order.name,
-			"acceptance_type": "Orçamento",
-			"acceptance_method": "Digital",
-			"signer_role": "Dono",
-			"status": PENDING_STATUS,
-			"token_hash": _token_hash(token),
-			"expires_on": _budget_acceptance_expiry(order, tracking),
-			"issued_by": tracking.issued_by,
-			"tracking_link": tracking.name,
-			"budget_version": int(order.get("budget_version") or 1),
-			"identity_document_type": document_type,
-			"identity_verified_on": now_datetime(),
-			"customer_part_term_version": customer_part_term["version"] if customer_part_term else "",
-			"customer_part_term_text": customer_part_term["text"] if customer_part_term else "",
-		}
-	)
-	doc.insert(ignore_permissions=True)
-	link = f"{get_url()}/tecponto/aceite/{token}"
-	return {
-		"acceptance": doc.name,
-		"acceptance_type": doc.acceptance_type,
-		"expires_on": str(doc.expires_on),
-		"link": link,
-	}
 
 
 def issue_portal_acceptance(tracking, acceptance_type: str, identity_document: str) -> dict:
@@ -428,13 +360,7 @@ def complete_public_acceptance(
 		},
 		update_modified=False,
 	)
-	if doc.acceptance_type == "Orçamento":
-		# The approval is deliberately executed only after identity, selfie, signature
-		# and consent have all been persisted on this one-time acceptance record.
-		from tecponto_app.tecponto.tracking import complete_tracking_budget_acceptance
-
-		complete_tracking_budget_acceptance(doc)
-	elif doc.acceptance_type == "Entrada":
+	if doc.acceptance_type == "Entrada":
 		from tecponto_app.tecponto.service_order.assignment import advance_auto_assigned_entry
 
 		advance_auto_assigned_entry(doc.service_order)
@@ -498,25 +424,6 @@ def assert_completed_inoperative_device_term(service_order: str) -> None:
 		and acceptance.inoperative_device_term_accepted_on
 	):
 		frappe.throw(_("O termo adicional de aparelho sem funcionamento ainda não foi aceito."), frappe.ValidationError)
-
-
-def assert_completed_customer_supplied_part_term(service_order: str) -> None:
-	"""A customer-supplied part must be acknowledged on the budget acceptance."""
-	acceptance_name = frappe.db.get_value(
-		"OS Acceptance",
-		{"service_order": service_order, "acceptance_type": "Orçamento", "status": "Concluído"},
-		"name",
-		order_by="used_on desc",
-	)
-	if not acceptance_name:
-		frappe.throw(_("O termo da peça fornecida pelo cliente é obrigatório antes de aprovar o orçamento."), frappe.ValidationError)
-	acceptance = frappe.get_doc("OS Acceptance", acceptance_name)
-	if not (
-		acceptance.customer_part_term_version
-		and acceptance.customer_part_term_text
-		and acceptance.customer_part_term_accepted_on
-	):
-		frappe.throw(_("O termo da peça fornecida pelo cliente ainda não foi aceito."), frappe.ValidationError)
 
 
 @frappe.whitelist()

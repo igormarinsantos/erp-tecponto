@@ -195,7 +195,7 @@ def start_public_portal_action(token: str, action: str, identity_document: str) 
 		frappe.throw(_("Esta ação não está mais disponível."), frappe.ValidationError)
 
 	if action == "budget":
-		return start_public_tracking_budget_acceptance(token, identity_document)
+		frappe.throw(_("A aprovação do orçamento acontece diretamente no painel."), frappe.ValidationError)
 
 	from tecponto_app.tecponto.acceptance import issue_portal_acceptance
 
@@ -215,29 +215,12 @@ def decide_public_tracking_budget(token: str, decision: str, notes: str = "") ->
 		frappe.throw(_("Informe se o orçamento foi aprovado ou reprovado."), frappe.ValidationError)
 	if decision == "reject" and not notes:
 		frappe.throw(_("Informe o motivo da reprovação."), frappe.ValidationError)
-	if decision == "approve":
-		frappe.throw(
-			_("Confirme CPF ou RG e conclua o aceite com selfie e assinatura para aprovar este orçamento."),
-			frappe.ValidationError,
-		)
-
-	_execute_tracking_budget_decision(tracking, "reject", notes)
+	_execute_tracking_budget_decision(tracking, decision, notes or ("Aprovado pelo cliente no link." if decision == "approve" else ""))
 	return {
 		"completed": True,
-		"decision": "reject",
+		"decision": decision,
 		"tracking": get_public_tracking(token),
 	}
-
-
-@frappe.whitelist(allow_guest=True)
-def start_public_tracking_budget_acceptance(token: str, identity_document: str) -> dict[str, Any]:
-	"""Validate the holder's CPF/RG and issue the selfie/signature budget link."""
-	tracking = _get_tracking_for_portal_token(token)
-	if not tracking:
-		frappe.throw(_(INVALID_LINK_MESSAGE), frappe.PermissionError)
-	from tecponto_app.tecponto.acceptance import issue_budget_acceptance_from_tracking
-
-	return issue_budget_acceptance_from_tracking(tracking, identity_document)
 
 
 def complete_tracking_budget_acceptance(acceptance) -> None:

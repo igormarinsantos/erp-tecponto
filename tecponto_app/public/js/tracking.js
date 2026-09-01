@@ -49,18 +49,6 @@
     return payload.message.tracking;
   };
 
-  const startBudgetAcceptance = async (identityDocument) => {
-    const response = await fetch("/api/method/tecponto_app.tecponto.tracking.start_public_tracking_budget_acceptance", {
-      method: "POST",
-      credentials: "omit",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, identity_document: identityDocument }),
-    });
-    const payload = await response.json();
-    if (!response.ok || payload.exc || !payload.message?.link) throw new Error("Não foi possível validar o documento informado. Confira e tente novamente.");
-    return payload.message;
-  };
-
   const startPortalAction = async (action, identityDocument) => {
     const response = await fetch("/api/method/tecponto_app.tecponto.tracking.start_public_portal_action", {
       method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action, identity_document: identityDocument }),
@@ -152,26 +140,7 @@
         decisionArea.querySelectorAll("button").forEach((button) => { button.disabled = false; });
       }
     };
-    approvalButton?.addEventListener("click", () => {
-      if (!decisionArea) return;
-      decisionArea.innerHTML = '<div class="tp-tracking-identity"><span class="tp-tracking-identity-kicker">Confirmação do titular</span><b>Informe o CPF ou RG do titular</b><p>Antes de aprovar, vamos validar o documento e abrir o aceite com selfie e assinatura.</p><label for="tracking-identity-document">CPF ou RG</label><input autocomplete="off" id="tracking-identity-document" inputmode="numeric" maxlength="24" placeholder="Digite CPF ou RG"><div><button class="tp-tracking-secondary" type="button" data-cancel-approval>Voltar</button><button class="tp-tracking-primary" type="button" data-continue-approval>Continuar para o aceite</button></div></div>';
-      decisionArea.querySelector("[data-cancel-approval]")?.addEventListener("click", () => renderTracking(data));
-      decisionArea.querySelector("[data-continue-approval]")?.addEventListener("click", async () => {
-        const input = decisionArea.querySelector("input");
-        const identityDocument = input?.value.trim() || "";
-        if (!identityDocument) { decisionArea.insertAdjacentHTML("beforeend", '<p class="tp-tracking-decision-error">Informe o CPF ou RG do titular.</p>'); return; }
-        const continueButton = decisionArea.querySelector("[data-continue-approval]");
-        continueButton.disabled = true;
-        continueButton.textContent = "Validando...";
-        try { const acceptance = await startBudgetAcceptance(identityDocument); window.location.assign(acceptance.link); }
-        catch (error) {
-          continueButton.disabled = false;
-          continueButton.textContent = "Continuar para o aceite";
-          decisionArea.querySelector(".tp-tracking-decision-error")?.remove();
-          decisionArea.insertAdjacentHTML("beforeend", `<p class="tp-tracking-decision-error">${escape(error.message || "Não foi possível validar o documento informado.")}</p>`);
-        }
-      });
-    });
+    approvalButton?.addEventListener("click", () => submit("approve", "Aprovado pelo cliente no link."));
     rejectionButton?.addEventListener("click", () => {
       if (!decisionArea) return;
       decisionArea.innerHTML = '<label for="tracking-reject-reason">Motivo da reprovação</label><textarea id="tracking-reject-reason" maxlength="500" placeholder="Explique por que não deseja aprovar."></textarea><div><button class="tp-tracking-secondary" type="button" data-cancel-reject>Voltar</button><button class="tp-tracking-primary" type="button" data-confirm-reject>Confirmar reprovação</button></div>';

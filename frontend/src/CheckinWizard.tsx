@@ -58,7 +58,7 @@ import {
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { Button } from "./ui";
 
-const steps = ["Cliente", "Aparelho", "Dados", "Fotos", "Assinatura"];
+const steps = ["Cliente", "Aparelho", "Dados", "Fotos", "Revisão"];
 const stepDescriptions = [
   "Identifique ou cadastre o cliente antes de continuar.",
   "Identifique ou cadastre o aparelho vinculado a este cliente.",
@@ -103,7 +103,6 @@ type DeviceMeta = {
 type InitialBudgetLine = NonNullable<CheckinPayload["initial_budget_lines"]>[number];
 
 type ServiceSelections = {
-  defects: string[];
   problemLocations: string[];
   physicalStates: string[];
   accessories: string[];
@@ -135,7 +134,6 @@ const defaultCustomerMeta: CustomerMeta = {
 };
 
 const defaultServiceSelections: ServiceSelections = {
-  defects: [],
   problemLocations: [],
   physicalStates: [],
   accessories: [],
@@ -175,25 +173,6 @@ const deviceTypes = [
 const brands = ["Apple", "Samsung", "Motorola", "Xiaomi", "Lenovo", "Dell", "Outro"];
 const capacities = ["64GB", "128GB", "256GB", "512GB", "1TB", "Não sei"];
 const colors = ["Preto", "Branco", "Prata", "Azul", "Dourado", "Rosa", "Outro"];
-
-const defectOptions = [
-  "Não liga",
-  "Não carrega",
-  "Carrega intermitente",
-  "Aquece",
-  "Reinicia sozinho",
-  "Tela quebrada",
-  "Tela sem imagem",
-  "Touch falhando",
-  "Sem áudio",
-  "Microfone falhando",
-  "Câmera falhando",
-  "Molhou",
-  "Bateria descarregando rápido",
-  "Conector com mau contato",
-  "Lentidão/travamento",
-  "Outro",
-];
 
 const locationOptions = [
   "Tela",
@@ -286,6 +265,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
     device_access_type: "PIN",
     device_access_credential: "",
     include_initial_budget: false,
+    will_power_on_test: false,
   });
   const [serviceSelections, setServiceSelections] = useState<ServiceSelections>(defaultServiceSelections);
   const [warrantyCandidates, setWarrantyCandidates] = useState<WarrantyCandidate[]>([]);
@@ -295,10 +275,9 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
   const [photo, setPhoto] = useState<{ dataUrl: string; filename: string } | null>(null);
   const [initialBudgetLines, setInitialBudgetLines] = useState<InitialBudgetLine[]>([]);
 
-  const generatedSummary = useMemo(() => buildServiceSummary(serviceSelections), [serviceSelections]);
   const hasDamage = useMemo(
     () =>
-      [...serviceSelections.defects, ...serviceSelections.physicalStates].some((value) =>
+      serviceSelections.physicalStates.some((value) =>
         damageMarkers.some((marker) => value.toLowerCase().includes(marker)),
       ),
     [serviceSelections],
@@ -345,11 +324,10 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
   useEffect(() => {
     setServiceOrder((current) => ({
       ...current,
-      reported_defect: generatedSummary,
       physical_state: serviceSelections.physicalStates.join("; "),
       accessories_received: serviceSelections.accessories.join("; "),
     }));
-  }, [generatedSummary, serviceSelections.accessories, serviceSelections.physicalStates]);
+  }, [serviceSelections.accessories, serviceSelections.physicalStates]);
 
   useEffect(() => {
     const customer = selectedCustomer?.name ?? "";
@@ -401,7 +379,7 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
       ? selectedDevice.imei_serial
       : newDevice.brand.trim() && newDevice.model.trim() && newDevice.imei_serial.trim(),
   );
-  const dataReady = Boolean(serviceSelections.physicalStates.length && serviceOrder.physical_state.trim());
+  const dataReady = Boolean(serviceOrder.reported_defect.trim() && serviceSelections.physicalStates.length && serviceOrder.physical_state.trim());
   const photoReady = Boolean(photo?.dataUrl);
   const canContinue = [customerReady, deviceReady, dataReady, photoReady, true][step] ?? false;
   const canGoBack = step > 0 || (step === 0 && customerMicrostep !== "choice") || (step === 1 && deviceMicrostep !== "choice");
@@ -490,9 +468,9 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
         device_access_type: serviceOrder.device_access_type as CheckinPayload["service_order"]["device_access_type"],
         device_access_credential: serviceOrder.device_access_credential.trim(),
         include_initial_budget: serviceOrder.include_initial_budget,
+        will_power_on_test: serviceOrder.will_power_on_test,
         is_warranty: Boolean(originalServiceOrder),
         original_service_order: originalServiceOrder || undefined,
-        defects: serviceSelections.defects,
       },
       entry_photo: {
         data_url: photo.dataUrl,
@@ -587,7 +565,6 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
                 {step === 2 ? (
                   <ServiceDataStep
                     diagnosisOnlyEnabled={diagnosisOnlyEnabled}
-                    generatedSummary={generatedSummary}
 					forceNormalWarrantyReturn={forceNormalWarrantyReturn}
                     originalServiceOrder={originalServiceOrder}
                     selections={serviceSelections}
@@ -624,7 +601,9 @@ export function CheckinWizard({ brandName, diagnosisOnlyEnabled = false, onClose
             <div className="mt-4 flex flex-col gap-4 border-t border-tec-border/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
               <p className="flex items-center gap-3 text-sm text-tec-muted">
                 <Info className="shrink-0 text-tec-blue" size={20} />
-                A foto fica salva agora. O aceite por selfie e assinatura será coletado no link seguro antes de qualquer avanço técnico.
+                {serviceOrder.will_power_on_test
+                  ? "A foto fica salva agora. Como haverá teste, o termo de entrada será coletado antes do avanço técnico."
+                  : "A foto fica salva agora. Sem ligar ou testar o aparelho, não há termo de entrada intermediário."}
               </p>
               <div className="flex justify-end gap-3">
                 <Button disabled={!canGoBack || submitting} icon={<ArrowLeft size={17} />} onClick={goBack}>
@@ -1720,7 +1699,6 @@ function InitialBudgetComposer({ lines, onChange }: { lines: InitialBudgetLine[]
 
 function ServiceDataStep({
   diagnosisOnlyEnabled,
-  generatedSummary,
 	forceNormalWarrantyReturn,
   originalServiceOrder,
   selections,
@@ -1734,7 +1712,6 @@ function ServiceDataStep({
   warrantyLoading,
 }: {
   diagnosisOnlyEnabled: boolean;
-  generatedSummary: string;
 	forceNormalWarrantyReturn: boolean;
   originalServiceOrder: string;
   selections: ServiceSelections;
@@ -1749,10 +1726,11 @@ function ServiceDataStep({
     device_access_type: string;
     device_access_credential: string;
     include_initial_budget: boolean;
+    will_power_on_test: boolean;
   };
 	initialBudgetLines: InitialBudgetLine[];
   setOriginalServiceOrder: (value: string) => void;
-  setServiceOrder: React.Dispatch<React.SetStateAction<{ reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; contact_name: string; contact_phone: string; device_access_type: string; device_access_credential: string; include_initial_budget: boolean }>>;
+  setServiceOrder: React.Dispatch<React.SetStateAction<{ reported_defect: string; physical_state: string; attendance_notes: string; entry_operating_condition: string; accessories_received: string; contact_name: string; contact_phone: string; device_access_type: string; device_access_credential: string; include_initial_budget: boolean; will_power_on_test: boolean }>>;
 	setInitialBudgetLines: React.Dispatch<React.SetStateAction<InitialBudgetLine[]>>;
   setSelections: (value: ServiceSelections | ((current: ServiceSelections) => ServiceSelections)) => void;
   warrantyCandidates: WarrantyCandidate[];
@@ -1785,7 +1763,7 @@ function ServiceDataStep({
 		{serviceOrder.device_access_type === "Padrão de desenho" ? <PatternCredentialInput onChange={(value) => setServiceOrder((current) => ({ ...current, device_access_credential: value }))} value={serviceOrder.device_access_credential} /> : null}
 		<button className={`mt-4 w-full rounded-control border px-4 py-3 text-left text-sm ${serviceOrder.include_initial_budget ? "border-tec-success/40 bg-tec-success/10 text-tec-success" : "border-tec-border/20 bg-tec-field text-tec-muted"}`} onClick={() => setServiceOrder((current) => ({ ...current, include_initial_budget: !current.include_initial_budget }))} type="button">
 		  <span className="block font-semibold">{serviceOrder.include_initial_budget ? "Orçamento inicial incluído" : "Incluir orçamento inicial (opcional)"}</span>
-		  <span className="mt-1 block text-xs">Usa os mesmos serviços e preços do motor de orçamento, a partir dos defeitos selecionados.</span>
+		  <span className="mt-1 block text-xs">Usa o mesmo motor de orçamento da OS, sem criar orçamento paralelo.</span>
 		</button>
 		{serviceOrder.include_initial_budget ? <InitialBudgetComposer lines={initialBudgetLines} onChange={setInitialBudgetLines} /> : null}
       </WizardCard>
@@ -1826,9 +1804,7 @@ function ServiceDataStep({
               </p>
             ) : null}
           </div>
-        ) : (
-		  forceNormalWarrantyReturn ? <p className="mt-3 rounded-control border border-tec-red/25 bg-tec-red/10 px-3 py-2 text-sm font-semibold leading-6 text-tec-red">A garantia consultada está expirada. Este check-in criará uma OS nova normal, com orçamento e cobrança regulares.</p> : <p className="mt-3 text-sm leading-6 text-tec-muted">Nenhuma OS entregue com garantia vigente foi encontrada para este cliente/aparelho. Garantia-cortesia exige libera{"\u00e7"}{"\u00e3"}o do Gestor.</p>
-        )}
+		) : forceNormalWarrantyReturn ? <p className="mt-3 rounded-control border border-tec-red/25 bg-tec-red/10 px-3 py-2 text-sm font-semibold leading-6 text-tec-red">A garantia consultada está expirada. Este check-in criará uma OS nova normal, com orçamento e cobrança regulares.</p> : null}
       </WizardCard>
 
       <InfoBanner
@@ -1837,6 +1813,10 @@ function ServiceDataStep({
       />
 
       <WizardCard clean className="p-4">
+		<button className={`mb-4 w-full rounded-control border px-4 py-3 text-left text-sm ${serviceOrder.will_power_on_test ? "border-tec-orange/40 bg-tec-orange/10 text-white" : "border-tec-border/20 bg-tec-field text-tec-muted"}`} onClick={() => setServiceOrder((current) => ({ ...current, will_power_on_test: !current.will_power_on_test }))} type="button">
+		  <span className="block font-semibold">O aparelho será ligado ou testado neste atendimento?</span>
+		  <span className="mt-1 block text-xs">Se sim, o termo de entrada será exigido antes do avanço técnico. Trocas simples seguem sem esse aceite.</span>
+		</button>
         <ChipGroup compact label="Condição de funcionamento na entrada" required>
           {operatingConditionOptions.map((condition) => (
             <OptionChip
@@ -1879,22 +1859,7 @@ function ServiceDataStep({
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <WizardCard clean>
-          <ChipGroup compact label="Relato do cliente" multiple>
-            {defectOptions.map((defect) => (
-              <OptionChip
-                active={selections.defects.includes(defect)}
-                icon={defectIcon(defect)}
-                key={defect}
-                label={defect}
-                onClick={() => toggle("defects", defect)}
-              />
-            ))}
-          </ChipGroup>
-          <p className="mt-3 text-xs leading-5 text-tec-muted">
-            {isFullyOperational
-              ? "Selecione os sintomas informados ou confirmados durante a entrada."
-              : "Registre os sintomas relatados pelo cliente, mesmo que ainda não seja possível confirmá-los."}
-          </p>
+		  <TextArea label="Serviço solicitado / relato do cliente" maxLength={700} onChange={(value) => setServiceOrder((current) => ({ ...current, reported_defect: value }))} placeholder="Ex.: troca de tela; aparelho não carrega; limpeza do conector..." value={serviceOrder.reported_defect} />
           <div className="mt-4">
             <ChipGroup compact label="Acessórios recebidos" multiple>
               {accessoryOptions.map((accessory) => (
@@ -1948,12 +1913,6 @@ function ServiceDataStep({
             </CheckboxGrid>
           </WizardCard>
 
-          <WizardCard clean>
-            <SectionTitle icon={<Sparkles size={21} />} title="Resumo gerado automaticamente" />
-            <p className="mt-4 whitespace-pre-line text-sm leading-6 text-tec-subtle">
-              {generatedSummary || "Selecione defeitos e estado físico para gerar o resumo da OS."}
-            </p>
-          </WizardCard>
         </div>
       </div>
 
@@ -2171,6 +2130,10 @@ function CheckinSuccess({
 
   useEffect(() => {
     let active = true;
+    if (!created.service_order.entry_acceptance_required) {
+      setIssuingAcceptance(false);
+      return () => { active = false; };
+    }
     setIssuingAcceptance(true);
     setAcceptanceError(null);
     void balcao.issueAcceptance(created.service_order.name, "Entrada")
@@ -2180,7 +2143,7 @@ function CheckinSuccess({
     return () => {
       active = false;
     };
-  }, [created.service_order.name]);
+  }, [created.service_order.entry_acceptance_required, created.service_order.name]);
 
   const copyAcceptanceLink = async () => {
     if (!acceptance) return;
@@ -2211,7 +2174,9 @@ function CheckinSuccess({
         <CheckCircle2 className="text-tec-success" size={28} />
         <h3 className="mt-4 text-2xl font-bold text-white">{created.service_order.name}</h3>
         <p className="mt-2 text-sm text-tec-subtle">
-          OS criada em Entrada criada com a foto salva. Entregue o QR/link para o cliente concluir o aceite com selfie e assinatura.
+          {created.service_order.entry_acceptance_required
+            ? "OS criada com a foto salva. Como o aparelho será ligado/testado, conclua o termo de entrada antes do avanço técnico."
+            : "OS criada com a foto salva. Esta entrada não exige termo porque o aparelho não será ligado nem testado."}
         </p>
         <div className="mt-5 flex flex-wrap gap-2">
           <Button
@@ -2227,6 +2192,7 @@ function CheckinSuccess({
       </section>
       <section className="rounded-card border border-tec-border/15 bg-tec-panel-strong p-4">
         <h3 className="flex items-center gap-2 text-sm font-bold text-white"><QrCode className="text-tec-orange" size={17} /> Aceite de entrada</h3>
+        {!created.service_order.entry_acceptance_required ? <p className="mt-3 text-sm text-tec-muted">Não aplicável neste atendimento.</p> : null}
         {issuingAcceptance ? <p className="mt-3 text-sm text-tec-muted">Gerando link seguro...</p> : null}
         {acceptance ? (
           <div className="mt-3 space-y-3">
@@ -2677,24 +2643,6 @@ function TextArea({
   );
 }
 
-function buildServiceSummary(selections: ServiceSelections) {
-  const parts: string[] = [];
-  if (selections.defects.length) {
-    const locations = selections.problemLocations.length ? ` (${joinPt(selections.problemLocations)})` : "";
-    parts.push(`Cliente relata ${joinPt(selections.defects).toLowerCase()}${locations}.`);
-  }
-  if (selections.physicalStates.length) {
-    parts.push(`Estado físico declarado: ${joinPt(selections.physicalStates).toLowerCase()}.`);
-  }
-  if (selections.accessories.length) {
-    parts.push(`Acessórios recebidos: ${joinPt(selections.accessories).toLowerCase()}.`);
-  }
-  if (selections.observations.trim()) {
-    parts.push(`Observações adicionais: ${selections.observations.trim()}`);
-  }
-  return parts.join(" ");
-}
-
 function joinPt(values: string[]) {
   if (values.length <= 1) {
     return values[0] ?? "";
@@ -2714,22 +2662,6 @@ function formatShortDate(value: string) {
   const normalized = value.includes("T") ? value : `${value}T12:00:00`;
   const date = new Date(normalized);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("pt-BR");
-}
-
-function defectIcon(defect: string) {
-  if (defect.includes("Bateria") || defect.includes("carrega") || defect.includes("Conector")) {
-    return <Battery size={16} />;
-  }
-  if (defect.includes("Microfone")) {
-    return <Mic size={16} />;
-  }
-  if (defect.includes("Tela")) {
-    return <Monitor size={16} />;
-  }
-  if (defect.includes("áudio")) {
-    return <Headphones size={16} />;
-  }
-  return <Zap size={16} />;
 }
 
 function locationIcon(location: string) {
