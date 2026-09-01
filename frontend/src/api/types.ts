@@ -447,6 +447,7 @@ export interface ServiceOrderSummary {
   reported_defect: string | null;
   approval_status: string | null;
   approval_deadline: string;
+  pickup_date: string | null;
   modified: string;
 	unassigned_waiting_hours?: number;
 	unassigned_overdue?: boolean;
@@ -1053,7 +1054,7 @@ export interface TrackingLinkResponse {
 
 export interface BudgetDecisionPayload {
   decision: "approve" | "reject";
-  channel: "Presencial" | "Telefone" | "WhatsApp" | "Link";
+  channel: "Presencial" | "Telefone" | "WhatsApp" | "E-mail" | "Link";
   notes?: string;
   attachment?: string | { file_url: string; file_name?: string };
 }
@@ -1513,6 +1514,15 @@ export interface QuoteCrmItem {
   parts_total: number;
   grand_total: number;
   days_pending: number;
+  follow_ups: QuoteFollowUp[];
+}
+
+export interface QuoteFollowUp {
+  channel: string;
+  date: string;
+  notes: string;
+  result: string;
+  user: string;
 }
 
 export interface QuotesCrmResponse {

@@ -9313,7 +9313,7 @@ function filterOrdersByDashboardPeriod(orders: ServiceOrderSummary[], filter: Da
 
 function filterOrdersForServiceOrderScreen(orders: ServiceOrderSummary[], filters: ServiceOrderFilterState) {
   return filterOrdersByDashboardPeriod(orders, filters.period).filter((order) => {
-	if (filters.status === "in_progress" && ["Entregue", "Reprovado", "Cancelado", "Orçamento expirado", "Sem conserto"].includes(order.workflow_state ?? "")) {
+	if (filters.status === "in_progress" && order.pickup_date) {
 		return false;
 	}
     if (filters.status !== "all" && filters.status !== "in_progress" && order.workflow_state !== filters.status) {
@@ -9338,7 +9338,9 @@ function toServiceOrderQueryParams(filters: ServiceOrderFilterState, limit: numb
   if (query) {
     params.query = query;
   }
-  if (filters.status !== "all" && filters.status !== "in_progress") {
+  if (filters.status === "in_progress") {
+	params.status = "in_progress";
+  } else if (filters.status !== "all") {
     params.status = filters.status;
   }
 

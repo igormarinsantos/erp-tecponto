@@ -3,10 +3,14 @@ import {
   CheckCircle2,
   FileText,
   Hourglass,
+  Ellipsis,
+  LayoutGrid,
+  List,
   Phone,
   Search,
   TrendingUp,
   XCircle,
+  Upload,
 } from "lucide-react";
 
 import { serviceOrders, type QuoteCrmItem, type QuotesCrmResponse } from "./api";
@@ -28,6 +32,42 @@ function buildWhatsAppUrl(phone: string | null | undefined, message: string) {
   return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
 }
 
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value.replace(" ", "T")));
+}
+
+function readPrivateEvidence(file: File) {
+  const allowed = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+  if (!allowed.includes(file.type)) throw new Error("Envie uma foto, imagem ou PDF.");
+  if (file.size > 8 * 1024 * 1024) throw new Error("O comprovante deve ter no máximo 8 MB.");
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Não foi possível ler o comprovante."));
+    reader.readAsDataURL(file);
+  });
+}
+
+type CrmChannel = "WhatsApp" | "Telefone" | "Presencial" | "E-mail" | "Link";
+const CONTACT_CHANNELS: Array<{ label: string; value: CrmChannel }> = [
+  { label: "WhatsApp", value: "WhatsApp" },
+  { label: "Telefone", value: "Telefone" },
+  { label: "Balcão", value: "Presencial" },
+  { label: "E-mail", value: "E-mail" },
+];
+
+function ChannelPills({ includeLink = false, onChange, value }: { includeLink?: boolean; onChange: (channel: CrmChannel) => void; value: CrmChannel }) {
+  const channels = includeLink ? [...CONTACT_CHANNELS, { label: "Link", value: "Link" as CrmChannel }] : CONTACT_CHANNELS;
+  return <div className="mt-1 flex flex-wrap gap-2">{channels.map((channel) => (
+    <button
+      className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${value === channel.value ? "border-tec-orange bg-tec-orange text-white" : "border-tec-border/50 bg-tec-field/50 text-tec-subtle hover:text-white"}`}
+      key={channel.value}
+      onClick={() => onChange(channel.value)}
+      type="button"
+    >{channel.label}</button>
+  ))}</div>;
+}
+
 export function QuotesCrmScreen({
   onOpenOrder,
   onToast,
@@ -37,17 +77,20 @@ export function QuotesCrmScreen({
 }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<QuotesCrmResponse | null>(null);
-  const [statusFilter, setStatusFilter] = useState("pending");
+  const [statusFilter, setStatusFilter] = useState("in_progress");
+  const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
+  const [openActionsOrder, setOpenActionsOrder] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [actionModal, setActionModal] = useState<{
     type: "follow_up" | "approve" | "reject";
     order: QuoteCrmItem;
   } | null>(null);
-  const [modalChannel, setModalChannel] = useState<"WhatsApp" | "Telefone" | "Presencial" | "Link">("WhatsApp");
+  const [modalChannel, setModalChannel] = useState<CrmChannel>("WhatsApp");
   const [modalResult, setModalResult] = useState("Sem resposta");
   const [modalRejectionReason, setModalRejectionReason] = useState("Preço elevado");
   const [modalNotes, setModalNotes] = useState("");
   const [modalAttachment, setModalAttachment] = useState("");
+  const [modalAttachmentName, setModalAttachmentName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -82,7 +125,7 @@ export function QuotesCrmScreen({
           decision: "approve",
           channel: modalChannel,
           notes: modalNotes,
-          attachment: modalChannel !== "Link" ? (modalAttachment.trim() || "Autorização registrada no balcão") : undefined,
+          attachment: modalChannel !== "Link" ? modalAttachment : undefined,
         });
         onToast("Orçamento aprovado com sucesso!", "success");
       } else if (actionModal.type === "reject") {
@@ -97,6 +140,7 @@ export function QuotesCrmScreen({
       setActionModal(null);
       setModalNotes("");
       setModalAttachment("");
+      setModalAttachmentName("");
       void loadData();
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Falha ao executar ação", "error");
@@ -190,6 +234,7 @@ export function QuotesCrmScreen({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             {[
+              { id: "in_progress", label: "Em andamento" },
               { id: "all", label: "Todos" },
               { id: "pending", label: "Pendentes" },
               { id: "approved", label: "Aprovados" },
@@ -210,8 +255,12 @@ export function QuotesCrmScreen({
               </button>
             ))}
           </div>
-          <div className="w-full sm:w-80">
-            <div className="relative">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="flex rounded-control border border-tec-border/40 bg-tec-field/50 p-1" aria-label="Modo de visualização">
+              <button aria-label="Visualização em grid" className={`rounded px-2 py-1 ${viewMode === "grid" ? "bg-tec-orange text-white" : "text-tec-muted"}`} onClick={() => setViewMode("grid")} type="button"><LayoutGrid size={16} /></button>
+              <button aria-label="Visualização em linha" className={`rounded px-2 py-1 ${viewMode === "list" ? "bg-tec-orange text-white" : "text-tec-muted"}`} onClick={() => setViewMode("list")} type="button"><List size={16} /></button>
+            </div>
+            <div className="relative flex-1 sm:w-80">
               <input
                 type="text"
                 placeholder="Buscar por cliente, aparelho ou OS..."
@@ -237,8 +286,9 @@ export function QuotesCrmScreen({
           Nenhum orçamento encontrado para os filtros selecionados.
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className={viewMode === "grid" ? "grid gap-4 lg:grid-cols-2 xl:grid-cols-3" : "space-y-3"}>
           {data.items.map((item: QuoteCrmItem) => {
+            const followUps = item.follow_ups ?? [];
             const isItemPending = item.approval_status === "Pendente" || item.workflow_state === "Aguardando aprovação";
             const isItemApproved = item.approval_status === "Aprovado" || item.workflow_state === "Aprovado";
             const isItemRejected = item.approval_status === "Reprovado" || item.workflow_state === "Reprovado";
@@ -246,7 +296,7 @@ export function QuotesCrmScreen({
             const whatsappLink = buildWhatsAppUrl(item.phone, whatsappMsg);
 
             return (
-              <Card key={item.name} className="border-tec-border/30 p-4 transition hover:border-tec-border">
+              <Card key={item.name} className={`border-tec-border/30 p-4 transition hover:border-tec-border ${viewMode === "grid" ? "flex h-full flex-col" : ""}`}>
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b border-tec-border/15 pb-3">
                   <div className="flex items-center gap-3">
                     <button
@@ -294,29 +344,66 @@ export function QuotesCrmScreen({
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-tec-border/15 pt-3">
-                  <div className="flex items-center gap-2">
-                    {whatsappLink ? (
-                      <a
-                        href={whatsappLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-control border border-emerald-500/30 bg-emerald-950/20 px-3 py-1 text-xs font-bold text-emerald-400 hover:bg-emerald-900/30"
-                      >
-                        <Phone size={13} /> Cobrar WhatsApp
-                      </a>
-                    ) : null}
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setActionModal({ type: "follow_up", order: item });
-                        setModalNotes("");
-                      }}
-                    >
-                      Registrar Follow-up
-                    </Button>
+                <div className="mt-3 border-t border-tec-border/15 pt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-bold uppercase tracking-wide text-tec-subtle">Follow-ups</p>
+                    <span className="text-xs text-tec-muted">{followUps.length} contato(s)</span>
                   </div>
+                  {followUps.length ? (
+                    <ol className="mt-2 space-y-2">
+                      {followUps.slice(0, viewMode === "grid" ? 3 : 5).map((followUp, index) => (
+                        <li className="relative border-l border-tec-orange/35 pl-3 text-xs" key={`${followUp.date}-${index}`}>
+                          <div className="flex flex-wrap items-center gap-x-2 text-tec-subtle">
+                            <span className="font-bold text-white">{followUp.channel}</span>
+                            <span>{formatDateTime(followUp.date)}</span>
+                          </div>
+                          <p className="mt-0.5 text-tec-muted">{followUp.result} · {followUp.user}</p>
+                          {followUp.notes ? <p className="mt-0.5 text-tec-subtle">{followUp.notes}</p> : null}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : <p className="mt-2 text-xs text-tec-muted">Nenhum follow-up registrado.</p>}
+                </div>
+
+                <div className={`mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-tec-border/15 pt-3 ${viewMode === "grid" ? "mt-auto" : ""}`}>
                   <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <button
+                        aria-expanded={openActionsOrder === item.name}
+                        aria-label={`Mais ações de ${item.name}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-control border border-tec-border/40 text-tec-muted hover:bg-tec-surface-hover hover:text-white"
+                        onClick={() => setOpenActionsOrder((current) => current === item.name ? null : item.name)}
+                        type="button"
+                      >
+                        <Ellipsis size={17} />
+                      </button>
+                      {openActionsOrder === item.name ? (
+                        <div className="absolute bottom-10 left-0 z-20 min-w-52 rounded-control border border-tec-border bg-tec-surface p-1.5 shadow-xl">
+                          {whatsappLink ? (
+                            <a
+                              href={whatsappLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-2 rounded px-2.5 py-2 text-xs font-semibold text-tec-text hover:bg-tec-surface-hover"
+                              onClick={() => setOpenActionsOrder(null)}
+                            >
+                              <Phone size={14} /> Cobrar pelo WhatsApp
+                            </a>
+                          ) : null}
+                          <button
+                            className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs font-semibold text-tec-text hover:bg-tec-surface-hover"
+                            onClick={() => {
+                              setOpenActionsOrder(null);
+                              setActionModal({ type: "follow_up", order: item });
+                              setModalNotes("");
+                            }}
+                            type="button"
+                          >
+                            <FileText size={14} /> Registrar follow-up manual
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     {isItemPending && (
                       <>
                         <Button
@@ -376,16 +463,7 @@ export function QuotesCrmScreen({
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <label className="block text-xs font-semibold text-tec-subtle">Canal de contato</label>
-                      <select
-                        className="tp-input mt-1 w-full"
-                        value={modalChannel}
-                        onChange={(e) => setModalChannel(e.target.value as "WhatsApp" | "Telefone" | "Presencial" | "Link")}
-                      >
-                        <option value="WhatsApp">WhatsApp</option>
-                        <option value="Ligação Telefônica">Ligação Telefônica</option>
-                        <option value="Presencial / Balcão">Presencial / Balcão</option>
-                        <option value="E-mail">E-mail</option>
-                      </select>
+                      <ChannelPills onChange={setModalChannel} value={modalChannel} />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-tec-subtle">Resultado</label>
@@ -419,27 +497,32 @@ export function QuotesCrmScreen({
                 <>
                   <div>
                     <label className="block text-xs font-semibold text-tec-subtle">Canal da Autorização</label>
-                    <select
-                      className="tp-input mt-1 w-full"
-                      value={modalChannel}
-                      onChange={(e) => setModalChannel(e.target.value as "WhatsApp" | "Telefone" | "Presencial" | "Link")}
-                    >
-                      <option value="WhatsApp">WhatsApp</option>
-                      <option value="Presencial">Presencial / Balcão</option>
-                      <option value="Telefone">Ligação Telefônica</option>
-                      <option value="Link">Link Digital / Portal</option>
-                    </select>
+                    <ChannelPills includeLink onChange={setModalChannel} value={modalChannel} />
                   </div>
                   {modalChannel !== "Link" && (
                     <div>
                       <label className="block text-xs font-semibold text-tec-amber">Comprovante / Documento anexo (obrigatório)</label>
-                      <input
-                        type="text"
-                        className="tp-input mt-1 w-full"
-                        value={modalAttachment}
-                        onChange={(e) => setModalAttachment(e.target.value)}
-                        placeholder="Ex.: Anexo, áudio/print de conversa ou número do termo"
-                      />
+                      <label className="mt-1 flex cursor-pointer items-center gap-3 rounded-control border border-dashed border-tec-amber/50 bg-tec-amber/5 p-3 text-sm text-tec-subtle hover:bg-tec-amber/10">
+                        <Upload className="text-tec-amber" size={18} />
+                        <span>{modalAttachmentName || "Selecionar foto, print ou PDF (máx. 8 MB)"}</span>
+                        <input
+                          accept="image/jpeg,image/png,image/webp,application/pdf"
+                          className="sr-only"
+                          onChange={async (event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              setModalAttachment(await readPrivateEvidence(file));
+                              setModalAttachmentName(file.name);
+                            } catch (error) {
+                              setModalAttachment("");
+                              setModalAttachmentName("");
+                              onToast(error instanceof Error ? error.message : "Comprovante inválido.", "error");
+                            }
+                          }}
+                          type="file"
+                        />
+                      </label>
                     </div>
                   )}
                   <div>
@@ -475,16 +558,7 @@ export function QuotesCrmScreen({
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-tec-subtle">Canal da Resposta</label>
-                      <select
-                        className="tp-input mt-1 w-full"
-                        value={modalChannel}
-                        onChange={(e) => setModalChannel(e.target.value as "WhatsApp" | "Telefone" | "Presencial" | "Link")}
-                      >
-                        <option value="WhatsApp">WhatsApp</option>
-                        <option value="Presencial">Presencial / Balcão</option>
-                        <option value="Telefone">Ligação Telefônica</option>
-                        <option value="Link">Link Digital / Portal</option>
-                      </select>
+                      <ChannelPills includeLink onChange={setModalChannel} value={modalChannel} />
                     </div>
                   </div>
                   <div>

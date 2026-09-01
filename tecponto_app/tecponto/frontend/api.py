@@ -116,7 +116,7 @@ SERVICE_CATALOG_EDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto D
 STORE_OPERATION_MANAGER_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 TECHNICIAN_COMMISSION_ROLES = {"System Manager", "Tecponto Tecnico"}
 DIRECTOR_FINANCIAL_ROLES = {"Tecponto Diretor"}
-APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp", "Link"}
+APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp", "E-mail", "Link"}
 STATE_ENTRADA_CRIADA = "Entrada criada"
 STATE_AGUARDANDO_APROVACAO = "Aguardando aprovação"
 STATE_EM_DIAGNOSTICO = "Em diagnóstico"
@@ -159,6 +159,7 @@ SAFE_SERVICE_ORDER_FIELDS = (
 	"reported_defect",
 	"approval_status",
 	"approval_deadline",
+	"pickup_date",
 	"sales_invoice",
 	"modified",
 )
@@ -1347,7 +1348,7 @@ def get_service_order_kanban(
 	limit = max(1, min(int(limit_per_column or 18), 40))
 	columns = []
 	for state in get_service_order_workflow_state_names():
-		if status and status != "all" and status != state:
+		if status and status not in {"all", "in_progress"} and status != state:
 			items = []
 			count = 0
 		else:
@@ -1357,6 +1358,8 @@ def get_service_order_kanban(
 				from_date=from_date,
 				to_date=to_date,
 			)
+			if status == "in_progress":
+				filters["pickup_date"] = ["is", "not set"]
 			filters = _with_service_order_scope(filters)
 			items = frappe.get_list(
 				"Service Order",
@@ -2341,6 +2344,9 @@ def decide_service_order_budget(name: str, payload: str | dict[str, Any] | None 
 		frappe.throw(_("Canal de aprovação inválido."), frappe.ValidationError)
 	if decision == "reject" and not notes:
 		frappe.throw(_("Informe o motivo da reprovação."), frappe.ValidationError)
+	approval_evidence = None
+	if decision == "approve" and channel != "Link":
+		approval_evidence = _decode_private_approval_evidence(data.get("attachment"))
 
 	doc = frappe.get_doc("Service Order", name)
 	if doc.get("workflow_state") != STATE_AGUARDANDO_APROVACAO:
@@ -2388,43 +2394,38 @@ def decide_service_order_budget(name: str, payload: str | dict[str, Any] | None 
 	)
 
 	if decision == "approve" and channel != "Link":
-		attachment = data.get("attachment")
-		if attachment:
+		if approval_evidence:
 			from frappe.utils.file_manager import save_file
-
-			if isinstance(attachment, dict):
-				file_url = attachment.get("file_url") or ""
-				if file_url.startswith(("http://", "https://", "/files/", "/private/files/")):
-					frappe.get_doc(
-						{
-							"doctype": "File",
-							"file_url": file_url,
-							"file_name": attachment.get("file_name") or f"comprovante_{doc.name}",
-							"attached_to_doctype": doc.doctype,
-							"attached_to_name": doc.name,
-						}
-					).insert(ignore_permissions=True)
-				else:
-					save_file(attachment.get("file_name") or f"comprovante_{doc.name}.txt", file_url.encode("utf-8"), doc.doctype, doc.name, is_private=1)
-			elif isinstance(attachment, str) and attachment.strip():
-				if attachment.startswith("data:"):
-					save_file(f"comprovante_{doc.name}.png", attachment, doc.doctype, doc.name, is_private=1)
-				elif attachment.startswith(("http://", "https://", "/files/", "/private/files/")):
-					frappe.get_doc(
-						{
-							"doctype": "File",
-							"file_url": attachment.strip(),
-							"file_name": f"comprovante_{doc.name}",
-							"attached_to_doctype": doc.doctype,
-							"attached_to_name": doc.name,
-						}
-					).insert(ignore_permissions=True)
-				else:
-					save_file(f"comprovante_{doc.name}.txt", attachment.encode("utf-8"), doc.doctype, doc.name, is_private=1)
+			content, extension = approval_evidence
+			save_file(f"comprovante_{doc.name}.{extension}", content, doc.doctype, doc.name, is_private=1)
 
 	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), workflow_action)
 
 	return get_service_order_detail(doc.name)
+
+
+def _decode_private_approval_evidence(attachment: Any) -> tuple[bytes, str]:
+	from base64 import b64decode
+	from binascii import Error as Base64Error
+
+	allowed = {
+		"data:image/jpeg;base64": "jpg",
+		"data:image/png;base64": "png",
+		"data:image/webp;base64": "webp",
+		"data:application/pdf;base64": "pdf",
+	}
+	if not isinstance(attachment, str) or "," not in attachment:
+		frappe.throw(_("Anexe uma foto, imagem ou PDF real como comprovante da aprovação."), frappe.ValidationError)
+	header, encoded = attachment.split(",", 1)
+	if header not in allowed:
+		frappe.throw(_("Formato do comprovante inválido. Use JPG, PNG, WEBP ou PDF."), frappe.ValidationError)
+	try:
+		content = b64decode(encoded, validate=True)
+	except (Base64Error, ValueError):
+		frappe.throw(_("O arquivo do comprovante está corrompido."), frappe.ValidationError)
+	if not content or len(content) > 8 * 1024 * 1024:
+		frappe.throw(_("O comprovante deve ter entre 1 byte e 8 MB."), frappe.ValidationError)
+	return content, allowed[header]
 
 
 @frappe.whitelist()
@@ -2456,7 +2457,7 @@ def record_quote_follow_up(
 
 @frappe.whitelist()
 def get_quotes_crm_panel(
-	status: str = "all",
+	status: str = "in_progress",
 	channel: str = "all",
 	query: str = "",
 	limit: int = 50,
@@ -2466,6 +2467,8 @@ def get_quotes_crm_panel(
 	limit = max(1, min(int(limit or 50), 100))
 
 	filters: dict[str, Any] = {}
+	if status in {"", "in_progress"}:
+		filters["pickup_date"] = ["is", "not set"]
 	if status == "pending":
 		filters["workflow_state"] = STATE_AGUARDANDO_APROVACAO
 	elif status == "approved":
@@ -2510,6 +2513,7 @@ def get_quotes_crm_panel(
 		"os_contact_phone",
 		"modified",
 		"creation",
+		"pickup_date",
 	]
 
 	or_filters = None
@@ -2593,6 +2597,7 @@ def get_quotes_crm_panel(
 				"budget_version": row.budget_version or 1,
 				"grand_total": grand_total,
 				"days_pending": days_pending,
+				"follow_ups": _get_quote_follow_ups(row.name),
 			}
 		)
 
@@ -2606,6 +2611,38 @@ def get_quotes_crm_panel(
 		},
 		"items": items,
 	}
+
+
+def _get_quote_follow_ups(service_order: str) -> list[dict[str, str]]:
+	rows = frappe.get_all(
+		"Comment",
+		filters={
+			"reference_doctype": "Service Order",
+			"reference_name": service_order,
+			"comment_type": "Comment",
+			"content": ["like", "Follow-up de Orçamento via%"],
+		},
+		fields=["content", "comment_by", "comment_email", "creation"],
+		order_by="creation desc",
+		limit_page_length=20,
+	)
+	events = []
+	for row in rows:
+		text = strip_html(row.content or "")
+		first_line, _, note = text.partition("\n")
+		prefix = "Follow-up de Orçamento via "
+		channel_result = first_line[len(prefix):] if first_line.startswith(prefix) else first_line
+		channel, _, result = channel_result.partition(" · Resultado: ")
+		events.append(
+			{
+				"channel": channel.strip(),
+				"result": result.strip(),
+				"notes": note.replace("Observação:", "", 1).strip(),
+				"date": str(row.creation or ""),
+				"user": _get_user_display_name(row.comment_email or row.comment_by),
+			}
+		)
+	return events
 
 
 @frappe.whitelist()
@@ -3860,8 +3897,10 @@ def _service_order_search_filters(
 	filters: dict[str, Any] = {}
 	or_filters: list[list[str]] = []
 
-	status = (status or "").strip()
-	if status and status != "all":
+	status = (status or "in_progress").strip()
+	if status == "in_progress":
+		filters["pickup_date"] = ["is", "not set"]
+	elif status and status != "all":
 		filters["workflow_state"] = status
 
 	from_date = (from_date or "").strip()

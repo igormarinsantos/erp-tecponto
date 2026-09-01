@@ -1371,6 +1371,8 @@ def run_os4_approval_and_quotes_crm_checks() -> dict:
 			raise AssertionError("Status no CRM de orçamentos incorreto.")
 		if crm_item["grand_total"] <= 0:
 			raise AssertionError("Total comercial da OS no CRM de orçamentos deve ser maior que zero.")
+		if not crm_item.get("follow_ups") or crm_item["follow_ups"][0]["result"] != "Pediu mais tempo":
+			raise AssertionError("Histórico de follow-ups não apareceu no card/projeção do CRM.")
 
 		# Check cost guard on CRM panel for attendant
 		leaks = contains_sensitive_field(crm_panel)
@@ -1384,13 +1386,22 @@ def run_os4_approval_and_quotes_crm_checks() -> dict:
 				"decision": "approve",
 				"channel": "WhatsApp",
 				"notes": "Cliente aprovou troca completa via WhatsApp.",
-				"attachment": "comprovante_whatsapp_autorizacao.pdf",
+				"attachment": "data:image/png;base64," + b64encode(b"crm-private-proof").decode(),
 			},
 		)
 		if approved_detail["approval_status"] != "Aprovado" or approved_detail["workflow_state"] != "Aprovado":
 			raise AssertionError("Decisão de aprovação não moveu o estado da OS para Aprovado.")
 		if approved_detail["approval"]["channel"] != "WhatsApp":
 			raise AssertionError("Canal de aprovação não foi persistido.")
+		proof = frappe.db.get_value(
+			"File",
+			{"attached_to_doctype": "Service Order", "attached_to_name": order_name},
+			["name", "is_private"],
+			as_dict=True,
+			order_by="creation desc",
+		)
+		if not proof or not proof.is_private:
+			raise AssertionError("Comprovante real não foi anexado privadamente à OS.")
 
 		# 5. Test rejection decision on a second OS
 		order_name_2 = _create_action_request_service_order(attendant)
@@ -1417,12 +1428,31 @@ def run_os4_approval_and_quotes_crm_checks() -> dict:
 		if rejected_detail["approval_status"] != "Reprovado" or rejected_detail["workflow_state"] != "Reprovado":
 			raise AssertionError("Decisão de reprovação não moveu o estado da OS para Reprovado.")
 
+		# Em andamento é definido exclusivamente pela retirada física.
+		crm_in_progress = get_quotes_crm_panel(status="in_progress")
+		if not any(item["name"] == order_name_2 for item in crm_in_progress["items"]):
+			raise AssertionError("OS recusada sem retirada saiu indevidamente de Em andamento no CRM.")
+		list_in_progress = list_service_orders(status="in_progress", limit=100)
+		if not any(item["name"] == order_name_2 for item in list_in_progress["items"]):
+			raise AssertionError("OS recusada sem retirada saiu indevidamente da lista Em andamento.")
+		kanban_in_progress = get_service_order_kanban(status="in_progress", limit_per_column=40)
+		if not any(item["name"] == order_name_2 for column in kanban_in_progress["columns"] for item in column["items"]):
+			raise AssertionError("OS recusada sem retirada saiu indevidamente da Mesa Em andamento.")
+		frappe.db.set_value("Service Order", order_name_2, "pickup_date", now_datetime(), update_modified=False)
+		if any(item["name"] == order_name_2 for item in get_quotes_crm_panel(status="in_progress")["items"]):
+			raise AssertionError("OS retirada continuou indevidamente em andamento no CRM.")
+		if any(item["name"] == order_name_2 for item in list_service_orders(status="in_progress", limit=100)["items"]):
+			raise AssertionError("OS retirada continuou indevidamente na lista Em andamento.")
+		if any(item["name"] == order_name_2 for column in get_service_order_kanban(status="in_progress", limit_per_column=40)["columns"] for item in column["items"]):
+			raise AssertionError("OS retirada continuou indevidamente na Mesa Em andamento.")
+
 		return {
 			"status": "ok",
 			"followup_persisted": True,
 			"crm_panel_verified": True,
 			"approval_decision_tested": True,
 			"rejection_decision_tested": True,
+			"physical_pickup_filter_verified": True,
 			"cost_guard_verified": True,
 		}
 	finally:
@@ -1492,7 +1522,7 @@ def run_os5_workflow_automations_checks() -> dict:
 			)
 		except frappe.ValidationError as error:
 			manual_blocked = True
-			if "exige comprovante" not in str(error):
+			if "comprovante" not in str(error):
 				raise AssertionError(f"Erro inesperado no bloqueio de aprovação manual: {error}")
 		if not manual_blocked:
 			raise AssertionError("Aprovação manual sem comprovante/documento anexado não foi bloqueada.")
@@ -1503,7 +1533,7 @@ def run_os5_workflow_automations_checks() -> dict:
 				"decision": "approve",
 				"channel": "WhatsApp",
 				"notes": "Autorizado com print de conversa",
-				"attachment": "print_conversa_autorizacao.png",
+				"attachment": "data:image/png;base64," + b64encode(b"manual-private-proof").decode(),
 			},
 		)
 		if manual_approved["workflow_state"] != "Aprovado" or manual_approved["approval_status"] != "Aprovado":
@@ -4386,7 +4416,7 @@ def run_workflow_metadata_gate_checks() -> dict:
 
 			decide_service_order_budget(
 				service_order,
-				{"decision": decision, "channel": "Presencial", "notes": notes, "attachment": "comprovante_presencial.pdf"},
+				{"decision": decision, "channel": "Presencial", "notes": notes, "attachment": "data:image/png;base64," + b64encode(b"desk-private-proof").decode()},
 			)
 			order = frappe.get_doc("Service Order", service_order)
 			if (

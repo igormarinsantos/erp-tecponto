@@ -415,7 +415,7 @@
    "fieldname": "approval_channel",
    "fieldtype": "Select",
    "label": "Canal de aprovação",
-   "options": "\nPresencial\nTelefone\nWhatsApp\nLink"
+   "options": "\nPresencial\nTelefone\nWhatsApp\nE-mail\nLink"
   },
   {
    "fieldname": "approved_by",
