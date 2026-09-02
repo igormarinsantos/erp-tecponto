@@ -12,6 +12,8 @@ from frappe import _
 from frappe.twofactor import get_qr_svg_code
 from frappe.utils import add_days, flt, get_url, now_datetime
 
+from tecponto_app.tecponto.permissions import as_user
+
 
 TRACKING_DOCTYPE = "Service Order Tracking"
 ACTIVE_STATUS = "Ativo"
@@ -253,9 +255,7 @@ def _execute_tracking_budget_decision(tracking, decision: str, notes: str) -> No
 
 	# The public token/acceptance authorizes the customer decision; the existing
 	# workflow still executes under the accountable Tecponto operator.
-	previous_user = frappe.session.user
-	try:
-		frappe.set_user(actor)
+	with as_user(actor):
 		from tecponto_app.tecponto.frontend.api import decide_service_order_budget
 		from frappe.model.workflow import apply_workflow
 
@@ -296,8 +296,6 @@ def _execute_tracking_budget_decision(tracking, decision: str, notes: str) -> No
 						"comment_by": actor,
 					}
 				).insert(ignore_permissions=True)
-	finally:
-		frappe.set_user(previous_user)
 
 
 def _get_valid_tracking(token: str):

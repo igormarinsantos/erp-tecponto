@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from contextlib import contextmanager
 from typing import Any
 from urllib.parse import quote
 
@@ -14,6 +13,7 @@ from frappe.utils.pdf import get_pdf
 
 from tecponto_app.tecponto.cashier import CASHIER_OPERATOR_FIELD, identify_cashier_operator, resolve_cashier_operator
 from tecponto_app.tecponto.cash import record_sales_invoice_cash_movements, require_open_cash_session
+from tecponto_app.tecponto.permissions import as_user
 from tecponto_app.tecponto.pos import (
 	BARCODE_SOURCE_FIELD,
 	BARCODE_SOURCE_INTERNAL,
@@ -47,18 +47,6 @@ INVENTORY_RECEIPT_ROLES = {"Tecponto Gestor", "System Manager"}
 IDEMPOTENCY_DOCTYPE = "Tecponto POS Sale Request"
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,95}$")
 CONSUMER_FINAL_CUSTOMER = "CONSUMIDOR FINAL"
-
-
-@contextmanager
-def _preserve_session_user():
-	"""Temporarily use the system user for Frappe's account-controller checks."""
-	previous_user = getattr(frappe.session, "user", None)
-	try:
-		frappe.set_user("Administrator")
-		yield
-	finally:
-		if previous_user:
-			frappe.set_user(previous_user)
 
 
 @frappe.whitelist()
@@ -342,12 +330,8 @@ def pos_register_retail_product(payload: str | dict[str, Any] | None = None) -> 
 		# ERPNext creates an Item Price from Item.after_insert. Run that native
 		# cascade as the system identity, then restore the caller immediately.
 		# This does not grant or persist any role for the attendant.
-		caller = frappe.session.user
-		frappe.set_user("Administrator")
-		try:
+		with as_user("Administrator"):
 			item.insert(ignore_permissions=True)
-		finally:
-			frappe.set_user(caller)
 
 		if source == BARCODE_SOURCE_INTERNAL:
 			barcode, _created = generate_item_barcode(item, force_internal=True)
@@ -821,7 +805,7 @@ def _create_sales_invoice(
 	# The endpoint has already resolved server-owned price, stock, floor and
 	# payment accounts. ERPNext then performs its own account-controller checks,
 	# which require a sales role the cashier must never receive.
-	with _preserve_session_user():
+	with as_user("Administrator"):
 		invoice.insert(ignore_permissions=True)
 		invoice.submit()
 	return invoice

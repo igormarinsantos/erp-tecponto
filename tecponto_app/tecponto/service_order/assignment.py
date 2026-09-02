@@ -13,6 +13,7 @@ from frappe.utils import flt, get_datetime, now_datetime
 
 from tecponto_app.tecponto.lean_operations import TECHNICIAN_ROLE, active_users_with_role, operation_shape
 from tecponto_app.tecponto.operation_config import get_operation_config
+from tecponto_app.tecponto.permissions import as_user
 from tecponto_app.tecponto.service_order.stage_sla import BUSINESS_DAY_END, BUSINESS_DAY_START, _commercial_holiday_dates
 
 AUDIT_DOCTYPE = "Tecponto Service Order Assignment Event"
@@ -65,24 +66,21 @@ def advance_auto_assigned_entry(service_order: str) -> bool:
 		return False
 	savepoint = f"tp_auto_advance_{sha1(service_order.encode()).hexdigest()[:12]}"
 	frappe.db.savepoint(savepoint)
-	previous_user = frappe.session.user
 	try:
 		# This is a server-owned consequence of the audited automatic assignment.
 		# Administrator supplies workflow authority; document hooks still enforce
 		# photo, acceptance, biometrics and every lifecycle gate.
-		frappe.set_user("Administrator")
-		path = frappe.db.get_value("Service Order", service_order, "caminho") or "Completo"
-		apply_workflow(
-			frappe.as_json({"doctype": "Service Order", "name": service_order}),
-			"Iniciar execução" if path == "Rápido" else "Em diagnóstico",
-		)
+		with as_user("Administrator"):
+			path = frappe.db.get_value("Service Order", service_order, "caminho") or "Completo"
+			apply_workflow(
+				frappe.as_json({"doctype": "Service Order", "name": service_order}),
+				"Iniciar execução" if path == "Rápido" else "Em diagnóstico",
+			)
 		return True
 	except (frappe.ValidationError, frappe.PermissionError):
 		frappe.db.rollback(save_point=savepoint)
 		frappe.clear_messages()
 		return False
-	finally:
-		frappe.set_user(previous_user)
 
 
 def assign(service_order: str, technician: str, actor: str, observation: str = "") -> dict[str, Any]:

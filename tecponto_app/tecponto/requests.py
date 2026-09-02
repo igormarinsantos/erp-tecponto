@@ -314,15 +314,12 @@ def _has_approver_authority(role: str) -> bool:
 
 @contextmanager
 def _preserve_user():
-	# Kept for symmetry with future async executors; approval never impersonates the requester.
-	previous = frappe.session.user
-	try:
-		yield
-	finally:
-		# Test and shell calls may not carry a request session. This context never
-		# changes user, so there is nothing to restore when no prior user exists.
-		if previous:
-			frappe.set_user(previous)
+	# Kept for symmetry with future async executors; approval never impersonates the
+	# requester, so this is a genuine no-op. It must stay one: calling
+	# frappe.set_user() here — even to "restore" the same user that was already
+	# active — still corrupts the caller's session cookie (see
+	# tecponto_app.tecponto.permissions.as_user for why).
+	yield
 
 
 def _serialize(doc) -> dict[str, Any]:

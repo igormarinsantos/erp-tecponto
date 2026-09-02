@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from contextlib import contextmanager
 from typing import Any
 from urllib.parse import quote
 
@@ -51,7 +50,7 @@ from tecponto_app.tecponto.cash import (
 	record_sales_invoice_cash_movements,
 	require_open_cash_session,
 )
-from tecponto_app.tecponto.permissions import is_restricted_technician, service_order_scope_filters
+from tecponto_app.tecponto.permissions import as_user, is_restricted_technician, service_order_scope_filters
 from tecponto_app.tecponto.service_order import stage_clock, stage_sla
 from tecponto_app.tecponto.service_order import payments as service_order_payments
 from tecponto_app.tecponto.service_order.parts import (
@@ -372,16 +371,9 @@ def _require_tradein_role() -> None:
 	frappe.throw(_("Usuário sem permissão para operar avaliações de troca."), frappe.PermissionError)
 
 
-@contextmanager
 def _run_tradein_stock_mutation():
 	"""Temporarily run only the already-authorized trade-in stock/payment hook as Administrator."""
-	previous_user = frappe.session.user
-	try:
-		frappe.set_user("Administrator")
-		yield
-	finally:
-		if previous_user:
-			frappe.set_user(previous_user)
+	return as_user("Administrator")
 
 
 def _require_service_catalog_editor() -> None:
@@ -2343,13 +2335,9 @@ def convert_fast_service_order(name: str, reason: str, new_value: float, notes: 
 	apply_workflow(frappe.as_json({"doctype": doc.doctype, "name": doc.name}), "Reorçar")
 	doc.reload()
 	frappe.get_doc({"doctype": "Comment", "comment_type": "Info", "reference_doctype": "Service Order", "reference_name": doc.name, "content": f"Caminho Rápido convertido para Completo por {frappe.session.user}. Motivo: {frappe.utils.escape_html(reason)}. Novo valor: R$ {new_value:.2f}."}).insert(ignore_permissions=True)
-	actor = frappe.session.user
-	try:
-		# Consequência automática da conversão auditada; o motor de envio continua único.
-		frappe.set_user("Administrator")
+	# Consequência automática da conversão auditada; o motor de envio continua único.
+	with as_user("Administrator"):
 		send_service_order_quote(doc.name, {"channel": "WhatsApp", "notes": notes or "Novo valor após avaliação técnica."})
-	finally:
-		frappe.set_user(actor)
 	return get_service_order_detail(doc.name)
 
 
@@ -4213,16 +4201,9 @@ def _serialize_tradein_operation(doc: Any) -> dict[str, Any]:
 	}
 
 
-@contextmanager
 def _run_post_sale_mutation():
 	"""Scoped elevation for ERPNext's own stock and payment-ledger return posting."""
-	previous_user = frappe.session.user
-	try:
-		frappe.set_user("Administrator")
-		yield
-	finally:
-		if previous_user:
-			frappe.set_user(previous_user)
+	return as_user("Administrator")
 
 
 def _create_sales_return_with_cash(data: dict[str, Any]):

@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import frappe
 
 
@@ -66,3 +68,34 @@ def part_request_has_permission(doc, user: str | None = None, permission_type: s
 	if user == "Administrator" or not is_restricted_technician(user):
 		return True
 	return doc.get("requested_by") == user
+
+
+@contextmanager
+def as_user(username: str):
+	"""Temporarily act as another user for a permission check, without corrupting the session.
+
+	``frappe.set_user()`` is NOT safe to call mid-request and restore afterwards: besides
+	swapping ``frappe.session.user``, it also overwrites ``frappe.session.sid`` with the
+	plain username and wipes ``frappe.session.data`` (frappe/__init__.py, ``set_user``).
+	``frappe.session.sid`` is exactly the value ``frappe/auth.py`` writes into the outgoing
+	``Set-Cookie: sid=...`` header at the end of the request — so even a perfectly restored
+	``frappe.session.user`` still ships a cookie that no longer matches any real session.
+	The browser's next request is rejected with "User None not found" (403). This corrupts
+	every one of the caller's requests from that point on, not just this one.
+
+	This helper only ever touches ``frappe.session.user`` (plus the per-request permission
+	caches that must be recomputed for the new identity) — never ``.sid`` or ``.data``.
+	"""
+	session = frappe.session
+	saved_user = session.user
+	try:
+		session.user = username
+		frappe.local.role_permissions = {}
+		frappe.local.user_perms = None
+		frappe.local.cache = {}
+		yield
+	finally:
+		session.user = saved_user
+		frappe.local.role_permissions = {}
+		frappe.local.user_perms = None
+		frappe.local.cache = {}
