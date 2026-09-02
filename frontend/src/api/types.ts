@@ -510,7 +510,7 @@ export interface ServiceOrderDetailResponse {
     expired: boolean;
   };
   entry_date: string;
-  quote_sent?: boolean;
+  quote_sent: boolean;
   quote_sent_at?: string;
   modified: string;
   attendant: string | null;

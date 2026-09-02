@@ -5134,11 +5134,11 @@ function DiagnosisTechnicalCard({
 }
 
 function HandoffStatus({ detail }: { detail: ServiceOrderDetailResponse }) {
-	if (!detail.diagnosis.pricing_responsibility) return null;
+	if (!detail.diagnosis.pricing_responsibility || !detail.diagnosis.completed_at) return null;
 	return <Card className="border-tec-amber/30 bg-tec-amber/5 p-4">
 		<p className="text-xs font-bold uppercase tracking-wide text-tec-amber">Repasse explícito</p>
 		<p className="mt-2 text-sm font-bold text-white">Precificação com: {detail.diagnosis.pricing_responsibility}</p>
-		<p className="mt-1 text-xs text-tec-muted">Diagnóstico concluído por {detail.diagnosis.completed_by ?? "usuário não identificado"}{detail.diagnosis.completed_at ? ` em ${formatDate(detail.diagnosis.completed_at)}` : ""}.</p>
+		<p className="mt-1 text-xs text-tec-muted">Diagnóstico concluído por {detail.diagnosis.completed_by ?? "usuário não identificado"} em {formatDate(detail.diagnosis.completed_at)}.</p>
 		{detail.diagnosis.budget_review_required ? <p className="mt-2 text-xs font-bold text-tec-orange">Diagnóstico reaberto: revise o orçamento antes de enviar. A versão já enviada não foi invalidada.</p> : null}
 	</Card>;
 }

@@ -1559,6 +1559,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"has_signature": bool(doc.get("customer_signature")) or acceptance_summary["Retirada"]["completed"],
 		},
 		"acceptance": acceptance_summary,
+		"quote_sent": _service_order_quote_sent(doc.name),
 		"finance": {
 			**finance,
 		},
@@ -5050,6 +5051,15 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 			}
 		)
 	return sorted(timeline, key=lambda event: event.get("date") or "")
+
+
+def _service_order_quote_sent(name: str) -> bool:
+	return bool(
+		frappe.db.exists(
+			"Communication",
+			{"reference_doctype": "Service Order", "reference_name": name, "subject": ["like", "Orçamento enviado%"]},
+		)
+	)
 
 
 def _get_quote_send_timeline_events(doc: Any) -> list[dict[str, str]]:
