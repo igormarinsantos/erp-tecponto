@@ -1014,13 +1014,10 @@ def run_print_document_checks() -> dict:
 		settings.public_logo = "/assets/tecponto_app/branding/logo-dark.svg"
 		settings.save(ignore_permissions=True)
 
-		frappe.db.set_value(
-			"Customer Device",
-			order.customer_device,
-			"device_password",
-			"SENHA-INTERNA-NAO-IMPRIMIR-CLIENTE",
-			update_modified=False,
-		)
+		device = frappe.get_doc("Customer Device", order.customer_device)
+		device.device_access_type = "Alfanumérica"
+		device.device_access_credential = "SENHA-INTERNA-NAO-IMPRIMIR-CLIENTE"
+		device.save(ignore_permissions=True)
 		frappe.db.set_value(
 			"Service Order",
 			order.name,
