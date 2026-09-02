@@ -256,12 +256,15 @@ def _execute_tracking_budget_decision(tracking, decision: str, notes: str) -> No
 	# The public token/acceptance authorizes the customer decision; the existing
 	# workflow still executes under the accountable Tecponto operator.
 	with as_user(actor):
-		from tecponto_app.tecponto.frontend.api import decide_service_order_budget
+		from tecponto_app.tecponto.frontend.api import _decide_service_order_budget
 		from frappe.model.workflow import apply_workflow
 
-		decide_service_order_budget(
+		_decide_service_order_budget(
 			order.name,
-			{"decision": decision, "channel": "Link", "notes": notes},
+			decision=decision,
+			channel="Link",
+			notes=notes,
+			trusted_link=True,
 		)
 
 		if decision == "approve":

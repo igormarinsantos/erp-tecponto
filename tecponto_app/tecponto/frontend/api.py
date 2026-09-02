@@ -2385,19 +2385,47 @@ def save_stage_sla(payload: str | dict[str, Any] | None = None) -> dict[str, Any
 def decide_service_order_budget(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
 	_require_attendant_flow_role()
 	data = _parse_payload(payload)
-	decision = (data.get("decision") or "").strip()
-	channel = (data.get("channel") or "").strip()
-	notes = (data.get("notes") or "").strip()
+	return _decide_service_order_budget(
+		name,
+		decision=(data.get("decision") or "").strip(),
+		channel=(data.get("channel") or "").strip(),
+		notes=(data.get("notes") or "").strip(),
+		attachment=data.get("attachment"),
+	)
 
+
+def _decide_service_order_budget(
+	name: str,
+	*,
+	decision: str,
+	channel: str,
+	notes: str,
+	attachment: Any = None,
+	trusted_link: bool = False,
+) -> dict[str, Any]:
+	"""Shared core for both the balcão form and the customer's own tracking-link decision.
+
+	``trusted_link`` may only be set True by an internal Python caller (never by the
+	whitelisted HTTP entrypoint above, whose kwargs come straight from the request body) —
+	it marks that this call is the customer's own action on a live, unexpired tracking
+	link, which is the actual evidence for that channel. Without it, "Link" is rejected
+	outright: an attendant must never be able to self-approve a budget of any value by
+	just picking "Link Digital" in the balcão form with nothing behind it.
+	"""
 	if decision not in {"approve", "reject"}:
 		frappe.throw(_("Informe se o orçamento foi aprovado ou reprovado."), frappe.ValidationError)
 	if channel not in APPROVAL_CHANNELS:
 		frappe.throw(_("Canal de aprovação inválido."), frappe.ValidationError)
 	if decision == "reject" and not notes:
 		frappe.throw(_("Informe o motivo da reprovação."), frappe.ValidationError)
+	if channel == "Link" and not trusted_link:
+		frappe.throw(
+			_("O canal Link Digital só pode ser registrado pelo próprio cliente através do link de rastreio."),
+			frappe.PermissionError,
+		)
 	approval_evidence = None
 	if decision == "approve" and channel != "Link":
-		approval_evidence = _decode_private_approval_evidence(data.get("attachment"))
+		approval_evidence = _decode_private_approval_evidence(attachment)
 
 	doc = frappe.get_doc("Service Order", name)
 	if doc.get("workflow_state") != STATE_AGUARDANDO_APROVACAO:

@@ -4502,7 +4502,7 @@ function ApprovalDecisionCard({
   const [channel, setChannel] = useState<"WhatsApp" | "Telefone" | "Presencial" | "Link">("WhatsApp");
   const [rejectionReason, setRejectionReason] = useState("Preço elevado");
   const [notes, setNotes] = useState("");
-  const [attachmentText, setAttachmentText] = useState("");
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const status = detail.approval_status || (detail.workflow_state === "Aguardando aprovação" ? "Pendente" : detail.workflow_state);
@@ -4512,22 +4512,35 @@ function ApprovalDecisionCard({
   const isExpired = detail.workflow_state === "Orçamento expirado";
 
   const handleDecision = async (decision: "approve" | "reject") => {
+    if (decision === "approve" && channel !== "Link" && !attachmentFile) {
+      onToast("Anexe uma foto, imagem ou PDF real como comprovante da aprovação.", "error");
+      return;
+    }
     setSubmitting(true);
     try {
       const finalNotes = decision === "reject"
         ? (rejectionReason + (notes.trim() ? ` — ${notes.trim()}` : ""))
         : notes.trim();
+      let attachment: string | undefined;
+      if (decision === "approve" && channel !== "Link" && attachmentFile) {
+        attachment = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Arquivo inválido."));
+          reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+          reader.readAsDataURL(attachmentFile);
+        });
+      }
       const updated = await serviceOrders.decideBudget(detail.name, {
         decision,
         channel,
         notes: finalNotes,
-        attachment: decision === "approve" && channel !== "Link" ? (attachmentText.trim() || "Autorização registrada no balcão") : undefined,
+        attachment,
       });
       onUpdated(updated);
       onToast(decision === "approve" ? "Orçamento aprovado com sucesso!" : "Orçamento reprovado e registrado.", "success");
       setDecisionMode("idle");
       setNotes("");
-      setAttachmentText("");
+      setAttachmentFile(null);
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Falha ao registrar decisão do orçamento", "error");
     } finally {
@@ -4633,8 +4646,10 @@ function ApprovalDecisionCard({
                 <option value="WhatsApp">WhatsApp</option>
                 <option value="Presencial">Presencial / Balcão</option>
                 <option value="Telefone">Ligação Telefônica</option>
-                <option value="Link">Link Digital / Portal</option>
               </select>
+              <p className="mt-1 text-[11px] text-tec-muted">
+                Aprovação via Link Digital só acontece quando o próprio cliente decide pelo link de rastreio — não é um canal que o balcão registra manualmente.
+              </p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-tec-muted">Observações (opcional)</label>
@@ -4652,18 +4667,18 @@ function ApprovalDecisionCard({
                 Comprovante / Documento anexo (obrigatório para aprovação manual)
               </label>
               <input
+                accept="image/jpeg,image/png,application/pdf"
                 className="tp-input mt-1 w-full"
-                onChange={(e) => setAttachmentText(e.target.value)}
-                placeholder="Ex.: Anexo, áudio/print de conversa ou número do termo físico"
-                value={attachmentText}
+                onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)}
+                type="file"
               />
               <p className="mt-1 text-[11px] text-tec-muted">
-                Sem o link digital, a comprovação é anexada ao histórico permanente da OS.
+                Foto, imagem ou PDF real (print da conversa, áudio transcrito, termo físico escaneado). Sem o link digital, a comprovação é anexada ao histórico permanente da OS.
               </p>
             </div>
           )}
           <div className="flex items-center gap-2 pt-2">
-            <Button disabled={submitting} type="submit" variant="primary">
+            <Button disabled={submitting || (channel !== "Link" && !attachmentFile)} type="submit" variant="primary">
               {submitting ? "Gravando..." : "Confirmar Aprovação"}
             </Button>
             <Button disabled={submitting} onClick={() => setDecisionMode("idle")} type="button" variant="secondary">
