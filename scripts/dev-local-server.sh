@@ -38,6 +38,14 @@ case "$ACTION" in
 		;;
 	restart)
 		if docker inspect "$SERVER_NAME" >/dev/null 2>&1; then
+			# db/redis podem ter caído sozinhos (ex.: Docker Desktop reiniciou o
+			# daemon) — religa antes de reiniciar o server, senão ele sobe sem
+			# conseguir falar com o banco.
+			docker start "$DB_NAME" >/dev/null 2>&1 || true
+			docker start "$REDIS_NAME" >/dev/null 2>&1 || true
+			if docker inspect "$DB_NAME" >/dev/null 2>&1; then
+				until docker exec "$DB_NAME" mariadb-admin ping -h 127.0.0.1 -uroot -plocal-test-password --silent >/dev/null 2>&1; do sleep 1; done
+			fi
 			docker restart "$SERVER_NAME" >/dev/null
 			echo "Servidor reiniciado (Python recarregado + migrate rodado). http://localhost:8000"
 			exit 0
