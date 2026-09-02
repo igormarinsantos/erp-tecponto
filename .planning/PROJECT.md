@@ -29,7 +29,7 @@ O balcão consegue rodar o dia a dia real — check-in até retirada, PDV, troca
 
 - [ ] Auditar PDV, trocas/avaliações, garantias e caixa com teste real ponta a ponta (mesmo rigor usado no ciclo de OS), catalogando e corrigindo bugs achados
 - [ ] Fechar OS.6 (Execução e Retirada): confirmar garantia de 90 dias ponta a ponta (criar OS, entregar, tentar abrir garantia no dia 91 deve bloquear, no dia 89 deve passar)
-- [ ] Fechar OS.6: prazo único da OS definido pelo técnico no orçamento (campo novo, hoje só existe `estimated_deadline` por linha de serviço)
+- [ ] Fechar OS.6: prazo único da OS definido pelo técnico no orçamento — o campo `estimated_deadline` **já existe a nível de OS** (`service_order.json`) e já é lido em Kanban/impressões/pendências, mas não tem nenhum caminho de escrita (nenhuma tela ou endpoint o define) — a tarefa é ligar a escrita + UI, não criar campo novo
 - [ ] Fechar OS.6: permitir editar, depois de criado, contato da OS (nome/telefone), credencial do aparelho (mascarada + log de auditoria) e dados do cliente (nome/CPF)
 - [ ] Definir e documentar um design system (cores, tipografia, componentes) — hoje não existe formalizado
 - [ ] Aplicar o design system em passada única, depois de tudo funcional e estável (nunca antes)
@@ -64,7 +64,8 @@ O balcão consegue rodar o dia a dia real — check-in até retirada, PDV, troca
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Escopo do plano é o sistema inteiro (OS + PDV + trocas/garantias + caixa), não só OS.6 | Muitas alterações anteriores quebraram partes que funcionavam — usuário quer confiança testada em tudo antes do deploy, não só na OS | — Pending |
-| Prazo técnico vira um campo novo de prazo único da OS (definido pelo técnico no orçamento), não só o `estimated_deadline` por serviço que já existe | Decisão do usuário ao fechar a ambiguidade encontrada no código | — Pending |
+| Prazo técnico vira um prazo único da OS (definido pelo técnico no orçamento) | Decisão do usuário ao fechar a ambiguidade encontrada no código | — Pending |
+| `estimated_deadline` (campo OS-level já existente, lido em Kanban/impressões/pendências) é o campo a wire-upar — não criar um segundo campo concorrente | Pesquisa de arquitetura (grep verificado direto no código) achou que a premissa original ("só existe por linha de serviço") estava errada — o campo já é OS-level, só falta caminho de escrita | ✓ Good |
 | Design system é fase separada, só depois de tudo funcional/estável | Alinhado com o princípio já existente em `CLAUDE.md` (polimento em passada única no fim) e com o pedido explícito do usuário | — Pending |
 | GSD inicializado dentro do repo real (WSL), não na pasta Windows de docs | `CLAUDE.md` proíbe tratar a pasta Windows como o repo de trabalho | ✓ Good |
 
