@@ -5148,6 +5148,21 @@ function StageHeading({ description, title }: { description: string; title: stri
 
 function StageAcceptanceCard({ detail, onOpenAcceptance }: { detail: ServiceOrderDetailResponse; onOpenAcceptance: (type: "Entrada" | "Retirada") => void }) {
   const type = detail.workflow_state === "Pronto para retirada" ? "Retirada" : "Entrada";
+  const status = detail.acceptance[type];
+  if (status.completed) {
+    return <Card className="border-emerald-500/30 bg-emerald-950/10 p-5">
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="text-emerald-400" size={18} />
+        <h3 className="text-lg font-bold text-white">Aceite de {type.toLowerCase()} concluído</h3>
+      </div>
+      <p className="mt-2 text-sm text-tec-subtle">
+        {status.method === "Físico" ? "Via física arquivada" : "Concluído por link digital"}
+        {status.completed_by ? ` · por ${status.completed_by}` : ""}
+        {status.completed_on ? ` · em ${formatDate(status.completed_on)}` : ""}
+      </p>
+      <Button className="mt-4" icon={<QrCode size={17} />} onClick={() => onOpenAcceptance(type)} variant="ghost">Gerar novo aceite</Button>
+    </Card>;
+  }
   return <Card className="p-5"><h3 className="text-lg font-bold text-white">Aceite do cliente</h3><p className="mt-2 text-sm text-tec-subtle">Gere o link digital ou arquive a folha física assinada. O motor valida a evidência antes do avanço.</p><Button className="mt-4" icon={<QrCode size={17} />} onClick={() => onOpenAcceptance(type)} variant="secondary">{type === "Entrada" ? "Gerar aceite de entrada" : "Gerar aceite de retirada"}</Button></Card>;
 }
 

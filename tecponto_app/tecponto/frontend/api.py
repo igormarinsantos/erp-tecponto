@@ -1469,6 +1469,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 	closed_lines = _build_closed_budget_lines(services, parts)
 
 	finance = _service_order_finance_payload(doc, technical_view=technical_view, fallback_total=grand_total)
+	acceptance_summary = _get_service_order_acceptance_summary(doc.name)
 	pricing_available = bool(set(frappe.get_roles(frappe.session.user)).intersection(ATTENDANT_FLOW_ALLOWED_ROLES | {"Tecponto Tecnico"}))
 	pricing_default = "Técnico" if operation_shape()["single_operator"] and pricing_available else "Balcão"
 	return {
@@ -1550,8 +1551,9 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"pickup_person_document": doc.get("picked_up_doc") or doc.get("third_party_doc"),
 			"pickup_date": str(doc.get("pickup_date") or ""),
 			"pickup_notes": doc.get("pickup_notes"),
-			"has_signature": bool(doc.get("customer_signature")),
+			"has_signature": bool(doc.get("customer_signature")) or acceptance_summary["Retirada"]["completed"],
 		},
+		"acceptance": acceptance_summary,
 		"finance": {
 			**finance,
 		},
@@ -4907,6 +4909,46 @@ def _get_user_display_name(username: str | None) -> str:
 	return full_name or username
 
 
+def _get_service_order_acceptance_summary(name: str) -> dict[str, Any]:
+	"""Latest completed OS Acceptance per type, so the UI can show it's already done."""
+	summary: dict[str, Any] = {}
+	for acceptance_type in ("Entrada", "Retirada"):
+		row = frappe.db.get_value(
+			"OS Acceptance",
+			{"service_order": name, "acceptance_type": acceptance_type, "status": "Concluído"},
+			["name", "acceptance_method", "signer_role", "used_on", "physical_collected_by", "issued_by"],
+			as_dict=True,
+			order_by="used_on desc",
+		)
+		summary[acceptance_type] = {
+			"completed": bool(row),
+			"acceptance": row.name if row else None,
+			"method": row.acceptance_method if row else None,
+			"signer_role": row.signer_role if row else None,
+			"completed_on": str(row.used_on or "") if row else "",
+			"completed_by": (row.physical_collected_by or row.issued_by) if row else None,
+		}
+	return summary
+
+
+def _get_acceptance_timeline_events(doc: Any) -> list[dict[str, str]]:
+	rows = frappe.get_all(
+		"OS Acceptance",
+		filters={"service_order": doc.name, "status": "Concluído"},
+		fields=["acceptance_type", "acceptance_method", "used_on", "physical_collected_by", "issued_by"],
+		order_by="used_on asc",
+	)
+	return [
+		{
+			"title": f"Aceite de {row.acceptance_type} concluído",
+			"detail": f"{row.acceptance_method or 'Digital'} · por {_get_user_display_name(row.physical_collected_by or row.issued_by)}",
+			"date": str(row.used_on or ""),
+			"tone": "green",
+		}
+		for row in rows
+	]
+
+
 def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 	timeline = [
 		{
@@ -4953,6 +4995,7 @@ def _get_service_order_timeline(doc: Any) -> list[dict[str, str]]:
 			}
 		)
 	timeline.extend(_get_quote_send_timeline_events(doc))
+	timeline.extend(_get_acceptance_timeline_events(doc))
 	if doc.get("approval_status") and doc.get("approval_status") != "Pendente":
 		detail = f"{doc.get('approval_status')} via {doc.get('approval_channel') or 'Canal não informado'}"
 		if doc.get("approval_notes"):

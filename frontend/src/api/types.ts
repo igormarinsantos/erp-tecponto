@@ -567,6 +567,10 @@ export interface ServiceOrderDetailResponse {
     pickup_notes: string | null;
     has_signature: boolean;
   };
+  acceptance: {
+    Entrada: { completed: boolean; acceptance: string | null; method: string | null; signer_role: string | null; completed_on: string; completed_by: string | null };
+    Retirada: { completed: boolean; acceptance: string | null; method: string | null; signer_role: string | null; completed_on: string; completed_by: string | null };
+  };
   finance: {
     sales_invoice: string | null;
     sales_invoice_status: string | null;

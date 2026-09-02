@@ -170,7 +170,10 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
 
   const termLink = detail.print_links.find((link) => link.label === "Termo de retirada");
   const canPrepare = !thirdParty || (pickedUpBy.trim() && pickedUpDoc.trim() && thirdPartyAuthorized);
-  const canSubmit = Boolean(acceptance || physicalAcceptanceName) && canPrepare;
+  // detail.acceptance.Retirada reflects a completed acceptance (digital or physical)
+  // already on the server, so this survives a page reload or a fresh login instead of
+  // only trusting this modal's own local state from the current browser session.
+  const canSubmit = Boolean(acceptance || physicalAcceptanceName || detail.acceptance.Retirada.completed) && canPrepare;
 
   async function copyAcceptanceLink() {
     if (!acceptance) return;
@@ -245,7 +248,7 @@ export function PickupModal({ detail, onClose, onUpdated, open }: FlowProps) {
 
   async function submit() {
     setError(null);
-		const acceptanceName = acceptance?.acceptance || physicalAcceptanceName;
+		const acceptanceName = acceptance?.acceptance || physicalAcceptanceName || detail.acceptance.Retirada.acceptance;
 		if (!acceptanceName) {
 		setError("Gere o aceite digital ou arquive a via física assinada antes de entregar.");
       return;
