@@ -205,7 +205,11 @@ from tecponto_app.tecponto.cash import (
 from tecponto_app.tecponto.pending import complete_manual_task, create_manual_task, list_agenda_calendar, list_daily_actions
 from tecponto_app.tecponto.used_device_warranty import consultar_garantia_usado
 from tecponto_app.tecponto.service_order.stage_clock import get_stage_clock
-from tecponto_app.tecponto.service_order.stage_sla import add_commercial_business_hours, get_stage_slas
+from tecponto_app.tecponto.service_order.stage_sla import (
+	add_commercial_business_hours,
+	calculate_suggested_delivery,
+	get_stage_slas,
+)
 from tecponto_app.tecponto.service_order.parts import processar_pecas
 from tecponto_app.tecponto.service_order.aceites import validate_aceites
 from tecponto_app.tecponto.service_order.inoperative_device import (
@@ -2145,7 +2149,7 @@ def run_stage_sla_checks() -> dict:
 		if monday != datetime(2026, 7, 20, 12, 0):
 			raise AssertionError(f"Cálculo comercial não pulou fim de semana/expediente: {monday!s}")
 
-		before = get_checkin_delivery_suggestion({"defects": ["Tela quebrada"], "lead_time_business_hours": 9})
+		before = calculate_suggested_delivery(lead_time_business_hours=9)
 		updated = save_stage_sla(
 			{
 				"workflow_state": "Entrada criada",
@@ -2154,7 +2158,7 @@ def run_stage_sla_checks() -> dict:
 				"active": True,
 			}
 		)["item"]
-		after = get_checkin_delivery_suggestion({"defects": ["Tela quebrada"], "lead_time_business_hours": 9})
+		after = calculate_suggested_delivery(lead_time_business_hours=9)
 		if updated["business_hours"] != 10 or after["total_business_hours"] != before["total_business_hours"] + 6:
 			raise AssertionError("Edição do SLA não alterou a sugestão de entrega.")
 
