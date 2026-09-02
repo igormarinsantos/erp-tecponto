@@ -3,14 +3,14 @@ import { BadgeDollarSign, CalendarDays, ClipboardList } from "lucide-react";
 
 import { earnings, type OwnEarningItem } from "./api";
 import { Card, DataTable, LayeredFilters, ListGridToggle, StatBar, type ListPresentation, type TableColumn } from "./ui";
+import { parseServerDate } from "./utils/date";
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const dateFormatter = new Intl.DateTimeFormat("pt-BR");
 
 function formatDate(value: string) {
-  if (!value) return "-";
-  const date = new Date(`${value.slice(0, 10)}T12:00:00`);
-  return Number.isNaN(date.getTime()) ? value : dateFormatter.format(date);
+  const date = parseServerDate(value);
+  return date ? dateFormatter.format(date) : value || "-";
 }
 
 export function MyEarningsScreen({ onOpenServiceOrder }: { onOpenServiceOrder: (name: string) => void }) {

@@ -12,6 +12,7 @@ import { Button, Card, HorizontalScroller } from "./ui";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { WorkflowMoveMenu } from "./WorkflowMoveMenu";
 import { cx } from "./ui/utils";
+import { parseServerDate } from "./utils/date";
 
 type ToastTone = "success" | "error";
 type WorkflowFlow = "approve" | "reject" | "pickup";
@@ -678,12 +679,9 @@ function flowForTargetState(targetState: string): WorkflowFlow | null {
 }
 
 function formatDate(value: string) {
-  if (!value) {
-    return "Sem data";
-  }
-  const date = new Date(value.replace(" ", "T"));
-  if (Number.isNaN(date.getTime())) {
-    return value;
+  const date = parseServerDate(value);
+  if (!date) {
+    return value ? value : "Sem data";
   }
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",

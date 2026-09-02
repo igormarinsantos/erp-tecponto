@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { notifications, type NavigationTarget, type NotificationHistoryFilters, type TecpontoNotification } from "./api";
 import { Button, Card } from "./ui";
 import { cx } from "./ui/utils";
+import { parseServerDate } from "./utils/date";
 
 const PAGE_SIZE = 30;
 
@@ -25,11 +26,8 @@ function notificationOrderName(item: TecpontoNotification) {
 }
 
 function formatDate(value: string | null) {
-  if (!value) return "Agora";
-  const date = new Date(value.replace(" ", "T"));
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
+  const date = parseServerDate(value);
+  return date ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date) : value || "Agora";
 }
 
 export function NotificationHistoryScreen({

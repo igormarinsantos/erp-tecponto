@@ -4,6 +4,7 @@ import { AlertTriangle, ClipboardList, Clock3, DollarSign, PackageCheck, Package
 import { partRequests, type PurchasePartRequest, type RepairPartOption, type TechnicalPartRequest } from "./api";
 import { ApprovalRequestModal } from "./ApprovalRequestModal";
 import { BadgeStatus, Button, Card, DataTable, Modal, StatBar, type TableColumn } from "./ui";
+import { parseServerDate } from "./utils/date";
 
 type Toast = (message: string, tone?: "success" | "error") => void;
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -424,9 +425,9 @@ function statTone(key: string): "blue" | "orange" | "green" | "amber" {
 }
 
 function formatDate(value: string) {
-  if (!value) return "";
-  const date = new Date(value.includes("T") ? value : value.replace(" ", "T"));
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("pt-BR", value.length <= 10 ? { dateStyle: "short" } : { dateStyle: "short", timeStyle: "short" }).format(date);
+  const date = parseServerDate(value);
+  if (!date) return value || "";
+  return new Intl.DateTimeFormat("pt-BR", value.length <= 10 ? { dateStyle: "short" } : { dateStyle: "short", timeStyle: "short" }).format(date);
 }
 
 function normalizeError(value: string) { return value.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim(); }

@@ -156,6 +156,7 @@ import {
   type TableColumn,
 } from "./ui";
 import { cx } from "./ui/utils";
+import { parseServerDate } from "./utils/date";
 
 const LIST_PAGE_SIZE = 20;
 
@@ -9339,12 +9340,9 @@ function NoRoleScreen({ boot, onLogout, onRetry }: { boot: BootResponse; onLogou
 }
 
 function formatDate(value: string) {
-  if (!value) {
-    return "Sem data";
-  }
-  const date = new Date(value.replace(" ", "T"));
-  if (Number.isNaN(date.getTime())) {
-    return value;
+  const date = parseServerDate(value);
+  if (!date) {
+    return value ? value : "Sem data";
   }
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
