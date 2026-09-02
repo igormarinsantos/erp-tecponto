@@ -10,6 +10,7 @@ from frappe import _
 from frappe.twofactor import get_qr_svg_code
 from frappe.utils.file_manager import save_file
 from frappe.utils import add_to_date, get_url, now_datetime
+from tecponto_app.tecponto.permissions import as_user
 from tecponto_app.tecponto.service_order.inoperative_device import (
 	build_inoperative_device_term,
 	public_inoperative_device_term,
@@ -112,17 +113,21 @@ def record_physical_acceptance(
 		"Invalidado",
 		update_modified=False,
 	)
-	# save_file() already inserts the File with ignore_permissions=True internally,
-	# so no privilege escalation is needed here. frappe.set_user() must never be
-	# used to elevate mid-request: it corrupts the caller's session (see GEMINI.md
-	# security rules / AUDITORIA_SISTEMA.md bug #2).
-	file_doc = save_file(
-		f"aceite-fisico-{order.name}-{secrets.token_hex(6)}.{extension}",
-		content,
-		dt="Service Order",
-		dn=order.name,
-		is_private=1,
-	)
+	# save_file() itself inserts with ignore_permissions=True, but the File
+	# doctype's before_insert hook (validate_private_file_access) separately
+	# checks frappe.session.user against the *existing* file's owner when the
+	# content hash already matches another private file — that check does not
+	# respect ignore_permissions. Elevate with as_user() (never frappe.set_user(),
+	# which corrupts the session — see AUDITORIA_SISTEMA.md bug #2) so a
+	# duplicate-content upload doesn't get rejected as "no permission".
+	with as_user("Administrator"):
+		file_doc = save_file(
+			f"aceite-fisico-{order.name}-{secrets.token_hex(6)}.{extension}",
+			content,
+			dt="Service Order",
+			dn=order.name,
+			is_private=1,
+		)
 	_assert_private_evidence_file(file_doc, order.name, "via física assinada")
 	accepted_on = now_datetime()
 	doc = frappe.get_doc(
@@ -253,16 +258,18 @@ def save_public_acceptance_selfie(token: str, image_data: str) -> dict:
 		frappe.throw(_("A selfie deste aceite já foi registrada."), frappe.ValidationError)
 
 	content = _decode_camera_selfie(image_data)
-	# save_file() already inserts with ignore_permissions=True internally, so the
-	# guest token doesn't need frappe.set_user() to attach this private file —
-	# that call would corrupt the session (see AUDITORIA_SISTEMA.md bug #2).
-	file_doc = save_file(
-		f"selfie-{doc.name}.jpg",
-		content,
-		dt="Service Order",
-		dn=doc.service_order,
-		is_private=1,
-	)
+	# See the comment in record_physical_acceptance(): save_file()'s own
+	# ignore_permissions doesn't cover the File doctype's duplicate-content
+	# owner check, which reads frappe.session.user directly. Guest requests
+	# need a real (session-safe) elevation to pass that check.
+	with as_user("Administrator"):
+		file_doc = save_file(
+			f"selfie-{doc.name}.jpg",
+			content,
+			dt="Service Order",
+			dn=doc.service_order,
+			is_private=1,
+		)
 	_assert_private_evidence_file(file_doc, doc.service_order, "selfie")
 	doc.db_set("selfie_file", file_doc.name, update_modified=False)
 	return {"saved": True, "acceptance": doc.name}
@@ -300,16 +307,18 @@ def complete_public_acceptance(
 		frappe.throw(_("Este aceite já foi concluído ou não está mais disponível."), frappe.ValidationError)
 
 	signature = _decode_signature(signature_data)
-	# save_file() already inserts with ignore_permissions=True internally, so the
-	# validated token doesn't need frappe.set_user() to attach this private file —
-	# that call would corrupt the session (see AUDITORIA_SISTEMA.md bug #2).
-	signature_file = save_file(
-		f"signature-{doc.name}.png",
-		signature["content"],
-		dt="Service Order",
-		dn=doc.service_order,
-		is_private=1,
-	)
+	# See the comment in record_physical_acceptance(): save_file()'s own
+	# ignore_permissions doesn't cover the File doctype's duplicate-content
+	# owner check, which reads frappe.session.user directly. Guest requests
+	# need a real (session-safe) elevation to pass that check.
+	with as_user("Administrator"):
+		signature_file = save_file(
+			f"signature-{doc.name}.png",
+			signature["content"],
+			dt="Service Order",
+			dn=doc.service_order,
+			is_private=1,
+		)
 	_assert_private_evidence_file(signature_file, doc.service_order, "assinatura")
 	accepted_on = now_datetime()
 	try:

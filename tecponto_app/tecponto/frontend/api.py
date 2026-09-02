@@ -1399,11 +1399,6 @@ def move_service_order(name: str, target_state: str) -> dict[str, Any]:
 		return {"item": _serialize_service_order(doc.as_dict()), "changed": False}
 	if target_state in KANBAN_BLOCKED_TARGETS:
 		frappe.throw(_(KANBAN_BLOCKED_TARGETS[target_state]), frappe.ValidationError)
-	if target_state == STATE_EM_DIAGNOSTICO and not doc.get("technician"):
-		frappe.throw(
-			_("Atribua um técnico (assumir ou atribuir) antes de levar a OS pra diagnóstico."),
-			frappe.ValidationError,
-		)
 	# Surface the billed-cancellation gate before the workflow-role message so the
 	# user receives the correct approval path. The Service Order policy validates
 	# the same rule again when the Gestor executes the transition.
@@ -1564,7 +1559,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			**finance,
 		},
 		"workflow_actions": _get_visible_workflow_actions(doc),
-		"workflow_transitions": _get_service_order_transition_options(doc.get("workflow_state")),
+		"workflow_transitions": _get_service_order_transition_options(doc),
 		"workflow_blockers": _get_workflow_blockers(doc),
 		"workflow_requestable_transitions": _get_workflow_requestable_transitions(doc),
 		"next_action": action_for_service_order(doc),
@@ -4117,7 +4112,7 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 		"priority": item.get("priority"),
 		"workflow_state": item.get("workflow_state"),
 		"stage_clock": clock,
-		"workflow_transitions": _get_service_order_transition_options(item.get("workflow_state")),
+		"workflow_transitions": _get_service_order_transition_options(item),
 		"workflow_blockers": _get_workflow_blockers(item),
 		"workflow_requestable_transitions": _get_workflow_requestable_transitions(item),
 		"has_sales_invoice": bool(item.get("sales_invoice")),
@@ -4893,16 +4888,41 @@ def _get_visible_workflow_actions(doc: Any) -> list[dict[str, str]]:
 	return actions
 
 
-def _get_service_order_transition_options(current_state: str | None) -> list[dict[str, str]]:
-	"""Expose workflow-valid destinations only; execution permission remains server-side."""
+def _get_service_order_transition_options(doc: Any) -> list[dict[str, str]]:
+	"""Expose workflow-valid destinations only; execution permission remains server-side.
+
+	``doc`` may be a real Service Order document or a plain dict from a list
+	serializer. The transition ``condition`` strings (e.g. ``doc.caminho !=
+	"Rápido"``) are real Python expressions — the same ones fed into Frappe's
+	own Workflow doctype — and must be evaluated the same way Frappe's engine
+	evaluates them (``frappe.model.workflow.is_transition_condition_satisfied``),
+	not just string-matched against the literal ``"False"`` sentinel used for
+	the one fully-automatic transition. Evaluation failures fail open (keep the
+	option visible): this only controls what shows up as a shortcut, real
+	execution re-validates the condition through Frappe's own workflow engine.
+	"""
+	from frappe.model.workflow import get_workflow_safe_globals
+
+	current_state = doc.get("workflow_state")
+	# frappe._dict.__getattr__ falls back to .get(name) and never raises, so
+	# hasattr(doc, "as_dict") is True even for a plain dict-like row (it just
+	# resolves to None) — check callable() instead of hasattr() here.
+	as_dict_method = getattr(doc, "as_dict", None)
+	doc_context = as_dict_method() if callable(as_dict_method) else frappe._dict(doc)
 	options: list[dict[str, str]] = []
 	seen: set[tuple[str, str]] = set()
 	for transition in _get_service_order_transitions():
 		state, action, next_state, allowed, *rest = transition
 		condition = rest[0] if rest else None
 		key = (action, next_state)
-		if state != current_state or condition == "False" or key in seen:
+		if state != current_state or key in seen:
 			continue
+		if condition:
+			try:
+				if not frappe.safe_eval(condition, get_workflow_safe_globals(), {"doc": doc_context}):
+					continue
+			except Exception:
+				pass
 		seen.add(key)
 		options.append({"action": action, "next_state": next_state, "role": allowed})
 	return options
