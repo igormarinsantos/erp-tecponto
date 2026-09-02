@@ -1399,6 +1399,11 @@ def move_service_order(name: str, target_state: str) -> dict[str, Any]:
 		return {"item": _serialize_service_order(doc.as_dict()), "changed": False}
 	if target_state in KANBAN_BLOCKED_TARGETS:
 		frappe.throw(_(KANBAN_BLOCKED_TARGETS[target_state]), frappe.ValidationError)
+	if target_state == STATE_EM_DIAGNOSTICO and not doc.get("technician"):
+		frappe.throw(
+			_("Atribua um técnico (assumir ou atribuir) antes de levar a OS pra diagnóstico."),
+			frappe.ValidationError,
+		)
 	# Surface the billed-cancellation gate before the workflow-role message so the
 	# user receives the correct approval path. The Service Order policy validates
 	# the same rule again when the Gestor executes the transition.
