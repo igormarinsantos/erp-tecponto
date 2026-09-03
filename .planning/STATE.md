@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 1
 current_phase_name: OS.6 Closure — Warranty Verification & Deadline Wiring
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-09-03T13:37:35.165Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-09-03T13:58:02.522Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 1 execution started
-state_head: c7477255674b087a1f6440e95e0b4450b20bb3bc
+state_head: b8d30c112edeefd364ffa5524dc3cfe3a272ef2a
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 1 (OS.6 Closure — Warranty Verification & Deadline Wiring) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-09-03 — Phase 1 execution started
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01-os-6-closure-warranty-verification-deadline-wiring P01 | 35min | 3 tasks | 5 files |
+| Phase 01-os-6-closure-warranty-verification-deadline-wiring P02 | 45min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,7 @@ Recent decisions affecting current work:
 - Roadmap: Audited field-edit (Phase 2) clones the proven `Tecponto Access Audit`/`user_access.py` pattern rather than inventing new audit infrastructure
 - Roadmap: Systematic audit (Phase 3) is internally ordered PDV → Trade-in → Warranty → Caixa because Caixa aggregates cash movements from the other three — auditing it last isolates genuine caixa bugs from upstream ones
 - [Phase 1]: Prazo estimado gated with a new purpose-specific TECHNICIAN_DEADLINE_ROLES set (System Manager, Tecponto Tecnico), not the broader BUDGET_ALLOWED_ROLES, per D-02
+- [Phase 01-os-6-closure-warranty-verification-deadline-wiring]: Extended the existing run_warranty_delivery_checks with day-89/90/91 boundary assertions per D-01, instead of writing a new standalone warranty test function; reused fixtures, users, and the finally cleanup this function already sets up. — D-01 in 01-CONTEXT.md explicitly required reuse over duplication, and the boundary proof needed the exact same fixtures (attendant, catalog service, photo_data) already established by this function.
 
 ### Pending Todos
 
@@ -93,6 +95,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-03T13:37:35.132Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-09-03T13:58:02.488Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None

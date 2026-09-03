@@ -17,7 +17,7 @@ Requisitos deste marco (estabilização do sistema inteiro até o deploy do pilo
 
 ### Garantia de 90 Dias (fechamento OS.6)
 
-- [ ] **WARR-01**: Criar OS → entregar → tentar reivindicar garantia no dia 91 é bloqueado; no dia 89 passa (teste real de ponta a ponta, não só leitura de código)
+- [x] **WARR-01**: Criar OS → entregar → tentar reivindicar garantia no dia 91 é bloqueado; no dia 89 passa (teste real de ponta a ponta, não só leitura de código)
 
 ### Prazo Único da OS (fechamento OS.6)
 
@@ -79,7 +79,7 @@ Explicitamente excluído deste marco. Documentado pra não reabrir depois.
 | AUDIT-03 | Phase 3 | Pending |
 | AUDIT-04 | Phase 3 | Pending |
 | AUDIT-05 | Phase 3 | Pending |
-| WARR-01 | Phase 1 | Pending |
+| WARR-01 | Phase 1 | Complete |
 | DEADLINE-01 | Phase 1 | Pending |
 | DEADLINE-02 | Phase 1 | Pending |
 | EDIT-01 | Phase 2 | Pending |
@@ -92,6 +92,7 @@ Explicitamente excluído deste marco. Documentado pra não reabrir depois.
 | DEPLOY-02 | Phase 5 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 16 total
 - Mapped to phases: 16
 - Unmapped: 0 ✓

@@ -42,7 +42,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — Prove the 90-day warranty boundary live at days 89, 90 and 91
+- [x] 01-02-PLAN.md — Prove the 90-day warranty boundary live at days 89, 90 and 91
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
