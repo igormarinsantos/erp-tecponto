@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 current_phase: 1
 current_phase_name: OS.6 Closure — Warranty Verification & Deadline Wiring
-status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-09-03T16:57:58.785Z"
+status: verifying
+stopped_at: Completed 01-04-PLAN.md (Phase 1 complete, all 4 plans done, ready for end-of-phase UAT)
+last_updated: "2026-09-03T17:24:35.362Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 1 execution started
-state_head: 40c390cf315e1eb9214f0bec05c50ca1497ec0cb
+state_head: 133c69ab3f3795e8942aa8042f227f70b8b94ff0
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 
 Phase: 1 (OS.6 Closure — Warranty Verification & Deadline Wiring) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-03 — Phase 1 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-os-6-closure-warranty-verification-deadline-wiring P01 | 35min | 3 tasks | 5 files |
 | Phase 01-os-6-closure-warranty-verification-deadline-wiring P02 | 45min | 2 tasks | 1 files |
 | Phase 01-os-6-closure-warranty-verification-deadline-wiring P03 | 75min | 3 tasks | 5 files |
+| Phase 01-os-6-closure-warranty-verification-deadline-wiring P04 | 24min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,8 @@ Recent decisions affecting current work:
 - [Phase 1]: Widened _validate_delivery_dates_are_immutable to lock estimated_deadline at Entregue, same tuple as pickup_date/warranty_expiry (D-04); no new function or call site
 - [Phase 1]: Added sum_service_business_hours(rows) to stage_sla.py and get_service_order_deadline_suggestion to api.py, giving calculate_suggested_delivery its first production caller per D-05 (read-only, técnico-gated, never persists)
 - [Phase 1]: Committed all three tasks of 01-03 as a single atomic commit per the plans own explicit Task 3 instruction, squashing two intermediate per-task commits via git reset --soft
+- [Phase 1]: Squashed 01-04 Tasks 1-3 into one atomic commit (133c69a) via git reset --soft, per the plan own explicit Task 3 instruction, matching the pattern from 01-01/01-03.
+- [Phase 1]: 01-04 pinned both new frontend deadline rows (App.tsx and ServiceOrderKanban.tsx) with Python source-marker assertions in run_service_order_deadline_checks, since the project has no frontend test runner.
 
 ### Pending Todos
 
@@ -99,6 +102,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-03T16:57:58.739Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-09-03T17:24:35.306Z
+Stopped at: Completed 01-04-PLAN.md (Phase 1 complete, all 4 plans done, ready for end-of-phase UAT)
 Resume file: None

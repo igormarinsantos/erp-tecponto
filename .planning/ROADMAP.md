@@ -50,7 +50,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-04-PLAN.md — Suggestion pre-fill plus the Kanban card and OS detail overview rows
+- [x] 01-04-PLAN.md — Suggestion pre-fill plus the Kanban card and OS detail overview rows
 
 **UI hint**: yes
 
