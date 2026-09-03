@@ -125,6 +125,7 @@ from tecponto_app.tecponto.frontend.api import (
 	exchange_sales_product,
 	_quote_send_text,
 	set_service_order_estimated_deadline,
+	get_service_order_deadline_suggestion,
 )
 from tecponto_app.tecponto.acceptance import (
 	audit_completed_acceptance_evidence,
@@ -2775,6 +2776,7 @@ def _deliver_warranty_test_order(doc) -> None:
 def run_service_order_deadline_checks() -> dict:
 	"""Prove the técnico-only deadline write path persists and reaches every read site."""
 	previous_user = frappe.session.user
+	created_catalog_service = None
 	try:
 		frappe.set_user("Administrator")
 		ensure_frontend_foundation()
@@ -2840,6 +2842,165 @@ def run_service_order_deadline_checks() -> dict:
 		if sensitive_leaks:
 			raise AssertionError(f"Endpoints alterados por este plano vazaram campo sensível: {', '.join(sensitive_leaks)}")
 
+		# 01-03 Task 1: the deadline is a delivery promise — it must lock at the same
+		# moment pickup_date and warranty_expiry do (D-04), and stay freely editable before that.
+		editable_order_name = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order", editable_order_name,
+			{"workflow_state": "Em diagnóstico", "technician": technician},
+			update_modified=False,
+		)
+		frappe.set_user(technician)
+		complete_technical_diagnosis(editable_order_name, "Diagnóstico de teste automatizado.", "Técnico")
+
+		first_deadline = add_days(nowdate(), 3)
+		second_deadline = add_days(nowdate(), 9)
+		set_service_order_estimated_deadline(editable_order_name, first_deadline)
+		set_service_order_estimated_deadline(editable_order_name, second_deadline)
+		editable_detail = get_service_order_detail(editable_order_name)
+		if editable_detail.get("estimated_deadline") != second_deadline:
+			raise AssertionError("Prazo estimado não pôde ser alterado livremente antes da entrega da OS.")
+
+		delivered_deadline = second_deadline
+		editable_order = frappe.get_doc("Service Order", editable_order_name)
+		_deliver_warranty_test_order(editable_order)
+		editable_order.db_set(
+			{
+				"workflow_state": "Entregue",
+				"pickup_date": nowdate(),
+				"warranty_expiry": add_days(nowdate(), 90),
+				"pickup_without_repair": editable_order.pickup_without_repair,
+				"entry_signature": editable_order.entry_signature,
+				"customer_signature": editable_order.customer_signature,
+				"link_acceptance_required": 0,
+			},
+			update_modified=False,
+		)
+
+		delivered_lock_blocked = False
+		locked_doc = frappe.get_doc("Service Order", editable_order_name)
+		locked_doc.estimated_deadline = add_days(delivered_deadline, 1)
+		try:
+			locked_doc.save(ignore_permissions=True)
+		except frappe.ValidationError:
+			delivered_lock_blocked = True
+		if not delivered_lock_blocked:
+			raise AssertionError("Motor aceitou alterar o prazo estimado de uma OS já entregue.")
+
+		untouched_saved = True
+		untouched_doc = frappe.get_doc("Service Order", editable_order_name)
+		try:
+			untouched_doc.save(ignore_permissions=True)
+		except frappe.ValidationError:
+			untouched_saved = False
+		if not untouched_saved:
+			raise AssertionError("Motor bloqueou um save que não alterou o prazo estimado de uma OS entregue.")
+
+		# 01-03 Task 2: give calculate_suggested_delivery its first production caller,
+		# through a role-gated, read-only endpoint that reuses the SLA calculator (D-05).
+		suggestion_order_name = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order", suggestion_order_name,
+			{"workflow_state": "Em diagnóstico", "technician": technician},
+			update_modified=False,
+		)
+		frappe.set_user(technician)
+		complete_technical_diagnosis(suggestion_order_name, "Diagnóstico de teste automatizado.", "Técnico")
+
+		catalog_references = list_catalog_references()
+		frappe.set_user(manager)
+		created_catalog_service = save_catalog_service(
+			{
+				"service_name": f"Sugestão de prazo {frappe.generate_hash(length=7).upper()}",
+				"device_type": catalog_references["device_types"][0]["name"],
+				"category": catalog_references["categories"][0]["name"],
+				"default_labor_price": 150,
+				"default_duration": 2,
+				"duration_unit": "Dias úteis",
+				"active": True,
+			}
+		)["item"]["name"]
+		frappe.set_user(technician)
+		add_catalog_service_to_service_order(
+			suggestion_order_name,
+			created_catalog_service,
+			{"qty": 1, "rate": 150, "duration": 2, "duration_unit": "Dias úteis"},
+		)
+
+		before_suggestion = get_service_order_detail(suggestion_order_name)
+		suggestion = get_service_order_deadline_suggestion(suggestion_order_name)
+		after_suggestion = get_service_order_detail(suggestion_order_name)
+		if before_suggestion.get("estimated_deadline") != after_suggestion.get("estimated_deadline"):
+			raise AssertionError("Sugestão de prazo escreveu no prazo estimado da OS.")
+		if not suggestion.get("suggested_delivery_date") or suggestion["suggested_delivery_date"] <= nowdate():
+			raise AssertionError("Sugestão de prazo não calculou uma data futura a partir das durações da OS.")
+		if flt(suggestion.get("service_business_hours")) != 18:
+			raise AssertionError("Duração em dias úteis não converteu para 9 horas comerciais por unidade.")
+		if flt(suggestion.get("total_business_hours")) <= flt(suggestion.get("stage_business_hours")):
+			raise AssertionError("Sugestão de prazo ignorou a duração dos serviços da OS.")
+
+		# Empty-input case: zero every configured stage SLA and use an OS with no service rows.
+		frappe.set_user("Administrator")
+		original_stage_slas = get_stage_slas()
+		try:
+			for row in original_stage_slas:
+				save_stage_sla(
+					{
+						"workflow_state": row["workflow_state"],
+						"business_hours": 0,
+						"description": row["description"],
+						"active": row["active"],
+					}
+				)
+			empty_order_name = _create_action_request_service_order(attendant)
+			frappe.db.set_value("Service Order", empty_order_name, "technician", technician, update_modified=False)
+			frappe.set_user(technician)
+			empty_suggestion = get_service_order_deadline_suggestion(empty_order_name)
+			if empty_suggestion.get("suggested_delivery_date") != "" or flt(empty_suggestion.get("total_business_hours")) != 0:
+				raise AssertionError("Sugestão de prazo fabricou uma data sem nada para somar.")
+		finally:
+			frappe.set_user("Administrator")
+			for row in original_stage_slas:
+				save_stage_sla(
+					{
+						"workflow_state": row["workflow_state"],
+						"business_hours": row["business_hours"],
+						"description": row["description"],
+						"active": row["active"],
+					}
+				)
+
+		# 01-03 Task 3: prove the técnico's saved deadline reaches the public tracking
+		# portal and all three print formats, on the OS that already has a deadline
+		# saved through the endpoint earlier in this function.
+		frappe.set_user(attendant)
+		tracking_link = issue_service_order_tracking_link(order_name)
+		portal_raw_token = (tracking_link.get("link") or "").rstrip("/").rsplit("/", 1)[-1]
+		frappe.set_user("Guest")
+		portal_payload = get_public_portal(portal_raw_token)
+		frappe.set_user(attendant)
+		if not portal_payload.get("valid") or portal_payload.get("service_order", {}).get("estimated_deadline") != deadline_value:
+			raise AssertionError("Portal público não exibiu o prazo estimado salvo pelo técnico.")
+		portal_leaks = contains_sensitive_field(portal_payload)
+		if portal_leaks:
+			raise AssertionError(f"Portal público vazou campo sensível: {', '.join(portal_leaks)}")
+
+		printed_order = frappe.get_doc("Service Order", order_name)
+		expected_deadline_label = frappe.utils.formatdate(deadline_value)
+		print_leaks: list[str] = []
+		for pf_name, template in (
+			("orcamento", _os_orcamento_html()),
+			("orcamento_discriminado", _os_orcamento_discriminado_html()),
+			("laudo_tecnico", _laudo_tecnico_html()),
+		):
+			rendered_html = frappe.render_template(template, {"doc": printed_order})
+			if "Prazo estimado" not in rendered_html or expected_deadline_label not in rendered_html:
+				raise AssertionError(f"{pf_name} não exibiu o prazo estimado salvo.")
+			if str(BUDGET_COST_GUARD_VALUATION) in rendered_html:
+				print_leaks.append(pf_name)
+		if print_leaks:
+			raise AssertionError(f"Impressão vazou sentinela de custo/margem: {', '.join(print_leaks)}")
+
 		return {
 			"status": "ok",
 			"deadline_saved": saved.get("estimated_deadline"),
@@ -2848,8 +3009,27 @@ def run_service_order_deadline_checks() -> dict:
 			"attendant_blocked": attendant_blocked,
 			"invalid_date_rejected": invalid_rejected,
 			"sensitive_guard": {"leaked_fields": sensitive_leaks},
+			"delivered_lock_blocked": delivered_lock_blocked,
+			"untouched_save_allowed": untouched_saved,
+			"editable_before_delivery": True,
+			"suggestion_writes_nothing": True,
+			"suggestion_service_business_hours": suggestion.get("service_business_hours"),
+			"suggestion_total_business_hours": suggestion.get("total_business_hours"),
+			"suggestion_delivery_date": suggestion.get("suggested_delivery_date"),
+			"empty_suggestion_is_empty": empty_suggestion.get("suggested_delivery_date") == "",
+			"portal_shows_deadline": True,
+			"portal_leak_free": not portal_leaks,
+			"print_shows_deadline": {
+				"orcamento": True,
+				"orcamento_discriminado": True,
+				"laudo_tecnico": True,
+			},
+			"print_leak_free": not print_leaks,
 		}
 	finally:
+		if created_catalog_service and frappe.db.exists("Tecponto Service", created_catalog_service):
+			frappe.set_user("Administrator")
+			frappe.delete_doc("Tecponto Service", created_catalog_service, ignore_permissions=True, force=True)
 		frappe.set_user(previous_user)
 
 
@@ -8871,3 +9051,4 @@ def _ensure_pos_demo_stock(item_code: str, warehouse: str, valuation_rate: float
 	)
 	stock_entry.insert(ignore_permissions=True)
 	stock_entry.submit()
+

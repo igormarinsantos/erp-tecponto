@@ -98,6 +98,18 @@ def calculate_suggested_delivery(
 	}
 
 
+def sum_service_business_hours(rows: list[Any] | None) -> float:
+	"""Total the business hours a Service Order's own service rows represent.
+
+	Public wrapper around `_duration_as_business_hours` so callers outside this
+	module (the deadline-suggestion endpoint) never import a private symbol.
+	"""
+	total = 0.0
+	for row in rows or []:
+		total += _duration_as_business_hours(row.get("service_duration"), row.get("duration_unit"))
+	return total
+
+
 def add_commercial_business_hours(start_datetime, hours: float, holiday_list: str | None = None) -> datetime:
 	"""Advance only during Mon-Fri 09:00-18:00, excluding Guarulhos holidays."""
 	current = get_datetime(start_datetime)

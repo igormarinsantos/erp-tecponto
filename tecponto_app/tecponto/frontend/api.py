@@ -1995,6 +1995,26 @@ def set_service_order_estimated_deadline(name: str, estimated_deadline: str) -> 
 
 
 @frappe.whitelist()
+def get_service_order_deadline_suggestion(name: str) -> dict[str, Any]:
+	"""Read-only pre-fill for the técnico's deadline input; never writes anything."""
+	_require_technician_deadline_role()
+	name = (name or "").strip()
+	if not name:
+		frappe.throw(_("Informe a ordem de serviço."), frappe.ValidationError)
+
+	doc = frappe.get_doc("Service Order", name)
+	doc.check_permission("read")
+
+	service_hours = stage_sla.sum_service_business_hours(doc.get("services") or [])
+	start_datetime = doc.get("stage_entered_at") or doc.get("entry_date")
+	return stage_sla.calculate_suggested_delivery(
+		start_datetime=start_datetime,
+		service_duration=service_hours,
+		service_duration_unit="Horas",
+	)
+
+
+@frappe.whitelist()
 def add_catalog_service_to_service_order(name: str, catalog_service: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
 	"""Add a catalog suggestion while preserving the ability to adjust it per OS."""
 	_require_budget_edit_role()

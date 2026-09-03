@@ -706,7 +706,7 @@ def _laudo_tecnico_html() -> str:
     <div><h2>Aparelho</h2><p><strong>{{ tp.device_label }}</strong></p><p>IMEI / Serial: {{ tp.device.imei_serial or "-" }}</p></div>
   </section>
   <section><h2>Condição de entrada</h2><p><strong>Defeito relatado:</strong> {{ doc.reported_defect or "-" }}</p><p><strong>Condição de funcionamento:</strong> {{ tp.entry_operating_condition }}</p><p><strong>Condição visual:</strong> {{ doc.physical_state or tp.device.general_state or "-" }}</p></section>
-  <section><h2>Diagnóstico</h2><p><strong>Problema encontrado:</strong> {{ doc.problem_found or "-" }}</p><p><strong>Causa provável:</strong> {{ doc.probable_cause or "-" }}</p><p><strong>Solução recomendada:</strong> {{ doc.recommended_solution or "-" }}</p><p><strong>Observações técnicas:</strong> {{ doc.diagnosis_notes or "-" }}</p></section>
+  <section><h2>Diagnóstico</h2><p><strong>Problema encontrado:</strong> {{ doc.problem_found or "-" }}</p><p><strong>Causa provável:</strong> {{ doc.probable_cause or "-" }}</p><p><strong>Solução recomendada:</strong> {{ doc.recommended_solution or "-" }}</p><p><strong>Prazo estimado:</strong> {{ tp.estimated_deadline }}</p><p><strong>Observações técnicas:</strong> {{ doc.diagnosis_notes or "-" }}</p></section>
   <section><h2>Execução e testes</h2><p>Serviços e componentes aplicados estão registrados na OS. Este laudo não divulga custos internos, margem ou dados de aquisição.</p><p><strong>Estado atual:</strong> {{ doc.workflow_state }}</p><p><strong>Técnico responsável:</strong> {{ doc.technician or "Não atribuído" }}</p></section>
   <footer>Documento técnico vinculado à OS {{ doc.name }}.</footer>
 </div>

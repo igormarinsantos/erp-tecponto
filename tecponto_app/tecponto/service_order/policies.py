@@ -141,7 +141,11 @@ def _validate_delivery_dates_are_immutable(doc) -> None:
 	if not previous or previous.get("workflow_state") != "Entregue":
 		return
 
-	for fieldname, label in (("pickup_date", "data de entrega"), ("warranty_expiry", "validade da garantia")):
+	for fieldname, label in (
+		("pickup_date", "data de entrega"),
+		("warranty_expiry", "validade da garantia"),
+		("estimated_deadline", "prazo estimado"),
+	):
 		if str(previous.get(fieldname) or "") != str(doc.get(fieldname) or ""):
 			frappe.throw(f"A {label} de uma OS entregue e imutavel.")
 
