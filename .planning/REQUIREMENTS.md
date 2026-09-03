@@ -21,8 +21,8 @@ Requisitos deste marco (estabilização do sistema inteiro até o deploy do pilo
 
 ### Prazo Único da OS (fechamento OS.6)
 
-- [ ] **DEADLINE-01**: Técnico define o prazo único da OS na etapa de orçamento — `estimated_deadline` (já existe a nível de OS) ganha caminho de escrita
-- [ ] **DEADLINE-02**: Prazo aparece na página de rastreio pública e nos formatos de impressão
+- [x] **DEADLINE-01**: Técnico define o prazo único da OS na etapa de orçamento — `estimated_deadline` (já existe a nível de OS) ganha caminho de escrita
+- [x] **DEADLINE-02**: Prazo aparece na página de rastreio pública e nos formatos de impressão
 
 ### Edição Pós-Criação + Auditoria (fechamento OS.6)
 
@@ -80,8 +80,8 @@ Explicitamente excluído deste marco. Documentado pra não reabrir depois.
 | AUDIT-04 | Phase 3 | Pending |
 | AUDIT-05 | Phase 3 | Pending |
 | WARR-01 | Phase 1 | Complete |
-| DEADLINE-01 | Phase 1 | Pending |
-| DEADLINE-02 | Phase 1 | Pending |
+| DEADLINE-01 | Phase 1 | Complete |
+| DEADLINE-02 | Phase 1 | Complete |
 | EDIT-01 | Phase 2 | Pending |
 | EDIT-02 | Phase 2 | Pending |
 | EDIT-03 | Phase 2 | Pending |

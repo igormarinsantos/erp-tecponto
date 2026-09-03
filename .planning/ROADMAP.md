@@ -46,7 +46,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — Lock the deadline at delivery, add the SLA suggestion endpoint, prove the portal and print surfaces
+- [x] 01-03-PLAN.md — Lock the deadline at delivery, add the SLA suggestion endpoint, prove the portal and print surfaces
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

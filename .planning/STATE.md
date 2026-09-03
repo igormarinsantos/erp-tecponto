@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 1
 current_phase_name: OS.6 Closure — Warranty Verification & Deadline Wiring
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-09-03T13:58:02.522Z"
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-09-03T16:57:58.785Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 1 execution started
-state_head: b8d30c112edeefd364ffa5524dc3cfe3a272ef2a
+state_head: 40c390cf315e1eb9214f0bec05c50ca1497ec0cb
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 1 (OS.6 Closure — Warranty Verification & Deadline Wiring) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-09-03 — Phase 1 execution started
 
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 |------|----------|-------|-------|
 | Phase 01-os-6-closure-warranty-verification-deadline-wiring P01 | 35min | 3 tasks | 5 files |
 | Phase 01-os-6-closure-warranty-verification-deadline-wiring P02 | 45min | 2 tasks | 1 files |
+| Phase 01-os-6-closure-warranty-verification-deadline-wiring P03 | 75min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,9 @@ Recent decisions affecting current work:
 - Roadmap: Systematic audit (Phase 3) is internally ordered PDV → Trade-in → Warranty → Caixa because Caixa aggregates cash movements from the other three — auditing it last isolates genuine caixa bugs from upstream ones
 - [Phase 1]: Prazo estimado gated with a new purpose-specific TECHNICIAN_DEADLINE_ROLES set (System Manager, Tecponto Tecnico), not the broader BUDGET_ALLOWED_ROLES, per D-02
 - [Phase 01-os-6-closure-warranty-verification-deadline-wiring]: Extended the existing run_warranty_delivery_checks with day-89/90/91 boundary assertions per D-01, instead of writing a new standalone warranty test function; reused fixtures, users, and the finally cleanup this function already sets up. — D-01 in 01-CONTEXT.md explicitly required reuse over duplication, and the boundary proof needed the exact same fixtures (attendant, catalog service, photo_data) already established by this function.
+- [Phase 1]: Widened _validate_delivery_dates_are_immutable to lock estimated_deadline at Entregue, same tuple as pickup_date/warranty_expiry (D-04); no new function or call site
+- [Phase 1]: Added sum_service_business_hours(rows) to stage_sla.py and get_service_order_deadline_suggestion to api.py, giving calculate_suggested_delivery its first production caller per D-05 (read-only, técnico-gated, never persists)
+- [Phase 1]: Committed all three tasks of 01-03 as a single atomic commit per the plans own explicit Task 3 instruction, squashing two intermediate per-task commits via git reset --soft
 
 ### Pending Todos
 
@@ -95,6 +99,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-03T13:58:02.488Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-09-03T16:57:58.739Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
