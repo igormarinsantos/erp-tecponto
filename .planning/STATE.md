@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 1
 current_phase_name: OS.6 Closure — Warranty Verification & Deadline Wiring
 status: executing
-stopped_at: Phase 1 UI-SPEC approved
-last_updated: "2026-09-03T12:57:02.128Z"
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-09-03T13:37:35.165Z"
 last_activity: 2026-09-03
-last_activity_desc: ROADMAP.md created from REQUIREMENTS.md + research (16/16 v1 requirements mapped)
-state_head: efc90a9593760dec5e962a10b34eedfadf5cf674
+last_activity_desc: Phase 1 execution started
+state_head: c7477255674b087a1f6440e95e0b4450b20bb3bc
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-02)
 
 **Core value:** O balcão consegue rodar o dia a dia real — check-in até retirada, PDV, trocas/garantias, caixa — sem quebrar no meio e sem vazar dado sensível (custo/margem, senha do aparelho). Confiança operacional vem antes de polimento visual.
-**Current focus:** Phase 1 — OS.6 Closure (Warranty Verification & Deadline Wiring)
+**Current focus:** Phase 1 — OS.6 Closure — Warranty Verification & Deadline Wiring
 
 ## Current Position
 
-Phase: 1 (OS.6 Closure — Warranty Verification & Deadline Wiring) — READY TO EXECUTE
-Plan: 0 of TBD in current phase
+Phase: 1 (OS.6 Closure — Warranty Verification & Deadline Wiring) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-09-03 — ROADMAP.md created from REQUIREMENTS.md + research (16/16 v1 requirements mapped)
+Last activity: 2026-09-03 — Phase 1 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -54,6 +54,11 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: N/A
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01-os-6-closure-warranty-verification-deadline-wiring P01 | 35min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -66,6 +71,7 @@ Recent decisions affecting current work:
 - Roadmap: Design system is hard-gated as Phase 4, after all functional/audit phases (1-3), per `CLAUDE.md` §3 and explicit user constraint
 - Roadmap: Audited field-edit (Phase 2) clones the proven `Tecponto Access Audit`/`user_access.py` pattern rather than inventing new audit infrastructure
 - Roadmap: Systematic audit (Phase 3) is internally ordered PDV → Trade-in → Warranty → Caixa because Caixa aggregates cash movements from the other three — auditing it last isolates genuine caixa bugs from upstream ones
+- [Phase 1]: Prazo estimado gated with a new purpose-specific TECHNICIAN_DEADLINE_ROLES set (System Manager, Tecponto Tecnico), not the broader BUDGET_ALLOWED_ROLES, per D-02
 
 ### Pending Todos
 
@@ -87,6 +93,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-03T12:26:15.044Z
-Stopped at: Phase 1 UI-SPEC approved
-Resume file: .planning/phases/01-os-6-closure-warranty-verification-deadline-wiring/01-UI-SPEC.md
+Last session: 2026-09-03T13:37:35.132Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None

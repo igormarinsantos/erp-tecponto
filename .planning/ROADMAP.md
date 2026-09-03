@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Tracer: técnico deadline write path end to end (endpoint, role gate, serializers, TS contract, budget-screen input)
+- [x] 01-01-PLAN.md — Tracer: técnico deadline write path end to end (endpoint, role gate, serializers, TS contract, budget-screen input)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
