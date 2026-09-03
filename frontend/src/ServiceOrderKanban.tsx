@@ -546,6 +546,7 @@ function KanbanCard({
         <CardLine icon={<UserRound size={14} />} text={`Técnico: ${item.technician ?? "Sem técnico"}`} />
 		<CardLine icon={<UserRound size={14} />} text={`Recebido por: ${item.attendant ?? "Não informado"}`} />
         <CardLine icon={<Clock3 size={14} />} text={formatDate(item.modified)} />
+        <CardLine icon={<Clock3 size={14} />} text={item.estimated_deadline ? `Prazo estimado: ${formatDate(item.estimated_deadline)}` : "Prazo estimado: Não definido"} />
       </div>
 
 		<div className="mt-3 flex min-w-0 items-center justify-between gap-2">

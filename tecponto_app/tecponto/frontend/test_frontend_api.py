@@ -3001,6 +3001,25 @@ def run_service_order_deadline_checks() -> dict:
 		if print_leaks:
 			raise AssertionError(f"Impressão vazou sentinela de custo/margem: {', '.join(print_leaks)}")
 
+		# 01-04: pin the frontend wiring with source markers so these rows cannot
+		# silently disappear — there is no frontend test runner, and `npm run build`
+		# only proves the code compiles, not that these rows still exist.
+		app_source = (Path(__file__).parents[3] / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+		app_markers = (
+			"serviceOrders.deadlineSuggestion(serviceOrder)",
+			"serviceOrders.setEstimatedDeadline(serviceOrder, deadline)",
+			'<DetailLine label="Prazo estimado" value={detail.estimated_deadline ? formatDate(detail.estimated_deadline) : "Não definido"} />',
+		)
+		for marker in app_markers:
+			if marker not in app_source:
+				raise AssertionError(f"App.tsx perdeu a amarra visual do prazo estimado: {marker!r}.")
+
+		kanban_source = (Path(__file__).parents[3] / "frontend" / "src" / "ServiceOrderKanban.tsx").read_text(encoding="utf-8")
+		kanban_markers = ('Prazo estimado: ${formatDate(item.estimated_deadline)}',)
+		for marker in kanban_markers:
+			if marker not in kanban_source:
+				raise AssertionError(f"ServiceOrderKanban.tsx perdeu a amarra visual do prazo estimado: {marker!r}.")
+
 		return {
 			"status": "ok",
 			"deadline_saved": saved.get("estimated_deadline"),
@@ -3025,6 +3044,10 @@ def run_service_order_deadline_checks() -> dict:
 				"laudo_tecnico": True,
 			},
 			"print_leak_free": not print_leaks,
+			"frontend_source_markers": {
+				"app_tsx": True,
+				"service_order_kanban_tsx": True,
+			},
 		}
 	finally:
 		if created_catalog_service and frappe.db.exists("Tecponto Service", created_catalog_service):

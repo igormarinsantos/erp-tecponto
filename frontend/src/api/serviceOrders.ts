@@ -8,6 +8,7 @@ import type {
   BudgetDecisionPayload,
   PickupPayload,
   QuoteSendPayload,
+	ServiceOrderDeadlineSuggestion,
 	ServiceOrderDetailResponse,
 	ServiceOrderDirectorFinancialSummary,
   ServiceOrderKanbanResponse,
@@ -43,6 +44,9 @@ export const serviceOrders = {
 	},
 	setEstimatedDeadline(name: string, estimatedDeadline: string) {
 		return rpc<ServiceOrderDetailResponse>(`${API}.set_service_order_estimated_deadline`, { body: { name, estimated_deadline: estimatedDeadline } });
+	},
+	deadlineSuggestion(name: string) {
+		return rpc<ServiceOrderDeadlineSuggestion>(`${API}.get_service_order_deadline_suggestion`, { query: { name } });
 	},
 	technicalBudget(name: string) {
 		return rpc<TechnicalBudgetResponse>(`${TECHNICAL_BUDGET_API}.get_budget`, { query: { name } });

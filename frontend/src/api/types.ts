@@ -473,6 +473,14 @@ export interface ServiceOrderMoveResponse {
   changed: boolean;
 }
 
+export interface ServiceOrderDeadlineSuggestion {
+  suggested_delivery_date: string;
+  total_business_hours: number;
+  stage_business_hours: number;
+  service_business_hours: number;
+  lead_time_business_hours: number;
+}
+
 export interface AcceptanceIssueResponse {
   acceptance: string;
   acceptance_type: "Entrada" | "Retirada";
