@@ -2680,6 +2680,47 @@ def run_warranty_delivery_checks() -> dict:
 		if expired_quote["services"][-1].get("unit_price") != 199.9:
 			raise AssertionError("Garantia expirada não seguiu como OS normal com cobrança.")
 
+		# Boundary proof: the 90-day window is inclusive of the expiry date itself.
+		# Delivered 89 or 90 days ago must still be covered; delivered 91 days ago must be blocked.
+		boundary_cases = (
+			(89, "boundary_day_89_allowed", False, "Motor bloqueou retrabalho em garantia entregue há 89 dias, dentro da janela de 90 dias."),
+			(90, "boundary_day_90_allowed", False, "Motor bloqueou retrabalho em garantia entregue exatamente há 90 dias, no limite inclusivo da janela."),
+			(91, "boundary_day_91_blocked", True, "Motor aceitou retrabalho em garantia entregue há 91 dias, fora da janela de 90 dias."),
+		)
+		boundary_results: dict = {}
+		for days_ago, result_key, expect_blocked, failure_message in boundary_cases:
+			boundary_name = _create_action_request_service_order(attendant)
+			boundary = frappe.get_doc("Service Order", boundary_name)
+			boundary_pickup = add_days(nowdate(), -days_ago)
+			boundary.db_set(
+				{
+					"workflow_state": "Entregue",
+					"pickup_date": boundary_pickup,
+					"warranty_expiry": add_days(boundary_pickup, 90),
+				},
+				update_modified=False,
+			)
+			blocked = False
+			try:
+				create_service_order_checkin(
+					{
+						"customer": {"existing_name": boundary.customer},
+						"device": {"existing_name": boundary.customer_device},
+						"service_order": {
+							"reported_defect": boundary.reported_defect,
+							"physical_state": "Sem danos adicionais aparentes.",
+							"is_warranty": 1,
+							"original_service_order": boundary.name,
+						},
+						"entry_photo": {"data_url": photo_data, "filename": f"boundary-day-{days_ago}.jpg"},
+					}
+				)
+			except frappe.ValidationError:
+				blocked = True
+			if blocked != expect_blocked:
+				raise AssertionError(failure_message)
+			boundary_results[result_key] = True
+
 		frappe.db.set_single_value("Tecponto Settings", "default_warranty_days", 30)
 		if str(frappe.db.get_value("Service Order", original.name, "warranty_expiry")) != expected_original_expiry:
 			raise AssertionError("Alterar a configuração reescreveu a garantia de uma OS já entregue.")
@@ -2706,6 +2747,9 @@ def run_warranty_delivery_checks() -> dict:
 			"new_configured_warranty_expiry": str(second.warranty_expiry),
 			"screen_queries": sorted(queries),
 			"expired_opens_normal_charged": expired_warranty_blocked,
+			"boundary_day_89_allowed": boundary_results["boundary_day_89_allowed"],
+			"boundary_day_90_allowed": boundary_results["boundary_day_90_allowed"],
+			"boundary_day_91_blocked": boundary_results["boundary_day_91_blocked"],
 		}
 	finally:
 		frappe.db.set_single_value("Tecponto Settings", "default_warranty_days", previous_days or 90)
