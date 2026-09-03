@@ -29,7 +29,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. The technician can set a single estimated deadline for the OS during the diagnosis/budget step, and it persists after save
   3. The deadline set by the technician appears on the Kanban board, the OS detail view, the public tracking page, and the printed formats (orçamento/laudo) — all four reading the same field
   4. No second/competing deadline field is introduced — only the existing `estimated_deadline` is wired and used
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Tracer: técnico deadline write path end to end (endpoint, role gate, serializers, TS contract, budget-screen input)
+- [ ] 01-02-PLAN.md — Prove the 90-day warranty boundary live at days 89, 90 and 91
+- [ ] 01-03-PLAN.md — Lock the deadline at delivery, add the SLA suggestion endpoint, prove the portal and print surfaces
+- [ ] 01-04-PLAN.md — Suggestion pre-fill plus the Kanban card and OS detail overview rows
+
 **UI hint**: yes
 
 ### Phase 2: Audited Field-Edit for Post-Creation Corrections
@@ -86,7 +93,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. OS.6 Closure — Warranty Verification & Deadline Wiring | 0/TBD | Not started | - |
+| 1. OS.6 Closure — Warranty Verification & Deadline Wiring | 0/4 | Planned | - |
 | 2. Audited Field-Edit for Post-Creation Corrections | 0/TBD | Not started | - |
 | 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 0/TBD | Not started | - |
 | 4. Design System (Single Pass) | 0/TBD | Not started | - |
