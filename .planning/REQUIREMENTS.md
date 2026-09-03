@@ -72,32 +72,30 @@ Explicitamente excluído deste marco. Documentado pra não reabrir depois.
 
 ## Traceability
 
-Preenchido durante a criação do roadmap.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUDIT-01 | TBD | Pending |
-| AUDIT-02 | TBD | Pending |
-| AUDIT-03 | TBD | Pending |
-| AUDIT-04 | TBD | Pending |
-| AUDIT-05 | TBD | Pending |
-| WARR-01 | TBD | Pending |
-| DEADLINE-01 | TBD | Pending |
-| DEADLINE-02 | TBD | Pending |
-| EDIT-01 | TBD | Pending |
-| EDIT-02 | TBD | Pending |
-| EDIT-03 | TBD | Pending |
-| EDIT-04 | TBD | Pending |
-| DESIGN-01 | TBD | Pending |
-| DESIGN-02 | TBD | Pending |
-| DEPLOY-01 | TBD | Pending |
-| DEPLOY-02 | TBD | Pending |
+| AUDIT-01 | Phase 3 | Pending |
+| AUDIT-02 | Phase 3 | Pending |
+| AUDIT-03 | Phase 3 | Pending |
+| AUDIT-04 | Phase 3 | Pending |
+| AUDIT-05 | Phase 3 | Pending |
+| WARR-01 | Phase 1 | Pending |
+| DEADLINE-01 | Phase 1 | Pending |
+| DEADLINE-02 | Phase 1 | Pending |
+| EDIT-01 | Phase 2 | Pending |
+| EDIT-02 | Phase 2 | Pending |
+| EDIT-03 | Phase 2 | Pending |
+| EDIT-04 | Phase 2 | Pending |
+| DESIGN-01 | Phase 4 | Pending |
+| DESIGN-02 | Phase 4 | Pending |
+| DEPLOY-01 | Phase 5 | Pending |
+| DEPLOY-02 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 16 total
-- Mapped to phases: 0
-- Unmapped: 16 ⚠️ (roadmap ainda não criado)
+- Mapped to phases: 16
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-09-03*
-*Last updated: 2026-09-03 after initial definition*
+*Last updated: 2026-09-03 after roadmap creation (ROADMAP.md, 5 phases)*
