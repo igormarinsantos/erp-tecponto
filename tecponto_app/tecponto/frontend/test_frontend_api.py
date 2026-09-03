@@ -124,6 +124,7 @@ from tecponto_app.tecponto.frontend.api import (
 	create_sales_return,
 	exchange_sales_product,
 	_quote_send_text,
+	set_service_order_estimated_deadline,
 )
 from tecponto_app.tecponto.acceptance import (
 	audit_completed_acceptance_evidence,
@@ -342,6 +343,7 @@ def run_foundation_checks() -> dict:
 		post_sale_checks = run_post_sale_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
 		warranty_delivery_check = run_warranty_delivery_checks()
+		service_order_deadline_checks = run_service_order_deadline_checks()
 		budget_presentation_check = run_budget_presentation_checks()
 		print_document_checks = run_print_document_checks()
 		device_credential_guard = run_device_credential_non_leak_checks()
@@ -420,6 +422,7 @@ def run_foundation_checks() -> dict:
 			"post_sale": post_sale_checks,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
 			"warranty_delivery": warranty_delivery_check,
+			"service_order_deadline": service_order_deadline_checks,
 			"budget_presentation": budget_presentation_check,
 			"print_documents": print_document_checks,
 			"device_credential_guard": device_credential_guard,
@@ -2723,6 +2726,87 @@ def _deliver_warranty_test_order(doc) -> None:
 	doc.link_acceptance_required = 0
 	validate_aceites(doc)
 	validate_repare_rules(doc)
+
+
+def run_service_order_deadline_checks() -> dict:
+	"""Prove the técnico-only deadline write path persists and reaches every read site."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		order_name = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order", order_name,
+			{"workflow_state": "Em diagnóstico", "technician": technician},
+			update_modified=False,
+		)
+		frappe.set_user(technician)
+		complete_technical_diagnosis(order_name, "Diagnóstico de teste automatizado.", "Técnico")
+
+		deadline_value = add_days(nowdate(), 5)
+		saved = set_service_order_estimated_deadline(order_name, deadline_value)
+		if saved.get("estimated_deadline") != deadline_value:
+			raise AssertionError("Salvar prazo estimado não retornou o valor persistido.")
+		leaks = contains_sensitive_field(saved)
+		if leaks:
+			raise AssertionError(f"Endpoint de prazo estimado vazou campo sensível: {', '.join(leaks)}")
+
+		detail = get_service_order_detail(order_name)
+		if detail.get("estimated_deadline") != deadline_value:
+			raise AssertionError("Detalhe da OS não retornou o prazo estimado salvo.")
+
+		summary = list_service_orders(query=order_name)
+		summary_item = next((item for item in summary["items"] if item["name"] == order_name), None)
+		if not summary_item or summary_item.get("estimated_deadline") != deadline_value:
+			raise AssertionError("Listagem/kanban da OS não retornou o prazo estimado salvo.")
+
+		attendant_blocked = False
+		frappe.set_user(attendant)
+		try:
+			set_service_order_estimated_deadline(order_name, deadline_value)
+		except frappe.PermissionError:
+			attendant_blocked = True
+		if not attendant_blocked:
+			raise AssertionError("Atendente conseguiu definir o prazo estimado da OS.")
+
+		frappe.set_user(technician)
+		invalid_rejected = False
+		try:
+			set_service_order_estimated_deadline(order_name, "")
+		except frappe.ValidationError:
+			invalid_rejected = True
+		if not invalid_rejected:
+			raise AssertionError("Motor aceitou prazo estimado vazio/inválido.")
+
+		manager = _find_or_create_user("Tecponto Gestor")
+		sensitive_leaks: list[str] = []
+		for role_user in (attendant, manager, technician):
+			frappe.set_user(role_user)
+			role_detail = get_service_order_detail(order_name)
+			role_summary = list_service_orders(limit=100, query=order_name)
+			for payload in (role_detail, role_summary):
+				role_leaks = contains_sensitive_field(payload)
+				if role_leaks:
+					sensitive_leaks.extend(f"{role_user}:{field}" for field in role_leaks)
+			role_summary_item = next((item for item in role_summary["items"] if item["name"] == order_name), None)
+			if not role_summary_item or role_summary_item.get("estimated_deadline") != deadline_value:
+				raise AssertionError(f"Papel {role_user} não recebeu o prazo estimado na listagem/kanban.")
+		if sensitive_leaks:
+			raise AssertionError(f"Endpoints alterados por este plano vazaram campo sensível: {', '.join(sensitive_leaks)}")
+
+		return {
+			"status": "ok",
+			"deadline_saved": saved.get("estimated_deadline"),
+			"detail_returns_deadline": True,
+			"summary_returns_deadline": True,
+			"attendant_blocked": attendant_blocked,
+			"invalid_date_rejected": invalid_rejected,
+			"sensitive_guard": {"leaked_fields": sensitive_leaks},
+		}
+	finally:
+		frappe.set_user(previous_user)
 
 
 def run_customer_registration_checks() -> dict:

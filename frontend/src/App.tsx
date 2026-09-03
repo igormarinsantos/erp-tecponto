@@ -4009,7 +4009,7 @@ function TechnicalServiceOrderDetail({
 			  {detail.workflow_state === "Em diagnóstico" ? <Button disabled={!diagnosis.trim() || savingDiagnosis} icon={<ArrowRight size={17} />} onClick={() => void completeDiagnosis()} variant="primary">Concluir e repassar</Button> : null}
             </div>
           </Card>
-		  {detail.workflow_state === "Diagnosticado — aguardando orçamento" && detail.diagnosis.pricing_responsibility === "Técnico" ? <TechnicalBudgetEditor onCompleted={() => onRefresh("Orçamento concluído e encaminhado para aprovação.")} onToast={onToast} serviceOrder={detail.name} /> : null}
+		  {detail.workflow_state === "Diagnosticado — aguardando orçamento" && detail.diagnosis.pricing_responsibility === "Técnico" ? <TechnicalBudgetEditor estimatedDeadline={detail.estimated_deadline} onCompleted={() => onRefresh("Orçamento concluído e encaminhado para aprovação.")} onToast={onToast} serviceOrder={detail.name} /> : null}
           <TimelineCard events={detail.timeline} />
           </> : null}
 
@@ -4119,12 +4119,13 @@ function TechnicalFinanceStageCard({ detail }: { detail: ServiceOrderDetailRespo
   );
 }
 
-function TechnicalBudgetEditor({ onCompleted, onToast, serviceOrder }: { onCompleted: () => Promise<void>; onToast: (message: string, tone?: ToastState["tone"]) => void; serviceOrder: string }) {
+function TechnicalBudgetEditor({ estimatedDeadline, onCompleted, onToast, serviceOrder }: { estimatedDeadline: string; onCompleted: () => Promise<void>; onToast: (message: string, tone?: ToastState["tone"]) => void; serviceOrder: string }) {
 	const [budget, setBudget] = useState<TechnicalBudgetResponse | null>(null);
 	const [catalog, setCatalog] = useState<TechnicalBudgetCatalogItem[]>([]);
 	const [kind, setKind] = useState<BudgetLineType>("service");
 	const [query, setQuery] = useState("");
 	const [customerPartDescription, setCustomerPartDescription] = useState("");
+	const [deadline, setDeadline] = useState(estimatedDeadline);
 	const [busy, setBusy] = useState(false);
 
 	const load = useCallback(async () => {
@@ -4157,6 +4158,7 @@ function TechnicalBudgetEditor({ onCompleted, onToast, serviceOrder }: { onCompl
 		<div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wide text-tec-orange">Precificação técnica</p><h3 className="mt-1 text-xl font-bold text-white">Montar orçamento</h3><p className="mt-1 text-sm text-tec-muted">Somente preço de venda e disponibilidade do depósito Reparo.</p></div><span className="rounded-full bg-tec-field px-3 py-1 text-sm font-bold text-white">{formatCurrency(budget?.selling_total ?? 0)}</span></div>
 		<div className="mt-4 grid gap-2 sm:grid-cols-2"><Button onClick={() => setKind("service")} variant={kind === "service" ? "primary" : "secondary"}>Serviços</Button><Button onClick={() => setKind("part")} variant={kind === "part" ? "primary" : "secondary"}>Peças</Button></div>
 		<input className="tp-input mt-3" onChange={(event) => setQuery(event.target.value)} placeholder={`Buscar ${kind === "service" ? "serviço" : "peça"}`} value={query} />
+		<label className="mt-3 flex flex-col gap-1"><span className="text-xs font-bold uppercase tracking-wide text-tec-muted">Prazo estimado</span><div className="flex gap-2"><input className="tp-input" onChange={(event) => setDeadline(event.target.value)} placeholder="Defina o prazo estimado" type="date" value={deadline} /><Button disabled={busy} onClick={async () => { setBusy(true); try { const response = await serviceOrders.setEstimatedDeadline(serviceOrder, deadline); setDeadline(response.estimated_deadline); onToast("Prazo estimado salvo."); } catch (caught) { onToast(caught instanceof Error ? caught.message : "Não foi possível salvar o prazo.", "error"); } finally { setBusy(false); } }}>Salvar prazo</Button></div></label>
 		{kind === "part" ? <div className="mt-2 flex gap-2"><input className="tp-input" onChange={(event) => setCustomerPartDescription(event.target.value)} placeholder="Ou descreva uma peça fornecida pelo cliente" value={customerPartDescription} /><Button disabled={busy || !customerPartDescription.trim()} onClick={async () => { setBusy(true); try { setBudget(await serviceOrders.addTechnicalBudgetLine(serviceOrder, { type: "part", description: customerPartDescription, qty: 1, selling_price: 0, source: "Cliente" })); setCustomerPartDescription(""); } catch (caught) { onToast(caught instanceof Error ? caught.message : "Não foi possível adicionar a peça do cliente.", "error"); } finally { setBusy(false); } }}>Adicionar do cliente</Button></div> : null}
 		<div className="mt-3 max-h-56 space-y-2 overflow-auto">{catalog.map((item) => <button className="flex w-full items-center justify-between gap-3 rounded-control border border-tec-border/15 bg-tec-field/45 p-3 text-left hover:border-tec-orange/45" disabled={busy} key={item.name ?? item.item_code} onClick={() => void add(item)} type="button"><span><span className="block text-sm font-bold text-white">{item.description}</span><span className="text-xs text-tec-muted">{item.category ?? "Sem categoria"}{item.available_qty !== undefined ? ` · Disponível ${item.available_qty}` : item.duration ? ` · ${item.duration} ${item.duration_unit}` : ""}</span></span><span className="shrink-0 font-bold text-tec-orange">{formatCurrency(item.selling_price)}</span></button>)}</div>
 		<div className="mt-5 space-y-2">{[...(budget?.services ?? []), ...(budget?.parts ?? [])].map((line) => <TechnicalBudgetLineEditor disabled={busy} key={line.name} line={line} onChanged={setBudget} onToast={onToast} serviceOrder={serviceOrder} />)}{budget && !budget.services.length && !budget.parts.length ? <p className="rounded-control border border-dashed border-tec-border/20 p-4 text-sm text-tec-muted">Inclua ao menos uma linha.</p> : null}</div>

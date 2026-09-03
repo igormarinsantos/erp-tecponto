@@ -437,6 +437,7 @@ export interface ServiceOrderSummary {
   reported_defect: string | null;
   approval_status: string | null;
   approval_deadline: string;
+  estimated_deadline: string;
   pickup_date: string | null;
   modified: string;
 	unassigned_waiting_hours?: number;
@@ -501,6 +502,7 @@ export interface ServiceOrderDetailResponse {
   workflow_state: string | null;
   approval_status: string | null;
   approval_deadline: string;
+  estimated_deadline: string;
   approval: {
     channel: string | null;
     approved_by: string | null;

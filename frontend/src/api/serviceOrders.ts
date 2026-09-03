@@ -41,6 +41,9 @@ export const serviceOrders = {
 	convertFast(name: string, reason: string, newValue: number, notes = "") {
 		return rpc<ServiceOrderDetailResponse>(`${API}.convert_fast_service_order`, { body: { name, reason, new_value: newValue, notes } });
 	},
+	setEstimatedDeadline(name: string, estimatedDeadline: string) {
+		return rpc<ServiceOrderDetailResponse>(`${API}.set_service_order_estimated_deadline`, { body: { name, estimated_deadline: estimatedDeadline } });
+	},
 	technicalBudget(name: string) {
 		return rpc<TechnicalBudgetResponse>(`${TECHNICAL_BUDGET_API}.get_budget`, { query: { name } });
 	},

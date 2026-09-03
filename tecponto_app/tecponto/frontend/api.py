@@ -113,6 +113,7 @@ TRADEIN_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES | {"Tecponto Diretor"}
 SERVICE_CATALOG_EDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 STORE_OPERATION_MANAGER_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 TECHNICIAN_COMMISSION_ROLES = {"System Manager", "Tecponto Tecnico"}
+TECHNICIAN_DEADLINE_ROLES = {"System Manager", "Tecponto Tecnico"}
 DIRECTOR_FINANCIAL_ROLES = {"Tecponto Diretor"}
 APPROVAL_CHANNELS = {"Presencial", "Telefone", "WhatsApp", "E-mail", "Link"}
 STATE_ENTRADA_CRIADA = "Entrada criada"
@@ -157,6 +158,7 @@ SAFE_SERVICE_ORDER_FIELDS = (
 	"reported_defect",
 	"approval_status",
 	"approval_deadline",
+	"estimated_deadline",
 	"pickup_date",
 	"sales_invoice",
 	"modified",
@@ -284,6 +286,13 @@ def _require_budget_edit_role() -> None:
 	if set(frappe.get_roles(frappe.session.user)).intersection(BUDGET_ALLOWED_ROLES):
 		return
 	frappe.throw(_("Usuário sem permissão para compor orçamento na OS."), frappe.PermissionError)
+
+
+def _require_technician_deadline_role() -> None:
+	_require_login()
+	if set(frappe.get_roles(frappe.session.user)).intersection(TECHNICIAN_DEADLINE_ROLES):
+		return
+	frappe.throw(_("Somente o técnico responsável pode definir o prazo estimado."), frappe.PermissionError)
 
 
 def _require_pos_role() -> None:
@@ -1486,6 +1495,7 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"workflow_state": doc.get("workflow_state"),
 		"approval_status": doc.get("approval_status"),
 		"approval_deadline": str(doc.get("approval_deadline") or ""),
+		"estimated_deadline": str(doc.get("estimated_deadline") or ""),
 		"approval": {
 			"channel": doc.get("approval_channel"),
 			"approved_by": doc.get("approved_by"),
@@ -1956,6 +1966,30 @@ def add_service_order_budget_line(name: str, payload: str | dict[str, Any] | Non
 		if part_source == "Cliente":
 			doc.customer_supplied_part_term_required = 1
 
+	doc.save(ignore_permissions=True)
+	return get_service_order_detail(doc.name)
+
+
+@frappe.whitelist()
+def set_service_order_estimated_deadline(name: str, estimated_deadline: str) -> dict[str, Any]:
+	_require_technician_deadline_role()
+	name = (name or "").strip()
+	if not name:
+		frappe.throw(_("Informe a ordem de serviço."), frappe.ValidationError)
+
+	try:
+		parsed_deadline = getdate(estimated_deadline) if (estimated_deadline or "").strip() else None
+	except Exception:
+		parsed_deadline = None
+	if not parsed_deadline:
+		frappe.throw(_("Prazo estimado inválido."), frappe.ValidationError)
+
+	doc = frappe.get_doc("Service Order", name)
+	doc.check_permission("write")
+	if doc.workflow_state != STATE_DIAGNOSTICADO_AGUARDANDO_ORCAMENTO:
+		frappe.throw(_("O prazo estimado pertence à etapa de diagnóstico/orçamento."), frappe.ValidationError)
+
+	doc.estimated_deadline = parsed_deadline
 	doc.save(ignore_permissions=True)
 	return get_service_order_detail(doc.name)
 
@@ -4120,6 +4154,7 @@ def _serialize_service_order(item: dict[str, Any]) -> dict[str, Any]:
 		"reported_defect": item.get("reported_defect"),
 		"approval_status": item.get("approval_status"),
 		"approval_deadline": str(item.get("approval_deadline") or ""),
+		"estimated_deadline": str(item.get("estimated_deadline") or ""),
 		"modified": str(item.get("modified") or ""),
 	}
 
