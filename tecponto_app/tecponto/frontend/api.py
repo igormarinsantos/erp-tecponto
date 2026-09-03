@@ -1983,6 +1983,8 @@ def set_service_order_estimated_deadline(name: str, estimated_deadline: str) -> 
 		parsed_deadline = None
 	if not parsed_deadline:
 		frappe.throw(_("Prazo estimado inválido."), frappe.ValidationError)
+	if parsed_deadline < getdate(today()):
+		frappe.throw(_("Prazo estimado não pode ser uma data passada."), frappe.ValidationError)
 
 	doc = frappe.get_doc("Service Order", name)
 	doc.check_permission("write")

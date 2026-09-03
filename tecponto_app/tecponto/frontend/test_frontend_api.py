@@ -2826,6 +2826,14 @@ def run_service_order_deadline_checks() -> dict:
 		if not invalid_rejected:
 			raise AssertionError("Motor aceitou prazo estimado vazio/inválido.")
 
+		past_date_rejected = False
+		try:
+			set_service_order_estimated_deadline(order_name, add_days(nowdate(), -1))
+		except frappe.ValidationError:
+			past_date_rejected = True
+		if not past_date_rejected:
+			raise AssertionError("Motor aceitou prazo estimado no passado.")
+
 		manager = _find_or_create_user("Tecponto Gestor")
 		sensitive_leaks: list[str] = []
 		for role_user in (attendant, manager, technician):
@@ -3027,6 +3035,7 @@ def run_service_order_deadline_checks() -> dict:
 			"summary_returns_deadline": True,
 			"attendant_blocked": attendant_blocked,
 			"invalid_date_rejected": invalid_rejected,
+			"past_date_rejected": past_date_rejected,
 			"sensitive_guard": {"leaked_fields": sensitive_leaks},
 			"delivered_lock_blocked": delivered_lock_blocked,
 			"untouched_save_allowed": untouched_saved,
