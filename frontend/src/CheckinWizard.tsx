@@ -1905,7 +1905,7 @@ function ServiceDataStep({
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <WizardCard clean>
-		  <TextArea label="Serviço solicitado / relato do cliente" maxLength={700} onChange={(value) => setServiceOrder((current) => ({ ...current, reported_defect: value }))} placeholder="Ex.: troca de tela; aparelho não carrega; limpeza do conector..." value={serviceOrder.reported_defect} />
+		  <TextArea label="Serviço solicitado / relato do cliente" maxLength={700} onChange={(value) => setServiceOrder((current) => ({ ...current, reported_defect: value }))} placeholder="Ex.: troca de tela; aparelho não carrega; limpeza do conector..." required value={serviceOrder.reported_defect} />
           <div className="mt-4">
             <ChipGroup compact label="Acessórios recebidos" multiple>
               {accessoryOptions.map((accessory) => (
