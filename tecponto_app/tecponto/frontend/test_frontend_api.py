@@ -343,6 +343,7 @@ def run_foundation_checks() -> dict:
 		tradein_frontend_check = run_tradein_frontend_checks()
 		post_sale_checks = run_post_sale_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
+		warranty_mode_check = run_warranty_mode_checks()
 		warranty_delivery_check = run_warranty_delivery_checks()
 		service_order_deadline_checks = run_service_order_deadline_checks()
 		budget_presentation_check = run_budget_presentation_checks()
@@ -357,6 +358,9 @@ def run_foundation_checks() -> dict:
 			users["Tecponto Atendente"],
 			users["Tecponto Tecnico"],
 		)
+		pos_sale_check = run_pos_sale_checks()
+		pos_barcode_label_check = run_pos_barcode_label_checks()
+		pos_retail_barcode_catalog_check = run_pos_retail_barcode_catalog_checks()
 		cashier_mode_checks = run_cashier_mode_checks()
 		multi_role_context = _check_multi_role_union(users["Tecponto Atendente"])
 		# Each group intentionally creates documents with naming series. Commit the
@@ -422,6 +426,7 @@ def run_foundation_checks() -> dict:
 			"tradein_frontend": tradein_frontend_check,
 			"post_sale": post_sale_checks,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
+			"warranty_mode": warranty_mode_check,
 			"warranty_delivery": warranty_delivery_check,
 			"service_order_deadline": service_order_deadline_checks,
 			"budget_presentation": budget_presentation_check,
@@ -433,6 +438,9 @@ def run_foundation_checks() -> dict:
 			"os5_workflow_automations": os5_workflow_automations,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
+			"pos_sale": pos_sale_check,
+			"pos_barcode_label": pos_barcode_label_check,
+			"pos_retail_barcode_catalog": pos_retail_barcode_catalog_check,
 			"cashier_mode_checks": cashier_mode_checks,
 			"multi_role_union": multi_role_context,
 			"action_request_checks": action_request_checks,
@@ -7500,6 +7508,19 @@ def run_cash_session_checks() -> dict:
 			raise AssertionError("Técnico conseguiu abrir o caixa da loja.")
 
 		frappe.set_user(attendant)
+		second_open_blocked = False
+		try:
+			open_cash_session(
+				opening_amount=50,
+				idempotency_key=f"tp-cash-concurrent-{frappe.generate_hash(length=20)}",
+				opened_by=attendant,
+				cash_point=cash_point,
+			)
+		except frappe.ValidationError:
+			second_open_blocked = True
+		if not second_open_blocked:
+			raise AssertionError("Segunda abertura de caixa no mesmo ponto não foi bloqueada.")
+
 		status_payload = get_store_cash_session()
 		if "session" not in status_payload:
 			raise AssertionError("Endpoint de status do caixa não retornou o contrato esperado.")
@@ -7510,6 +7531,7 @@ def run_cash_session_checks() -> dict:
 			"drawer_balance": summary["drawer_balance"],
 			"immutability": {"update_blocked": immutable, "deletion_blocked": deletion_blocked},
 			"technician_blocked": technician_blocked,
+			"second_open_blocked": second_open_blocked,
 			"sensitive_guard": {"leaked_fields": cash_leaks},
 		}
 	finally:
