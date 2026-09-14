@@ -15,7 +15,7 @@ affects: [03-02-PLAN.md, 03-05-PLAN.md]
 actuals:
   tokens: 5500
   tasks: 2
-  commits: 1
+  commits: 2
 
 # Tech tracking
 tech-stack:
@@ -63,11 +63,11 @@ coverage:
         status: pass
     human_judgment: false
   - id: D3
-    description: "Closing a cash session with an undocumented divergence remains proven-blocked (unchanged, re-confirmed)"
+    description: "Closing a cash session with an undocumented divergence remains proven-blocked (unchanged, re-confirmed), now exposed as undocumented_divergence_blocked in the function's own return dict per the plan's explicit instruction"
     requirement: "AUDIT-02"
     verification:
       - kind: integration
-        ref: "bench execute tecponto_app.tecponto.frontend.test_frontend_api.run_cash_closing_checks"
+        ref: "bench execute tecponto_app.tecponto.frontend.test_frontend_api.run_cash_closing_checks (undocumented_divergence_blocked: true)"
         status: pass
     human_judgment: false
 
@@ -96,6 +96,7 @@ status: complete
 ## Task Commits
 
 1. **Task 1 + Task 2 (combined):** `786e73e` (test) — wiring the 4 orphaned checks and adding the concurrent-session assertion
+2. **Follow-up fix:** `f9d280b` (test) — exposed `undocumented_divergence_blocked` in `run_cash_closing_checks`'s return dict; the plan's Task 2 explicitly required this if the key was missing, and it was (no behavioural change, no new assertion — just legibility)
 
 ## Files Created/Modified
 - `tecponto_app/tecponto/frontend/test_frontend_api.py` — 4 new calls + 4 new return-dict keys inside `run_foundation_checks`; 1 new assertion + 1 new return-dict key inside `run_cash_session_checks`
@@ -110,6 +111,8 @@ None on the code side — plan executed exactly as written. One process deviatio
 ## Issues Encountered
 
 The local Docker/WSL2 environment continued to be unstable during this plan's execution (container dying mid-verification multiple times, `OOMKilled=false`/`ExitCode=255`, matching the already-documented host power-management pattern). An earlier attempt at this plan (by a different execution pass) additionally hit a `_pickle.PicklingError: Can't pickle <class 'frappe.model.document.LazyUser'>` inside `bench migrate`'s fixture-sync step while trying to build a fresh ephemeral site via `test-local.sh` — a pre-existing Frappe/rq framework quirk on this Python 3.14 environment, unrelated to this plan's code. Neither issue required any source change; both are documented here as environmental for future plans in this phase.
+
+**Concurrent-execution discovery (process note, not a code issue):** a second executor instance was independently working this exact plan at the same time as the one that produced commit `786e73e` (both editing the same shared working tree, since `workflow.use_worktrees: false`). Both instances converged on functionally identical Task 1/2 code and the same root-cause diagnosis for the `run_technician_scope_checks` data-volume issue, so no conflicting edits resulted. The second instance additionally found and fixed one small plan-compliance gap the first missed — `run_cash_closing_checks` not exposing `undocumented_divergence_blocked` — committed separately as `f9d280b` and folded into this Summary rather than producing a duplicate SUMMARY.md/STATE.md update. Also confirmed via direct DB query that `run_technician_scope_checks` fails deterministically (not just from local accumulation) because upstream director/manager fixture functions in `run_foundation_checks` deliver a Service Order for the shared `Tecponto Tecnico` fixture user before line 316 ever runs — this would very likely also reproduce on a genuinely fresh CI site, so the "does not reproduce in CI" framing above should be treated as unconfirmed rather than verified; worth a dedicated look in a future plan given it currently blocks any clean end-to-end `run_foundation_checks` pass. **Recommendation:** confirm `workflow.use_worktrees` is set as intended before dispatching phases with parallel/duplicate executor risk.
 
 ## Next Phase Readiness
 AUDIT-01 and AUDIT-02 are now both fully proven in CI (or would be, on a fresh site — the local data-volume caveat above does not apply to the actual GitHub Actions CI pipeline, which always creates an ephemeral site). Plan 03-02 (systematic cost/margin audit) can proceed — it builds on the same suite, now with 4 more domains under watch.
