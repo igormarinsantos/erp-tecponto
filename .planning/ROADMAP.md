@@ -83,12 +83,12 @@ Plans:
   4. Querying PDV and trade-in data as Atendente, Gestor, or Técnico never returns cost, margin, or profit fields — confirmed by inspecting the actual API response payload, not just the UI
   5. Claiming warranty on a used device past its calculated expiration date is blocked by the server; a claim within the window succeeds
 
-**Plans**: 5 plans
+**Plans**: 1/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — Tracer: wire the 4 orphaned PDV/warranty checks into the live suite, and prove the concurrent cash-session block (AUDIT-01, AUDIT-02)
+- [x] 03-01-PLAN.md — Tracer: wire the 4 orphaned PDV/warranty checks into the live suite, and prove the concurrent cash-session block (AUDIT-01, AUDIT-02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -113,8 +113,10 @@ Plans:
 **Requirements**: DESIGN-01, DESIGN-02
 
 **Input carried forward from mid-Phase-1 user feedback (2026-09-14, not acted on now — deliberately deferred per the hard gate above):**
+
 - The check-in wizard's "Dados" step (defect report, physical-state checklist, accessories) feels information-dense for one screen — user suggested splitting it into smaller sub-steps (microtelas). Concrete candidate for the discuss-phase of this phase: should the check-in wizard's step count grow, or should "Dados" be reorganized within the same step (progressive disclosure, grouping) instead of adding steps?
 - User also asked whether the OS screens and the PDV (sales) screens are visually/logically consistent with each other — not yet verified. This phase's cross-role consistency pass (success criterion 2) should explicitly include an OS-vs-PDV comparison, not just per-screen polish.
+
 **Success Criteria** (what must be TRUE):
 
   1. A design system document exists defining colors, typography, and core components, grounded in the actual current UI (not invented from scratch)
@@ -147,6 +149,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. OS.6 Closure — Warranty Verification & Deadline Wiring | 0/4 | Planned | - |
 | 2. Audited Field-Edit for Post-Creation Corrections | 0/TBD | Not started | - |
-| 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 0/5 | Planned | - |
+| 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 1/5 | In Progress|  |
 | 4. Design System (Single Pass) | 0/TBD | Not started | - |
 | 5. Deploy Readiness — Coolify Pilot | 0/TBD | Not started | - |
