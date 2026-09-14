@@ -83,7 +83,28 @@ Plans:
   4. Querying PDV and trade-in data as Atendente, Gestor, or Técnico never returns cost, margin, or profit fields — confirmed by inspecting the actual API response payload, not just the UI
   5. Claiming warranty on a used device past its calculated expiration date is blocked by the server; a claim within the window succeeds
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — Tracer: wire the 4 orphaned PDV/warranty checks into the live suite, and prove the concurrent cash-session block (AUDIT-01, AUDIT-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — Systematic cost/margin payload audit across every PDV and trade-in surface, plus any serializer fix it forces (AUDIT-04)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-03-PLAN.md — Trade-in condition-checklist completion gate, its read/write path, and the React wiring that makes it satisfiable (AUDIT-03)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 03-04-PLAN.md — Used Device Warranty linked and checked at check-in: covered means a no-charge OS, expired means an ordinary charged OS (AUDIT-05)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 03-05-PLAN.md — Composed full-suite run, frontend build, and human verification of the two changed counter journeys
 
 ### Phase 4: Design System (Single Pass)
 
@@ -126,6 +147,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. OS.6 Closure — Warranty Verification & Deadline Wiring | 0/4 | Planned | - |
 | 2. Audited Field-Edit for Post-Creation Corrections | 0/TBD | Not started | - |
-| 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 0/TBD | Not started | - |
+| 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 0/5 | Planned | - |
 | 4. Design System (Single Pass) | 0/TBD | Not started | - |
 | 5. Deploy Readiness — Coolify Pilot | 0/TBD | Not started | - |
