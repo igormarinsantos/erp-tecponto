@@ -7783,6 +7783,7 @@ def run_cash_closing_checks() -> dict:
 			"closed_cash_blocks_payment": payment_blocked_after_close,
 			"daily_history": len(daily_history),
 			"technician_blocked": technician_blocked,
+			"undocumented_divergence_blocked": without_reason_blocked,
 			"leaked_fields": leaks,
 		}
 	finally:
