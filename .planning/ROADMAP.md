@@ -90,6 +90,10 @@ Plans:
 **Goal**: The application has one documented, consistently-applied visual language, defined and applied only after every phase above is stable and tested — never interleaved with functional work.
 **Depends on**: Phase 3 (hard-gated — per `CLAUDE.md`, this phase cannot start until Phases 1-3 are functional and tested)
 **Requirements**: DESIGN-01, DESIGN-02
+
+**Input carried forward from mid-Phase-1 user feedback (2026-09-14, not acted on now — deliberately deferred per the hard gate above):**
+- The check-in wizard's "Dados" step (defect report, physical-state checklist, accessories) feels information-dense for one screen — user suggested splitting it into smaller sub-steps (microtelas). Concrete candidate for the discuss-phase of this phase: should the check-in wizard's step count grow, or should "Dados" be reorganized within the same step (progressive disclosure, grouping) instead of adding steps?
+- User also asked whether the OS screens and the PDV (sales) screens are visually/logically consistent with each other — not yet verified. This phase's cross-role consistency pass (success criterion 2) should explicitly include an OS-vs-PDV comparison, not just per-screen polish.
 **Success Criteria** (what must be TRUE):
 
   1. A design system document exists defining colors, typography, and core components, grounded in the actual current UI (not invented from scratch)
