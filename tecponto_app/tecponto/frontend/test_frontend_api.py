@@ -172,6 +172,7 @@ from tecponto_app.tecponto.frontend.pos import (
 	pos_download_receipt,
 	pos_generate_item_barcode,
 	pos_identify_cashier_operator,
+	pos_list_retail_item_groups,
 	pos_lookup_retail_barcode,
 	pos_receive_retail_stock,
 	pos_register_retail_product,
@@ -358,6 +359,7 @@ def run_foundation_checks() -> dict:
 			users["Tecponto Atendente"],
 			users["Tecponto Tecnico"],
 		)
+		pos_tradein_cost_guard = run_pos_tradein_cost_guard_checks()
 		pos_sale_check = run_pos_sale_checks()
 		pos_barcode_label_check = run_pos_barcode_label_checks()
 		pos_retail_barcode_catalog_check = run_pos_retail_barcode_catalog_checks()
@@ -438,6 +440,7 @@ def run_foundation_checks() -> dict:
 			"os5_workflow_automations": os5_workflow_automations,
 			"budget_cost_guard": budget_cost_guard,
 			"pos_cost_guard": pos_cost_guard,
+			"pos_tradein_cost_guard": pos_tradein_cost_guard,
 			"pos_sale": pos_sale_check,
 			"pos_barcode_label": pos_barcode_label_check,
 			"pos_retail_barcode_catalog": pos_retail_barcode_catalog_check,
@@ -8988,6 +8991,179 @@ def _check_pos_item_cost_guard(user: str, blocked_user: str) -> dict:
 			"missing_barcode_count": len(missing_payload["items"]),
 			"checked_payload": "search_pos_items",
 			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
+
+
+POS_TRADEIN_COST_GUARD_ENDPOINTS = (
+	"pos_lookup_retail_barcode",
+	"pos_list_retail_item_groups",
+	"pos_generate_item_barcode",
+	"pos_register_retail_product",
+	"pos_receive_retail_stock",
+	"list_trade_evaluations",
+	"get_sale_post_sale_detail",
+	"list_sales",
+)
+
+
+def run_pos_tradein_cost_guard_checks() -> dict:
+	"""Prova, por inspeção de payload real (não por nome de campo), que nenhuma superfície de
+	PDV/varejo/troca alcançável por Atendente, Gestor ou Técnico devolve custo de aquisição,
+	margem ou lucro — cobrindo os endpoints que `_check_pos_item_cost_guard` nunca tocou
+	(retail lookup/catalog/estoque, listagem de trocas e pós-venda)."""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		manager = _find_or_create_user("Tecponto Gestor")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		customer = _get_or_create_demo_customer()
+		demo = _ensure_pos_demo_records()
+		forbidden = set(demo["valuation_rates"])
+		stock_uom = frappe.db.get_value("UOM", {"enabled": 1}, "name") or "Nos"
+		_ensure_default_test_cash_session(attendant)
+		frappe.db.commit()
+
+		# Non-vacuity: prove the value-based guard can actually be tripped by a real cost
+		# amount before trusting every "no leak" result computed below.
+		vacuity_probe = contains_sensitive_field(
+			{"valuation_rate": next(iter(demo["valuation_rates"]))},
+			forbidden_values=forbidden,
+		)
+		if not vacuity_probe:
+			raise AssertionError("contains_sensitive_field não sinalizou um custo real de item — guard de valor degradado.")
+
+		# One real sale as fixture for get_sale_post_sale_detail / list_sales.
+		frappe.set_user(attendant)
+		fixture_sale = pos_create_sale(
+			{
+				"idempotency_key": f"tp-cost-guard-sale-{frappe.generate_hash(length=18)}",
+				"customer": customer,
+				"items": [{"item_code": POS_NAME_ITEM, "qty": 1}],
+				"discount_amount": 0,
+				"payments": [{"mode_of_payment": "Pix", "amount": 35.50, "installments": 1}],
+			}
+		)
+		invoice_name = fixture_sale["sale"]
+		frappe.db.commit()
+
+		def probe_role(role_user: str, role_label: str) -> dict[str, Any]:
+			frappe.set_user(role_user)
+			payload: dict[str, Any] = {}
+			blocked: list[str] = []
+
+			def attempt(endpoint: str, fn, *args, **kwargs) -> None:
+				try:
+					payload[endpoint] = fn(*args, **kwargs)
+				except frappe.PermissionError:
+					blocked.append(endpoint)
+
+			attempt("pos_lookup_retail_barcode", pos_lookup_retail_barcode, demo["barcode"])
+			attempt("pos_list_retail_item_groups", pos_list_retail_item_groups)
+			attempt("pos_generate_item_barcode", pos_generate_item_barcode, POS_NAME_ITEM)
+			throwaway_code = f"TP-COST-GUARD-{role_label}-{frappe.generate_hash(length=8)}"
+			attempt(
+				"pos_register_retail_product",
+				pos_register_retail_product,
+				{
+					"item_code": throwaway_code,
+					"item_name": f"Guarda de custo {role_label}",
+					"item_group": "Cabos",
+					"stock_uom": stock_uom,
+					"barcode_source": BARCODE_SOURCE_INTERNAL,
+					"selling_rate": 10,
+				},
+			)
+			receive_target = throwaway_code if "pos_register_retail_product" in payload else POS_BARCODE_ITEM
+			attempt(
+				"pos_receive_retail_stock",
+				pos_receive_retail_stock,
+				{"item_code": receive_target, "qty": 1, "incoming_rate": 5},
+			)
+			attempt("list_trade_evaluations", list_trade_evaluations)
+			attempt("get_sale_post_sale_detail", get_sale_post_sale_detail, invoice_name)
+			attempt("list_sales", list_sales)
+
+			covered = set(payload) | set(blocked)
+			missing = [name for name in POS_TRADEIN_COST_GUARD_ENDPOINTS if name not in covered]
+			if missing:
+				raise AssertionError(f"Auditoria de custo PDV/Troca não cobriu endpoints para {role_label}: {', '.join(missing)}")
+
+			leaks = contains_sensitive_field(payload, forbidden_values=forbidden)
+			if leaks:
+				raise AssertionError(f"PDV/Troca vazou custo para {role_label}: {', '.join(leaks)}")
+
+			return {"payload": payload, "blocked": sorted(blocked), "leaked_fields": leaks}
+
+		attendant_result = probe_role(attendant, "Atendente")
+		manager_result = probe_role(manager, "Gestor")
+
+		# Only the Gestor-only catalog/estoque gates should ever block the Atendente; any
+		# other block would mean the Atendente lost operational access it needs.
+		expected_attendant_blocked = {"pos_register_retail_product", "pos_receive_retail_stock"}
+		if set(attendant_result["blocked"]) != expected_attendant_blocked:
+			raise AssertionError(f"Bloqueio de Atendente no PDV/Troca mudou de forma inesperada: {attendant_result['blocked']}")
+		if manager_result["blocked"]:
+			raise AssertionError(f"Gestor foi bloqueado indevidamente em: {', '.join(manager_result['blocked'])}")
+
+		frappe.set_user(technician)
+		technician_allowed: dict[str, Any] = {}
+		technician_blocked: list[str] = []
+
+		def attempt_technician(endpoint: str, fn, *args, **kwargs) -> None:
+			try:
+				technician_allowed[endpoint] = fn(*args, **kwargs)
+			except frappe.PermissionError:
+				technician_blocked.append(endpoint)
+
+		attempt_technician("pos_lookup_retail_barcode", pos_lookup_retail_barcode, demo["barcode"])
+		attempt_technician("pos_list_retail_item_groups", pos_list_retail_item_groups)
+		attempt_technician("pos_generate_item_barcode", pos_generate_item_barcode, POS_NAME_ITEM)
+		attempt_technician(
+			"pos_register_retail_product",
+			pos_register_retail_product,
+			{
+				"item_code": f"TP-COST-GUARD-Tecnico-{frappe.generate_hash(length=8)}",
+				"item_name": "Guarda de custo Tecnico",
+				"item_group": "Cabos",
+				"stock_uom": stock_uom,
+				"barcode_source": BARCODE_SOURCE_INTERNAL,
+				"selling_rate": 10,
+			},
+		)
+		attempt_technician(
+			"pos_receive_retail_stock",
+			pos_receive_retail_stock,
+			{"item_code": POS_BARCODE_ITEM, "qty": 1, "incoming_rate": 5},
+		)
+		attempt_technician("list_trade_evaluations", list_trade_evaluations)
+		attempt_technician("get_sale_post_sale_detail", get_sale_post_sale_detail, invoice_name)
+		attempt_technician("list_sales", list_sales)
+
+		covered_technician = set(technician_allowed) | set(technician_blocked)
+		missing_technician = [name for name in POS_TRADEIN_COST_GUARD_ENDPOINTS if name not in covered_technician]
+		if missing_technician:
+			raise AssertionError(f"Auditoria de custo PDV/Troca não cobriu endpoints para Técnico: {', '.join(missing_technician)}")
+
+		technician_leaks = contains_sensitive_field(technician_allowed, forbidden_values=forbidden)
+		if technician_leaks:
+			raise AssertionError(f"PDV/Troca vazou custo para Técnico: {', '.join(technician_leaks)}")
+
+		return {
+			"status": "ok",
+			"endpoints_covered": list(POS_TRADEIN_COST_GUARD_ENDPOINTS),
+			"leaked_fields": {
+				"atendente": attendant_result["leaked_fields"],
+				"gestor": manager_result["leaked_fields"],
+				"tecnico": technician_leaks,
+			},
+			"attendant_blocked": attendant_result["blocked"],
+			"technician_blocked": sorted(technician_blocked),
+			"technician_allowed": sorted(technician_allowed),
+			"non_vacuous_guard": bool(vacuity_probe),
 		}
 	finally:
 		frappe.set_user(previous_user)
