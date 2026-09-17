@@ -8,12 +8,22 @@ set -euo pipefail
 #
 # Uso:
 #   ./scripts/dev-local-server.sh up        # cria (se não existir) e sobe
-#   ./scripts/dev-local-server.sh restart   # reinicia: relê Python + roda migrate
+#   ./scripts/dev-local-server.sh restart   # reinicia: sempre relê Python;
+#                                            # só roda migrate se algo em
+#                                            # tecponto_app/**/*.py ou *.json
+#                                            # mudou desde o último migrate
 #   ./scripts/dev-local-server.sh down      # para o servidor (db/redis ficam)
 #   ./scripts/dev-local-server.sh logs      # segue os logs
 #
 # Regra do rito (GEMINI.md 2.5): depois de mudar código Python, rodar
 # `restart` antes de testar no navegador — o bench roda com --noreload.
+# O migrate é caro (reconstrói doctypes do Frappe/ERPNext inteiros, não só
+# os nossos) e não é isso que recarrega o Python — quem recarrega é o
+# processo do bench serve reiniciando. Por isso ele só roda quando algo que
+# o migrate de fato precisa sincronizar (schema/fixture/hook) mudou; uma
+# recuperação de queda do container (sem edição de código) não paga esse
+# custo de novo. Pra forçar um migrate mesmo sem mudança detectada:
+#   docker exec tecponto-local-server rm -f /home/frappe/frappe-bench/sites/.tecponto_last_migrate
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${TECPONTO_TEST_IMAGE:-ghcr.io/igormarinsantos/erp-tecponto:version-16}"
@@ -47,7 +57,7 @@ case "$ACTION" in
 				until docker exec "$DB_NAME" mariadb-admin ping -h 127.0.0.1 -uroot -plocal-test-password --silent >/dev/null 2>&1; do sleep 1; done
 			fi
 			docker restart "$SERVER_NAME" >/dev/null
-			echo "Servidor reiniciado (Python recarregado + migrate rodado). http://localhost:8000"
+			echo "Servidor reiniciado (Python recarregado; migrate roda só se tecponto_app mudou). http://localhost:8000"
 			exit 0
 		fi
 		;;
@@ -93,9 +103,25 @@ bench set-config -g db_port 3306
 bench set-config -g redis_cache "redis://$REDIS_HOST:6379"
 bench set-config -g redis_queue "redis://$REDIS_HOST:6379"
 bench set-config -g redis_socketio "redis://$REDIS_HOST:6379"
-bench --site local-ci.local migrate
+
+# O migrate reconstrói TODOS os doctypes do Frappe+ERPNext (não só os
+# nossos) e é o pico de memória/CPU que mais derruba este host. Só vale a
+# pena pagar esse custo de novo quando algo em tecponto_app que o migrate
+# realmente sincroniza (doctype JSON, hooks, fixtures) mudou desde a
+# última vez — não em toda recuperação de queda do container.
+MARKER="/home/frappe/frappe-bench/sites/.tecponto_last_migrate"
+NEEDS_MIGRATE=1
+if [ -f "$MARKER" ] && [ -z "$(find /home/frappe/frappe-bench/apps/tecponto_app -type f \( -name "*.py" -o -name "*.json" \) -newer "$MARKER" -print -quit)" ]; then
+	NEEDS_MIGRATE=0
+fi
+if [ "$NEEDS_MIGRATE" = "1" ]; then
+	bench --site local-ci.local migrate
+	touch "$MARKER"
+else
+	echo "tecponto_app sem mudanças em .py/.json desde o último migrate — pulando."
+fi
 exec bench serve --port 8000 --noreload
 ' >/dev/null
 
-echo "Servidor criado e migrado. http://localhost:8000"
+echo "Servidor criado. http://localhost:8000"
 echo "Depois de mudar Python: ./scripts/dev-local-server.sh restart"
