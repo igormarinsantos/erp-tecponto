@@ -1558,6 +1558,8 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			"is_warranty": bool(doc.get("is_warranty")),
 			"original_service_order": doc.get("original_service_order"),
 			"warranty_expiry": str(doc.get("warranty_expiry") or ""),
+			"used_device_warranty": doc.get("used_device_warranty"),
+			"used_device_warranty_no_charge": bool(doc.get("used_device_warranty_no_charge")),
 		},
 		"pickup": {
 			"without_repair": bool(doc.get("pickup_without_repair")),
@@ -2309,6 +2311,7 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 			order.is_warranty = 0
 			marker = _("Defeito diferente da OS original {0}: atendimento convertido em OS normal, com valor definido no orçamento.").format(order.original_service_order)
 			order.attendance_notes = "\n".join(filter(None, [order.attendance_notes, marker]))
+	_apply_used_device_warranty_coverage(order, device_name)
 	initial_budget_lines = data.get("initial_budget_lines") or []
 	if not isinstance(initial_budget_lines, list):
 		frappe.throw(_("Composição do orçamento inicial inválida."), frappe.ValidationError)
@@ -2358,6 +2361,35 @@ def create_service_order_checkin(payload: str | dict[str, Any] | None = None) ->
 		"pickup_token": pickup_token,
 		"pickup_token_message": _("Guarde o código de retirada {0}. Ele será exigido na entrega do aparelho.").format(pickup_token),
 	}
+
+
+def _apply_used_device_warranty_coverage(order, device_name: str) -> None:
+	"""Look up the used-device warranty by serial and decide coverage per D-03/D-04.
+
+	Coverage comes solely from `consultar_garantia_usado`, never from anything the
+	client sends. A missing serial or a serial with no warranty record leaves the
+	order exactly as an ordinary repair — no fields touched, nothing raised.
+	"""
+	serial_no = (frappe.db.get_value("Customer Device", device_name, "imei_serial") or "").strip()
+	if not serial_no:
+		return
+
+	from tecponto_app.tecponto.used_device_warranty import consultar_garantia_usado
+
+	result = consultar_garantia_usado(serial_no, reference_date=order.entry_date)
+	if not result.get("exists"):
+		return
+
+	if result.get("under_warranty"):
+		order.used_device_warranty = result.get("name")
+		order.used_device_warranty_no_charge = 1
+		marker = _("Reparo coberto pela garantia de aparelho usado {0}: atendimento sem custo.").format(result.get("name"))
+		order.attendance_notes = "\n".join(filter(None, [order.attendance_notes, marker]))
+	else:
+		marker = _("Garantia de aparelho usado {0} vencida em {1}: atendimento convertido em OS normal, com valor definido no orçamento.").format(
+			result.get("name"), result.get("warranty_expiry")
+		)
+		order.attendance_notes = "\n".join(filter(None, [order.attendance_notes, marker]))
 
 
 @frappe.whitelist()
