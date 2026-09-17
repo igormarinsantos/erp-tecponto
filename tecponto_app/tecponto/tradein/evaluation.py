@@ -35,11 +35,23 @@ ANDROID_CHECKLIST = (
 BLOCKING_ITEM_MARKERS = ("icloud", "conta google")
 BLOCKING_RESULTS = {"atencao", "reprovado"}
 
+# Verbatim from device_trade_evaluation_checklist.json's `result` Select options
+# (the blank/no-op option is intentionally excluded: it is never a valid answer).
+CHECKLIST_RESULT_VALUES = {"OK", "Atenção", "Reprovado", "N/A"}
+
 
 def validar_avaliacao(doc, method=None) -> None:
 	_sync_checklist(doc)
 	_validate_blocked_device(doc)
 	_validate_approved_value_range(doc)
+
+
+def checklist_template(device_type: str | None) -> list[dict[str, str]]:
+	"""Single source of truth for the expected checklist rows of a device type."""
+	return [
+		{"check_item": check_item, "expected_value": expected_value}
+		for check_item, expected_value in _expected_checklist(device_type)
+	]
 
 
 def _sync_checklist(doc) -> None:

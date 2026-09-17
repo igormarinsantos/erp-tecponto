@@ -18,6 +18,11 @@ from tecponto_app.tecponto.customer import (
 	validate_customer_contact_document,
 )
 from tecponto_app.tecponto.pos import get_commercial_item_groups, get_retail_item_groups
+from tecponto_app.tecponto.tradein.evaluation import (
+	CHECKLIST_RESULT_VALUES,
+	checklist_template,
+	_normalize as _normalize_checklist_item,
+)
 from tecponto_app.tecponto import pending
 from tecponto_app.tecponto.pending import action_for_service_order
 from tecponto_app.tecponto.stock import normalize_barcode
@@ -3750,6 +3755,40 @@ def list_trade_evaluations(query: str = "", limit: int = 12) -> dict[str, Any]:
 
 
 @frappe.whitelist()
+def get_tradein_checklist_template(device_type: str = "") -> dict[str, Any]:
+	"""Expected checklist rows for a device type, sourced only from tradein.evaluation."""
+	_require_tradein_role()
+	device_type = (device_type or "").strip()
+	if device_type not in {"iPhone", "Android"}:
+		frappe.throw(_("Selecione o tipo do aparelho."), frappe.ValidationError)
+	return {"items": checklist_template(device_type)}
+
+
+def _validate_checklist_payload_entries(entries: Any) -> list[dict[str, str]]:
+	if not isinstance(entries, list):
+		frappe.throw(_("Checklist inválido."), frappe.ValidationError)
+	rows: list[dict[str, str]] = []
+	for entry in entries:
+		if not isinstance(entry, dict):
+			frappe.throw(_("Item de checklist inválido."), frappe.ValidationError)
+		check_item = str(entry.get("check_item") or "").strip()
+		if not check_item:
+			frappe.throw(_("Item de checklist sem nome."), frappe.ValidationError)
+		result = str(entry.get("result") or "").strip()
+		if result and result not in CHECKLIST_RESULT_VALUES:
+			frappe.throw(_("Resultado de checklist inválido."), frappe.ValidationError)
+		rows.append(
+			{
+				"check_item": check_item,
+				"expected_value": str(entry.get("expected_value") or "").strip(),
+				"result": result,
+				"notes": str(entry.get("notes") or "").strip(),
+			}
+		)
+	return rows
+
+
+@frappe.whitelist()
 def create_trade_evaluation(payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
 	"""Create the evaluation document; table validation remains in the trade-in engine."""
 	_require_tradein_role()
@@ -3775,26 +3814,30 @@ def create_trade_evaluation(payload: str | dict[str, Any] | None = None) -> dict
 	if suggested_value <= 0:
 		frappe.throw(_("Informe o valor avaliado maior que zero."), frappe.ValidationError)
 
-	doc = frappe.get_doc(
-		{
-			"doctype": "Device Trade Evaluation",
-			"customer": customer,
-			"device_type": device_type,
-			"evaluated_device_desc": (data.get("evaluated_device_desc") or model).strip(),
-			"model": model,
-			"imei": imei,
-			"capacity": (data.get("capacity") or "").strip(),
-			"physical_state": physical_state,
-			"icloud_google_lock": cint(bool(data.get("icloud_google_lock"))),
-			"has_invoice": cint(bool(data.get("has_invoice"))),
-			"defects": (data.get("defects") or "").strip(),
-			"table_min": flt(data.get("table_min"), 2),
-			"table_max": flt(data.get("table_max"), 2),
-			"suggested_value": suggested_value,
-			"destination": destination,
-			"workflow_state": STATE_AGUARDANDO_APROVACAO,
-		}
-	)
+	checklist_payload = data.get("checklist")
+	checklist_rows = _validate_checklist_payload_entries(checklist_payload) if checklist_payload else []
+
+	doc_fields: dict[str, Any] = {
+		"doctype": "Device Trade Evaluation",
+		"customer": customer,
+		"device_type": device_type,
+		"evaluated_device_desc": (data.get("evaluated_device_desc") or model).strip(),
+		"model": model,
+		"imei": imei,
+		"capacity": (data.get("capacity") or "").strip(),
+		"physical_state": physical_state,
+		"icloud_google_lock": cint(bool(data.get("icloud_google_lock"))),
+		"has_invoice": cint(bool(data.get("has_invoice"))),
+		"defects": (data.get("defects") or "").strip(),
+		"table_min": flt(data.get("table_min"), 2),
+		"table_max": flt(data.get("table_max"), 2),
+		"suggested_value": suggested_value,
+		"destination": destination,
+		"workflow_state": STATE_AGUARDANDO_APROVACAO,
+	}
+	if checklist_rows:
+		doc_fields["checklist"] = checklist_rows
+	doc = frappe.get_doc(doc_fields)
 	doc.insert(ignore_permissions=True)
 	item = frappe.db.get_value("Device Trade Evaluation", doc.name, list(SAFE_TRADE_EVALUATION_FIELDS), as_dict=True)
 	return {"item": _serialize_trade_evaluation(item)}
@@ -3808,6 +3851,33 @@ def set_tradein_approved_value(name: str, approved_value: float) -> dict[str, An
 	doc.approved_value = flt(approved_value, 2)
 	# This endpoint exposes only the table-governed value. Validation still runs under
 	# the caller, while an approved request later saves normally under the Gestor.
+	doc.save(ignore_permissions=True)
+	item = frappe.db.get_value("Device Trade Evaluation", doc.name, list(SAFE_TRADE_EVALUATION_FIELDS), as_dict=True)
+	return {"item": _serialize_trade_evaluation(item)}
+
+
+@frappe.whitelist()
+def set_tradein_checklist_results(name: str, checklist: str | list | None = None) -> dict[str, Any]:
+	"""Recovery/answer path: fills in result/notes on the existing checklist rows by check_item."""
+	_require_tradein_role()
+	doc = frappe.get_doc("Device Trade Evaluation", (name or "").strip())
+	entries = checklist
+	if isinstance(entries, str):
+		entries = frappe.parse_json(entries) if entries.strip() else []
+	rows = _validate_checklist_payload_entries(entries or [])
+
+	rows_by_item = {
+		_normalize_checklist_item(row.get("check_item")): row
+		for row in doc.get("checklist") or []
+		if row.get("check_item")
+	}
+	for entry in rows:
+		row = rows_by_item.get(_normalize_checklist_item(entry["check_item"]))
+		if not row:
+			frappe.throw(_("Item de checklist não encontrado: {0}.").format(entry["check_item"]), frappe.ValidationError)
+		row.result = entry["result"]
+		row.notes = entry["notes"]
+
 	doc.save(ignore_permissions=True)
 	item = frappe.db.get_value("Device Trade Evaluation", doc.name, list(SAFE_TRADE_EVALUATION_FIELDS), as_dict=True)
 	return {"item": _serialize_trade_evaluation(item)}
@@ -4257,6 +4327,25 @@ def _serialize_customer_device(item: dict[str, Any]) -> dict[str, Any]:
 	}
 
 
+def _get_evaluation_checklist(name: str) -> list[dict[str, Any]]:
+	"""Read-only projection of the checklist child table. No cost/margin/valuation field."""
+	rows = frappe.get_all(
+		"Device Trade Evaluation Checklist",
+		filters={"parent": name},
+		fields=["check_item", "expected_value", "result", "notes", "idx"],
+		order_by="idx asc",
+	)
+	return [
+		{
+			"check_item": row.get("check_item"),
+			"expected_value": row.get("expected_value") or "",
+			"result": row.get("result") or "",
+			"notes": row.get("notes") or "",
+		}
+		for row in rows
+	]
+
+
 def _serialize_trade_evaluation(item: dict[str, Any]) -> dict[str, Any]:
 	return {
 		"name": item.get("name"),
@@ -4274,6 +4363,7 @@ def _serialize_trade_evaluation(item: dict[str, Any]) -> dict[str, Any]:
 		"trade_category": item.get("trade_category") or None,
 		"workflow_state": item.get("workflow_state"),
 		"modified": str(item.get("modified") or ""),
+		"checklist": _get_evaluation_checklist(item.get("name")) if item.get("name") else [],
 	}
 
 
