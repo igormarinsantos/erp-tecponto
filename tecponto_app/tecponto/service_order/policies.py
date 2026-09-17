@@ -14,6 +14,7 @@ MANAGER_ROLES = {"Tecponto Gestor", "System Manager"}
 def validate_repare_rules(doc, method=None) -> None:
 	_validate_path(doc)
 	_validate_warranty(doc)
+	_validate_used_device_warranty_no_charge(doc)
 	_validate_sinal(doc)
 	_validate_billed_cancellation(doc)
 	_validate_diagnosis_handoff(doc)
@@ -130,6 +131,22 @@ def _validate_warranty(doc) -> None:
 
 	if getdate(warranty_expiry) < getdate(nowdate()):
 		frappe.throw("Garantia vencida. Use garantia-cortesia com justificativa do Gestor.")
+
+
+def _validate_used_device_warranty_no_charge(doc) -> None:
+	if not doc.get("used_device_warranty_no_charge"):
+		return
+
+	if not doc.get("used_device_warranty"):
+		frappe.throw("Reparo sem custo por garantia de aparelho usado exige a garantia vinculada.")
+
+	from tecponto_app.tecponto.used_device_warranty import is_warranty_active
+
+	if not is_warranty_active(doc.get("used_device_warranty"), reference_date=doc.get("entry_date")):
+		frappe.throw("Garantia de aparelho usado vencida nao pode gerar reparo sem custo.")
+
+	if flt(doc.get("grand_total")) > 0:
+		frappe.throw("Reparo sem custo por garantia de aparelho usado nao pode ter valor cobrado.")
 
 
 def _validate_delivery_dates_are_immutable(doc) -> None:

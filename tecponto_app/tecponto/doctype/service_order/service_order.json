@@ -80,6 +80,8 @@
   "warranty_expiry",
   "courtesy_warranty",
   "courtesy_warranty_reason",
+  "used_device_warranty",
+  "used_device_warranty_no_charge",
   "advance_section",
   "sinal_enabled",
   "sinal_value",
@@ -548,6 +550,20 @@
    "fieldname": "courtesy_warranty_reason",
    "fieldtype": "Small Text",
    "label": "Justificativa da garantia-cortesia"
+  },
+  {
+   "fieldname": "used_device_warranty",
+   "fieldtype": "Link",
+   "label": "Garantia de aparelho usado",
+   "options": "Used Device Warranty",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "used_device_warranty_no_charge",
+   "fieldtype": "Check",
+   "label": "Reparo sem custo por garantia de aparelho usado",
+   "read_only": 1
   },
   {
    "fieldname": "advance_section",

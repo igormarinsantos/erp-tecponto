@@ -74,7 +74,6 @@ def consultar_garantia_usado(serial_no: str, reference_date: str | None = None) 
 
 	warranty = frappe.get_doc("Used Device Warranty", warranty_name)
 	warranty.check_permission("read")
-	expiry = getdate(warranty.warranty_expiry)
 	return {
 		"name": warranty.name,
 		"serial_no": warranty.serial_no,
@@ -85,8 +84,19 @@ def consultar_garantia_usado(serial_no: str, reference_date: str | None = None) 
 		"warranty_expiry": warranty.warranty_expiry,
 		"coverage": warranty.coverage,
 		"exists": True,
-		"under_warranty": expiry >= reference,
+		"under_warranty": is_warranty_active(warranty.name, reference_date=reference),
 	}
+
+
+def is_warranty_active(warranty_name: str, reference_date: str | None = None) -> bool:
+	"""Role-free expiry comparison — safe to call from a validate hook running under any role."""
+	if not warranty_name:
+		return False
+	expiry = frappe.db.get_value("Used Device Warranty", warranty_name, "warranty_expiry")
+	if not expiry:
+		return False
+	reference = getdate(reference_date or nowdate())
+	return getdate(expiry) >= reference
 
 
 def _require_warranty_lookup_role() -> None:
