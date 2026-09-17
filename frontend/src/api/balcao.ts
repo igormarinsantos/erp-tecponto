@@ -23,6 +23,7 @@ import type {
 	StockTransferResponse,
 	TradeEvaluationListResponse,
 	TradeEvaluationSummary,
+	TradeEvaluationChecklistRow,
 	SetTradeInApprovedValueResponse,
 	CreateTradeEvaluationPayload,
 	CompleteTradeBuybackResponse,
@@ -131,6 +132,16 @@ export const balcao = {
 	},
 	createTradeEvaluation(payload: CreateTradeEvaluationPayload) {
 		return rpc<{ item: TradeEvaluationSummary }>(`${API}.create_trade_evaluation`, { body: { payload } });
+	},
+	getTradeinChecklistTemplate(deviceType: "iPhone" | "Android") {
+		return rpc<{ items: TradeEvaluationChecklistRow[] }>(`${API}.get_tradein_checklist_template`, {
+			query: { device_type: deviceType },
+		});
+	},
+	setTradeinChecklistResults(name: string, checklist: TradeEvaluationChecklistRow[]) {
+		return rpc<{ item: TradeEvaluationSummary }>(`${API}.set_tradein_checklist_results`, {
+			body: { name, checklist },
+		});
 	},
 	completeTradeBuyback(name: string) {
 		return rpc<CompleteTradeBuybackResponse>(`${API}.complete_trade_buyback`, { body: { name } });

@@ -101,6 +101,7 @@ import {
   type TecpontoTask,
   type TradeEvaluationSummary,
 	 type CreateTradeEvaluationPayload,
+	 type TradeEvaluationChecklistRow,
 	 type TradeOutputDevice,
 } from "./api";
 import { login } from "./api/auth";
@@ -7731,11 +7732,43 @@ function TradeEvaluationDetailModal({
 	const [saving, setSaving] = useState(false);
 	const [approvalNeeded, setApprovalNeeded] = useState(false);
 	const [buying, setBuying] = useState(false);
+	const [checklistRows, setChecklistRows] = useState<TradeEvaluationChecklistRow[]>([]);
+	const [savingChecklist, setSavingChecklist] = useState(false);
 
 	useEffect(() => {
 		setApprovedValue(evaluation?.approved_value ? String(evaluation.approved_value) : "");
 		setApprovalNeeded(false);
 	}, [evaluation?.name, evaluation?.approved_value]);
+
+	useEffect(() => {
+		setChecklistRows(evaluation?.checklist ? evaluation.checklist.map((row) => ({ ...row })) : []);
+	}, [evaluation?.name, evaluation?.checklist]);
+
+	const setChecklistResult = (checkItem: string, result: string) => {
+		setChecklistRows((rows) => rows.map((row) => (row.check_item === checkItem ? { ...row, result } : row)));
+	};
+
+	const saveChecklist = async () => {
+		if (!evaluation) return;
+		const unanswered = checklistRows.filter((row) => !row.result || !row.result.trim());
+		if (unanswered.length) {
+			onToast(`Responda o checklist antes de salvar: ${unanswered.map((row) => row.check_item).join(", ")}.`, "error");
+			return;
+		}
+		setSavingChecklist(true);
+		try {
+			const response = await balcao.setTradeinChecklistResults(
+				evaluation.name,
+				checklistRows.map((row) => ({ check_item: row.check_item, result: row.result })),
+			);
+			onSaved(response.item);
+			onToast("Checklist atualizado.", "success");
+		} catch (error) {
+			onToast(error instanceof Error ? error.message : "Não foi possível salvar o checklist.", "error");
+		} finally {
+			setSavingChecklist(false);
+		}
+	};
 
   const deviceLabel = evaluation
     ? evaluation.evaluated_device_desc || [evaluation.device_type, evaluation.model].filter(Boolean).join(" ") || "Aparelho avaliado"
@@ -7807,6 +7840,23 @@ function TradeEvaluationDetailModal({
 					<Button disabled={saving} onClick={() => void saveApprovedValue()} variant="primary">{saving ? "Validando..." : "Registrar valor"}</Button>
 				</div>
 			</div>
+			{checklistRows.length ? <div className="mt-4 rounded-card border border-tec-border/15 bg-tec-field/45 p-4">
+				<p className="text-sm font-bold text-white">Checklist de condição</p>
+				<p className="mt-1 text-sm text-tec-muted">Todas as linhas precisam de resposta antes de aprovar a troca.</p>
+				<div className="mt-3 grid gap-3 sm:grid-cols-2">
+					{checklistRows.map((row) => <label className="text-sm font-bold text-white" key={row.check_item}>
+						{row.check_item}
+						<select className="tp-input mt-2 w-full" onChange={(event) => setChecklistResult(row.check_item, event.target.value)} value={row.result ?? ""}>
+							<option value="">Selecione</option>
+							<option value="OK">OK</option>
+							<option value="Atenção">Atenção</option>
+							<option value="Reprovado">Reprovado</option>
+							<option value="N/A">N/A</option>
+						</select>
+					</label>)}
+				</div>
+				<div className="mt-3 flex justify-end"><Button disabled={savingChecklist} onClick={() => void saveChecklist()} variant="secondary">{savingChecklist ? "Salvando..." : "Salvar checklist"}</Button></div>
+			</div> : null}
 			{evaluation.approved_value > 0 && !evaluation.created_item && evaluation.destination !== "Descarte" ? <div className="mt-4 flex flex-wrap justify-end gap-2">
 				<Button disabled={buying} onClick={() => void completeBuyback()} variant="secondary">{buying ? "Concluindo..." : "Concluir buyback"}</Button>
 				<Button icon={<ArrowRightLeft size={16} />} onClick={onOpenOperation}>Confirmar troca</Button>
@@ -7850,11 +7900,12 @@ function TradeEvaluationCreateModal({
 	const [suggestedValue, setSuggestedValue] = useState("");
 	const [tableMax, setTableMax] = useState("");
 	const [defects, setDefects] = useState("");
+	const [checklistRows, setChecklistRows] = useState<TradeEvaluationChecklistRow[]>([]);
 	const [saving, setSaving] = useState(false);
 
 	useEffect(() => {
 		if (!open) return;
-		setCustomerQuery(""); setCustomers([]); setCustomer(null); setModel(""); setImei(""); setDeviceType("iPhone"); setPhysicalState("B"); setDestination("Venda"); setSuggestedValue(""); setTableMax(""); setDefects("");
+		setCustomerQuery(""); setCustomers([]); setCustomer(null); setModel(""); setImei(""); setDeviceType("iPhone"); setPhysicalState("B"); setDestination("Venda"); setSuggestedValue(""); setTableMax(""); setDefects(""); setChecklistRows([]);
 	}, [open]);
 
 	useEffect(() => {
@@ -7867,11 +7918,27 @@ function TradeEvaluationCreateModal({
 		return () => window.clearTimeout(timer);
 	}, [customer, customerQuery, open]);
 
+	useEffect(() => {
+		if (!open) return;
+		void balcao.getTradeinChecklistTemplate(deviceType)
+			.then((response) => setChecklistRows(response.items.map((row) => ({ ...row, result: "" }))))
+			.catch(() => setChecklistRows([]));
+	}, [open, deviceType]);
+
+	const setChecklistResult = (checkItem: string, result: string) => {
+		setChecklistRows((rows) => rows.map((row) => (row.check_item === checkItem ? { ...row, result } : row)));
+	};
+
 	const submit = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		const value = Number(suggestedValue.replace(",", "."));
 		if (!customer || !model.trim() || !imei.trim() || !Number.isFinite(value) || value <= 0) {
 			onToast("Selecione o cliente e informe modelo, IMEI/serial e valor avaliado.", "error");
+			return;
+		}
+		const unanswered = checklistRows.filter((row) => !row.result || !row.result.trim());
+		if (unanswered.length) {
+			onToast(`Responda o checklist antes de criar a avaliação: ${unanswered.map((row) => row.check_item).join(", ")}.`, "error");
 			return;
 		}
 		setSaving(true);
@@ -7887,6 +7954,7 @@ function TradeEvaluationCreateModal({
 				suggested_value: value,
 				table_max: Number(tableMax.replace(",", ".")) || undefined,
 				defects: defects.trim() || undefined,
+				checklist: checklistRows.map((row) => ({ check_item: row.check_item, result: row.result })),
 			};
 			const response = await balcao.createTradeEvaluation(payload);
 			onCreated(response.item);
@@ -7913,6 +7981,21 @@ function TradeEvaluationCreateModal({
 				<label className="text-sm font-bold text-white">Teto da tabela <span className="font-medium text-tec-muted">(opcional)</span><input className="tp-input mt-2 w-full" inputMode="decimal" onChange={(event) => setTableMax(event.target.value)} placeholder="R$ 0,00" value={tableMax} /></label>
 				<label className="text-sm font-bold text-white">Defeitos <span className="font-medium text-tec-muted">(opcional)</span><input className="tp-input mt-2 w-full" onChange={(event) => setDefects(event.target.value)} placeholder="Resumo do estado técnico" value={defects} /></label>
 			</div>
+			{checklistRows.length ? <section className="rounded-card border border-tec-border/15 bg-tec-field/40 p-4">
+				<label className="block text-sm font-bold text-white">Checklist de condição</label>
+				<div className="mt-2 grid gap-3 sm:grid-cols-2">
+					{checklistRows.map((row) => <label className="text-sm font-bold text-white" key={row.check_item}>
+						{row.check_item}
+						<select className="tp-input mt-2 w-full" onChange={(event) => setChecklistResult(row.check_item, event.target.value)} value={row.result ?? ""}>
+							<option value="">Selecione</option>
+							<option value="OK">OK</option>
+							<option value="Atenção">Atenção</option>
+							<option value="Reprovado">Reprovado</option>
+							<option value="N/A">N/A</option>
+						</select>
+					</label>)}
+				</div>
+			</section> : null}
 			<div className="flex justify-end gap-2"><Button onClick={onClose} variant="ghost">Cancelar</Button><Button disabled={saving} type="submit">{saving ? "Criando..." : "Criar avaliação"}</Button></div>
 		</form>
 	</Modal>;

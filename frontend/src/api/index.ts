@@ -148,6 +148,7 @@ export type {
   TecpontoTask,
   TradeEvaluationListResponse,
 	TradeEvaluationSummary,
+	TradeEvaluationChecklistRow,
 	CreateTradeEvaluationPayload,
 	TradeOutputDevice,
 	CompleteTradeBuybackResponse,

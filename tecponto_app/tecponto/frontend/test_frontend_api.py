@@ -6948,6 +6948,14 @@ def run_tradein_frontend_checks() -> dict:
 		if not blocked:
 			raise AssertionError("Técnico acessou a criação de avaliação de troca.")
 
+		# AUDIT-03: pin the React wiring with source markers, since there is no
+		# frontend test runner and `npm run build` only proves the code compiles.
+		app_source = (Path(__file__).parents[3] / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+		app_markers = ("getTradeinChecklistTemplate", "setTradeinChecklistResults")
+		for marker in app_markers:
+			if marker not in app_source:
+				raise AssertionError(f"App.tsx perdeu a amarra da checklist de troca: {marker!r}.")
+
 		return {
 			"attendant": attendant,
 			"buyback_item": buyback["created_item"],

@@ -1354,6 +1354,7 @@ export interface TradeEvaluationSummary {
 	created_item: string | null;
 	trade_category: string | null;
 	modified: string;
+	checklist: TradeEvaluationChecklistRow[];
 }
 
 export interface SetTradeInApprovedValueResponse {
@@ -1364,6 +1365,13 @@ export interface TradeEvaluationListResponse {
   items: TradeEvaluationSummary[];
   count: number;
   fields: string[];
+}
+
+export interface TradeEvaluationChecklistRow {
+	check_item: string;
+	expected_value?: string;
+	result?: string;
+	notes?: string;
 }
 
 export interface CreateTradeEvaluationPayload {
@@ -1381,6 +1389,7 @@ export interface CreateTradeEvaluationPayload {
 	icloud_google_lock?: boolean;
 	has_invoice?: boolean;
 	defects?: string;
+	checklist?: TradeEvaluationChecklistRow[];
 }
 
 export interface TradeOutputDevice {
