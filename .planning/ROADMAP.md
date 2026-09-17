@@ -83,7 +83,7 @@ Plans:
   4. Querying PDV and trade-in data as Atendente, Gestor, or Técnico never returns cost, margin, or profit fields — confirmed by inspecting the actual API response payload, not just the UI
   5. Claiming warranty on a used device past its calculated expiration date is blocked by the server; a claim within the window succeeds
 
-**Plans**: 1/5 plans executed
+**Plans**: 2/5 plans executed
 
 Plans:
 **Wave 1**
@@ -92,7 +92,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — Systematic cost/margin payload audit across every PDV and trade-in surface, plus any serializer fix it forces (AUDIT-04)
+- [x] 03-02-PLAN.md — Systematic cost/margin payload audit across every PDV and trade-in surface, plus any serializer fix it forces (AUDIT-04)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -149,6 +149,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. OS.6 Closure — Warranty Verification & Deadline Wiring | 0/4 | Planned | - |
 | 2. Audited Field-Edit for Post-Creation Corrections | 0/TBD | Not started | - |
-| 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 1/5 | In Progress|  |
+| 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 2/5 | In Progress|  |
 | 4. Design System (Single Pass) | 0/TBD | Not started | - |
 | 5. Deploy Readiness — Coolify Pilot | 0/TBD | Not started | - |
