@@ -347,6 +347,7 @@ def run_foundation_checks() -> dict:
 		tradein_frontend_check = run_tradein_frontend_checks()
 		post_sale_checks = run_post_sale_checks()
 		used_device_warranty_lookup = run_used_device_warranty_lookup_checks()
+		used_device_warranty_claim = run_used_device_warranty_claim_checks()
 		warranty_mode_check = run_warranty_mode_checks()
 		warranty_delivery_check = run_warranty_delivery_checks()
 		service_order_deadline_checks = run_service_order_deadline_checks()
@@ -431,6 +432,7 @@ def run_foundation_checks() -> dict:
 			"tradein_frontend": tradein_frontend_check,
 			"post_sale": post_sale_checks,
 			"used_device_warranty_lookup": used_device_warranty_lookup,
+			"used_device_warranty_claim": used_device_warranty_claim,
 			"warranty_mode": warranty_mode_check,
 			"warranty_delivery": warranty_delivery_check,
 			"service_order_deadline": service_order_deadline_checks,
@@ -8606,6 +8608,121 @@ def _create_technician_scope_customer_device(label: str) -> tuple[str, str, str,
 	)
 	device.insert(ignore_permissions=True)
 	return customer.name, device.name, customer_label, imei
+
+
+def run_used_device_warranty_claim_checks() -> dict:
+	"""AUDIT-05: a used-device warranty is a real, server-checked claim at repair time, not merely stored."""
+	previous_user = frappe.session.user
+	try:
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		warranty_customer = _get_or_create_demo_customer()
+		item_code = _get_demo_item(is_stock_item=1)
+		suffix = frappe.generate_hash(length=10).upper()
+		photo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAghX7JQAAAABJRU5ErkJggg=="
+
+		def make_warranty(label: str, expiry_offset_days: int) -> tuple[str, str, str]:
+			serial_no = f"TP-UDW-CLAIM-{label}-{suffix}"
+			warranty = frappe.get_doc(
+				{
+					"doctype": "Used Device Warranty",
+					"serial_no": serial_no,
+					"customer": warranty_customer,
+					"item_code": item_code,
+					"sales_invoice": "TEST-USED-WARRANTY-CLAIM",
+					"sale_date": nowdate(),
+					"warranty_days": 90,
+					"warranty_expiry": add_days(nowdate(), expiry_offset_days),
+					"coverage": "Defeito de fábrica",
+				}
+			)
+			warranty.insert(ignore_permissions=True, ignore_links=True)
+			frappe.db.commit()
+			return warranty.name, serial_no, str(warranty.warranty_expiry)
+
+		def checkin(serial_no: str, label: str) -> dict:
+			frappe.set_user(attendant)
+			return create_service_order_checkin(
+				{
+					"customer": {
+						"customer_name": f"Cliente UDW Claim {label}-{suffix}",
+						"mobile_no": "11999998888",
+						"custom_whatsapp": "11999998888",
+						"custom_nao_possui_cpf": 1,
+						"custom_rg": f"RG-UDW-{label}-{suffix}",
+					},
+					"device": {"brand": "Teste", "model": f"UDW-{label}", "imei_serial": serial_no},
+					"service_order": {
+						"reported_defect": "Defeito coberto por garantia de aparelho usado.",
+						"physical_state": "Sem avarias adicionais",
+					},
+					"entry_photo": {"data_url": photo, "filename": f"udw-claim-{label}.png"},
+				}
+			)
+
+		# Case 1: covered — warranty_expiry 89 days ahead of the check-in's entry_date.
+		covered_warranty_name, covered_serial, _covered_expiry = make_warranty("COVERED", 89)
+		covered_response = checkin(covered_serial, "covered")
+		covered_order_name = covered_response["service_order"]["name"]
+		covered_doc = frappe.get_doc("Service Order", covered_order_name)
+		if not covered_doc.used_device_warranty_no_charge or covered_doc.used_device_warranty != covered_warranty_name:
+			raise AssertionError("Aparelho coberto por garantia de aparelho usado dentro da janela não gerou reparo sem custo vinculado.")
+
+		frappe.set_user(attendant)
+		covered_priced_save_blocked = False
+		try:
+			add_service_order_budget_line(
+				covered_order_name,
+				{"type": "service", "description": "Serviço cobrado indevidamente", "qty": 1, "rate": 120},
+			)
+		except frappe.ValidationError:
+			covered_priced_save_blocked = True
+		if not covered_priced_save_blocked:
+			raise AssertionError("Motor aceitou cobrança em reparo sem custo por garantia de aparelho usado.")
+
+		# Case 2: expired — warranty_expiry 1 day before the check-in's entry_date.
+		expired_warranty_name, expired_serial, expired_expiry = make_warranty("EXPIRED", -1)
+		expired_response = checkin(expired_serial, "expired")
+		expired_order_name = expired_response["service_order"]["name"]
+		expired_doc = frappe.get_doc("Service Order", expired_order_name)
+		if expired_doc.used_device_warranty_no_charge or expired_doc.used_device_warranty:
+			raise AssertionError("Garantia de aparelho usado vencida gerou reparo sem custo indevidamente.")
+		if expired_expiry not in (expired_doc.attendance_notes or ""):
+			raise AssertionError("Nota de garantia de aparelho usado vencida não registrou a data de expiração.")
+
+		frappe.set_user(attendant)
+		expired_priced = add_service_order_budget_line(
+			expired_order_name,
+			{"type": "service", "description": "Serviço cobrado normalmente", "qty": 1, "rate": 120},
+		)
+		if flt(expired_priced["totals"]["grand_total"]) <= 0:
+			raise AssertionError("OS com garantia de aparelho usado vencida não seguiu como OS normal com cobrança.")
+
+		# Case 3: no warranty record at all for this serial.
+		no_warranty_serial = f"TP-UDW-CLAIM-NONE-{suffix}"
+		no_warranty_response = checkin(no_warranty_serial, "none")
+		no_warranty_doc = frappe.get_doc("Service Order", no_warranty_response["service_order"]["name"])
+		if no_warranty_doc.used_device_warranty_no_charge or no_warranty_doc.used_device_warranty:
+			raise AssertionError("Aparelho sem garantia de aparelho usado gerou marcação de reparo sem custo.")
+
+		covered_detail = get_service_order_detail(covered_order_name)
+		leaks = contains_sensitive_field(covered_detail)
+		if leaks:
+			raise AssertionError(f"OS coberta por garantia de aparelho usado vazou campos sensíveis: {', '.join(leaks)}")
+
+		return {
+			"covered_warranty": covered_warranty_name,
+			"covered_order": covered_order_name,
+			"covered_no_charge": True,
+			"covered_priced_save_blocked": covered_priced_save_blocked,
+			"expired_warranty": expired_warranty_name,
+			"expired_order": expired_order_name,
+			"expired_charged_normally": True,
+			"no_warranty_order": no_warranty_doc.name,
+			"leaked_fields": leaks,
+		}
+	finally:
+		frappe.set_user(previous_user)
 
 
 def run_used_device_warranty_lookup_checks() -> dict:
