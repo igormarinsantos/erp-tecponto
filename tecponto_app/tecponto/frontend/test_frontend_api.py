@@ -23,6 +23,7 @@ from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry impor
 
 from tecponto_app.tecponto.customer import CUSTOMER_NO_CPF_FIELD
 from tecponto_app.tecponto.financial import native_financial_posting
+from tecponto_app.tecponto.tradein.evaluation import checklist_template
 from tecponto_app.tecponto.pending import action_for_service_order
 from tecponto_app.tecponto.company_identity import (
 	get_company_identity,
@@ -98,6 +99,8 @@ from tecponto_app.tecponto.frontend.api import (
 	save_registry_record,
 	search_pos_items,
 	set_tradein_approved_value,
+	set_tradein_checklist_results,
+	get_tradein_checklist_template,
 	list_product_categories,
 	save_product_category,
 	create_product_with_variants,
@@ -3485,7 +3488,8 @@ def run_marketplace_listing_checks() -> dict:
 		customer = _get_or_create_demo_customer()
 		imei = f"356{frappe.generate_hash(length=12).upper()}"[:15]
 		frappe.set_user("Administrator")
-		tradein = frappe.get_doc({"doctype": "Device Trade Evaluation", "customer": customer, "device_type": "iPhone", "model": "iPhone usado marketplace", "capacity": "128GB", "imei": imei, "approved_value": 300, "destination": "Venda", "workflow_state": "Comprado"})
+		answered_checklist = [{"check_item": row["check_item"], "result": "OK"} for row in checklist_template("iPhone")]
+		tradein = frappe.get_doc({"doctype": "Device Trade Evaluation", "customer": customer, "device_type": "iPhone", "model": "iPhone usado marketplace", "capacity": "128GB", "imei": imei, "approved_value": 300, "destination": "Venda", "workflow_state": "Comprado", "checklist": answered_checklist})
 		tradein.insert(ignore_permissions=True)
 		used_item = tradein.created_item
 		if not used_item:
@@ -3557,7 +3561,8 @@ def run_marketplace_reporting_checks() -> dict:
 		customer = _get_or_create_demo_customer()
 		imei = f"358{frappe.generate_hash(length=12).upper()}"[:15]
 		frappe.set_user("Administrator")
-		trade = frappe.get_doc({"doctype": "Device Trade Evaluation", "customer": customer, "device_type": "iPhone", "model": f"Usado relatório {suffix}", "capacity": "128GB", "imei": imei, "approved_value": 250, "destination": "Venda", "workflow_state": "Comprado"})
+		answered_checklist = [{"check_item": row["check_item"], "result": "OK"} for row in checklist_template("iPhone")]
+		trade = frappe.get_doc({"doctype": "Device Trade Evaluation", "customer": customer, "device_type": "iPhone", "model": f"Usado relatório {suffix}", "capacity": "128GB", "imei": imei, "approved_value": 250, "destination": "Venda", "workflow_state": "Comprado", "checklist": answered_checklist})
 		trade.insert(ignore_permissions=True)
 		if trade.trade_category != "Aparelhos Usados" or frappe.db.get_value("Item", trade.created_item, "item_group") != trade.trade_category:
 			raise AssertionError("Troca não manteve a categoria do Item único criado no trade-in.")
@@ -5495,6 +5500,9 @@ def run_action_request_checks() -> dict:
 
 		# Troca: a tentativa do atendente bate na faixa; a aprovação reaplica o valor sob o Gestor.
 		frappe.set_user("Administrator")
+		# Checklist pre-answered: this fixture proves the table-max guard, not the
+		# checklist-completeness gate, so it must not trip on an unrelated reason.
+		answered_checklist = [{"check_item": row["check_item"], "result": "OK"} for row in checklist_template("iPhone")]
 		trade = frappe.get_doc(
 			{
 				"doctype": "Device Trade Evaluation",
@@ -5505,17 +5513,20 @@ def run_action_request_checks() -> dict:
 				"table_min": 50,
 				"table_max": 100,
 				"destination": "Venda",
+				"checklist": answered_checklist,
 			}
 		)
 		trade.insert(ignore_permissions=True)
 		frappe.set_user(attendant)
 		trade_blocked = False
+		trade_block_reason = ""
 		try:
 			set_tradein_approved_value(trade.name, 150)
-		except frappe.ValidationError:
+		except frappe.ValidationError as error:
 			trade_blocked = True
-		if not trade_blocked:
-			raise AssertionError("Atendente registrou valor acima da tabela sem solicitar aprovação.")
+			trade_block_reason = str(error)
+		if not trade_blocked or "maximo da tabela" not in trade_block_reason:
+			raise AssertionError("Atendente registrou valor acima da tabela sem solicitar aprovação (ou bloqueio veio do motivo errado).")
 		frappe.db.commit()
 		trade_request = create_request("tradein_over_max", trade.name, "Oferta excepcional para fechar a troca.", {"approved_value": 150})
 		frappe.set_user(manager)
@@ -6838,6 +6849,10 @@ def run_tradein_frontend_checks() -> dict:
 		customer = _get_or_create_demo_customer()
 
 		def create_evaluation(*, suffix: str, value: float) -> dict:
+			answered_checklist = [
+				{"check_item": row["check_item"], "result": "OK"}
+				for row in get_tradein_checklist_template("iPhone")["items"]
+			]
 			return create_trade_evaluation(
 				{
 					"customer": customer,
@@ -6848,6 +6863,7 @@ def run_tradein_frontend_checks() -> dict:
 					"physical_state": "B",
 					"destination": "Venda",
 					"suggested_value": value,
+					"checklist": answered_checklist,
 				}
 			)["item"]
 
@@ -6887,6 +6903,42 @@ def run_tradein_frontend_checks() -> dict:
 		if leaks:
 			raise AssertionError(f"Endpoints de TROQUE vazaram campos sensíveis: {', '.join(leaks)}")
 
+		# AUDIT-03: an evaluation with a blank checklist cannot be approved; the same
+		# evaluation, once every row is answered through the new endpoint, approves normally.
+		unanswered = create_trade_evaluation(
+			{
+				"customer": customer,
+				"device_type": "iPhone",
+				"model": "Trade-in React CHECKLIST",
+				"evaluated_device_desc": "Trade-in React CHECKLIST",
+				"imei": f"TP-FRONT-TRADE-CHECKLIST-{frappe.generate_hash(length=10)}",
+				"physical_state": "B",
+				"destination": "Venda",
+				"suggested_value": 200,
+			}
+		)["item"]
+		checklist_incomplete_blocked = False
+		try:
+			set_tradein_approved_value(unanswered["name"], 200)
+		except frappe.ValidationError:
+			checklist_incomplete_blocked = True
+		if not checklist_incomplete_blocked:
+			raise AssertionError("Atendente aprovou avaliação de troca com checklist incompleto.")
+
+		answered_rows = [
+			{"check_item": row["check_item"], "result": "OK"}
+			for row in get_tradein_checklist_template("iPhone")["items"]
+		]
+		set_tradein_checklist_results(unanswered["name"], answered_rows)
+		checklist_completed_then_approved = False
+		try:
+			set_tradein_approved_value(unanswered["name"], 200)
+			checklist_completed_then_approved = True
+		except frappe.ValidationError:
+			checklist_completed_then_approved = False
+		if not checklist_completed_then_approved:
+			raise AssertionError("Avaliação com checklist respondido não pôde ser aprovada.")
+
 		frappe.set_user(technician)
 		blocked = False
 		try:
@@ -6904,6 +6956,8 @@ def run_tradein_frontend_checks() -> dict:
 			"below_cost_blocked_for_attendant": below_floor_blocked,
 			"technician_blocked": blocked,
 			"leaked_fields": leaks,
+			"checklist_incomplete_blocked": checklist_incomplete_blocked,
+			"checklist_completed_then_approved": checklist_completed_then_approved,
 		}
 	finally:
 		frappe.set_user(previous_user)

@@ -43,6 +43,7 @@ CHECKLIST_RESULT_VALUES = {"OK", "Atenção", "Reprovado", "N/A"}
 def validar_avaliacao(doc, method=None) -> None:
 	_sync_checklist(doc)
 	_validate_blocked_device(doc)
+	_validate_checklist_complete(doc)
 	_validate_approved_value_range(doc)
 
 
@@ -102,6 +103,19 @@ def _has_blocking_checklist_result(doc) -> bool:
 			return True
 
 	return False
+
+
+def _validate_checklist_complete(doc) -> None:
+	if not _is_approval_attempt(doc):
+		return
+
+	missing_items = [
+		row.get("check_item")
+		for row in doc.get("checklist") or []
+		if not str(row.get("result") or "").strip()
+	]
+	if missing_items:
+		frappe.throw(f"Checklist de avaliacao incompleto: responda {', '.join(missing_items)} antes de aprovar.")
 
 
 def _validate_approved_value_range(doc) -> None:
