@@ -1036,6 +1036,7 @@ def run_print_document_checks() -> dict:
 		brand_name = f"Oficina Impressão {frappe.generate_hash(length=6)}"
 		settings.trade_name = brand_name
 		settings.public_logo = "/assets/tecponto_app/branding/logo-dark.svg"
+		settings.modified = frappe.db.get_value("Tecponto Settings", "Tecponto Settings", "modified")
 		settings.save(ignore_permissions=True)
 
 		device = frappe.get_doc("Customer Device", order.customer_device)
@@ -1183,6 +1184,7 @@ def run_print_document_checks() -> dict:
 	finally:
 		settings.trade_name = original_trade_name
 		settings.public_logo = original_public_logo
+		settings.modified = frappe.db.get_value("Tecponto Settings", "Tecponto Settings", "modified")
 		settings.save(ignore_permissions=True)
 		frappe.set_user(previous_user)
 
@@ -1754,6 +1756,7 @@ def _check_company_identity(user: str) -> dict:
 				"public_address": "Rua de Teste, 100 - Centro",
 			}
 		)
+		settings.modified = frappe.db.get_value("Tecponto Settings", "Tecponto Settings", "modified")
 		settings.save(ignore_permissions=True)
 		identity = get_company_identity()
 		public_identity = get_public_company_identity()
@@ -1794,6 +1797,7 @@ def _check_company_identity(user: str) -> dict:
 		return {"company": identity["company"], "display_name": identity["display_name"], "public_fields": sorted(identity)}
 	finally:
 		settings.update(original)
+		settings.modified = frappe.db.get_value("Tecponto Settings", "Tecponto Settings", "modified")
 		settings.save(ignore_permissions=True)
 
 
@@ -6726,7 +6730,10 @@ def run_technician_scope_checks() -> dict:
 			raise AssertionError("Lista do técnico contém OS atribuída a outra pessoa.")
 
 		expected_total = frappe.db.count("Service Order", {"technician": technician})
-		if orders["count"] != expected_total:
+		expected_in_progress_total = frappe.db.count(
+			"Service Order", {"technician": technician, "pickup_date": ["is", "not set"]}
+		)
+		if orders["count"] != expected_in_progress_total:
 			raise AssertionError("Contador de OS do técnico ignorou o escopo da atribuição.")
 
 		kanban = get_service_order_kanban(limit_per_column=40)
@@ -6735,7 +6742,11 @@ def run_technician_scope_checks() -> dict:
 				raise AssertionError("Kanban do técnico contém OS atribuída a outra pessoa.")
 			expected_column_count = frappe.db.count(
 				"Service Order",
-				{"technician": technician, "workflow_state": column["state"]},
+				{
+					"technician": technician,
+					"workflow_state": column["state"],
+					"pickup_date": ["is", "not set"],
+				},
 			)
 			if column["count"] != expected_column_count:
 				raise AssertionError("Contador de coluna do Kanban ignorou o escopo técnico.")
@@ -7451,6 +7462,7 @@ def run_operation_config_checks() -> dict:
 				"default_warranty_days": 90,
 			}
 		)
+		settings.modified = frappe.db.get_value("Tecponto Settings", "Tecponto Settings", "modified")
 		settings.save(ignore_permissions=True)
 		attendant = _find_or_create_user("Tecponto Atendente")
 		frappe.set_user(attendant)
@@ -7468,6 +7480,7 @@ def run_operation_config_checks() -> dict:
 
 		frappe.set_user("Administrator")
 		settings.update({"enable_buy_pillar": 1, "enable_tradein_pillar": 1})
+		settings.modified = frappe.db.get_value("Tecponto Settings", "Tecponto Settings", "modified")
 		settings.save(ignore_permissions=True)
 		frappe.set_user(attendant)
 		complete_boot = get_boot()
@@ -7483,6 +7496,7 @@ def run_operation_config_checks() -> dict:
 	finally:
 		frappe.set_user("Administrator")
 		settings.update(original)
+		settings.modified = frappe.db.get_value("Tecponto Settings", "Tecponto Settings", "modified")
 		settings.save(ignore_permissions=True)
 		frappe.set_user(previous_user)
 
