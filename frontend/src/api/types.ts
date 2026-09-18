@@ -544,6 +544,7 @@ export interface ServiceOrderDetailResponse {
   os_contact_phone: string | null;
   device_access_type: string | null;
   entry_audit: ReferenceAuditIndicator | null;
+  customer_audit: ReferenceAuditIndicator | null;
   diagnosis: {
     problem_found: string | null;
     diagnosis_date: string;
@@ -1248,6 +1249,16 @@ export interface CreateCustomerPayload {
 
 export interface CreateCustomerResponse {
   item: CustomerSummary;
+}
+
+export interface UpdateCustomerPayload {
+  customer_name?: string;
+  custom_cpf?: string;
+}
+
+export interface UpdateCustomerResponse {
+  item: CustomerSummary;
+  last_edit: ReferenceAuditIndicator | null;
 }
 
 export interface CustomerDeviceSummary {

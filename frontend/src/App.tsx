@@ -4939,9 +4939,30 @@ function ServiceOrderStageScreenContent({
 			onToast(error instanceof Error ? error.message : "Não foi possível editar a Entrada.", "error");
 		}
 	};
+	const editCustomer = async () => {
+		if (!detail.customer) {
+			onToast("Nenhum cliente vinculado a esta OS para corrigir.", "error");
+			return;
+		}
+		const customerName = window.prompt("Nome do cliente", detail.customer.customer_name ?? "");
+		if (customerName === null) return;
+		const customerCpf = window.prompt("Novo CPF do cliente (deixe vazio para manter o atual)", "");
+		if (customerCpf === null) return;
+		try {
+			const updated = await balcao.updateCustomer(detail.customer.name, {
+				customer_name: customerName,
+				...(customerCpf ? { custom_cpf: customerCpf } : {}),
+			});
+			const refreshed = await serviceOrders.detail(detail.name);
+			onUpdated(refreshed);
+			onToast(`Cadastro do cliente corrigido: ${updated.item.customer_name ?? customerName}.`);
+		} catch (error) {
+			onToast(error instanceof Error ? error.message : "Não foi possível corrigir o cadastro do cliente.", "error");
+		}
+	};
     return (
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3"><StageHeading title="Entrada" description="Conferência do cliente, aparelho e evidências da recepção." /><Button onClick={() => void editEntry()} variant="secondary">Editar informações</Button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><StageHeading title="Entrada" description="Conferência do cliente, aparelho e evidências da recepção." /><div className="flex flex-wrap gap-2"><Button onClick={() => void editEntry()} variant="secondary">Editar informações</Button><Button onClick={() => void editCustomer()} variant="secondary">Corrigir cadastro do cliente</Button></div></div>
         <div className="grid gap-4 lg:grid-cols-2">
           <div>
             <IdentityCard
@@ -4953,6 +4974,11 @@ function ServiceOrderStageScreenContent({
             {detail.entry_audit ? (
               <p className="mt-2 text-xs text-tec-muted">
                 Entrada editada por {detail.entry_audit.actor} em {formatDate(detail.entry_audit.occurred_on)}
+              </p>
+            ) : null}
+            {detail.customer_audit ? (
+              <p className="mt-2 text-xs text-tec-muted">
+                Cadastro editado por {detail.customer_audit.actor} em {formatDate(detail.customer_audit.occurred_on)}
               </p>
             ) : null}
           </div>

@@ -3,6 +3,8 @@ import type {
 	AcceptanceIssueResponse,
 	CreateCustomerPayload,
 	CreateCustomerResponse,
+	UpdateCustomerPayload,
+	UpdateCustomerResponse,
   CreateCustomerDevicePayload,
   CreateCustomerDeviceResponse,
   CustomerDeviceListResponse,
@@ -99,6 +101,11 @@ export const balcao = {
   createCustomer(payload: CreateCustomerPayload) {
     return rpc<CreateCustomerResponse>(`${API}.create_customer`, {
       body: { payload },
+    });
+  },
+  updateCustomer(name: string, payload: UpdateCustomerPayload) {
+    return rpc<UpdateCustomerResponse>(`${API}.update_customer`, {
+      body: { name, payload },
     });
   },
 	getRegistryRecord(kind: RegistryKind, name: string) {
