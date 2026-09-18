@@ -9,10 +9,10 @@ Requisitos deste marco (estabilização do sistema inteiro até o deploy do pilo
 
 ### Auditoria e Estabilização (PDV, Trocas, Garantia, Caixa)
 
-- [ ] **AUDIT-01**: PDV processa venda com peça + mão de obra + depósito sem duplicar cobrança nem perder o valor do sinal (testado com transação real, não fixture)
-- [ ] **AUDIT-02**: Sessão de caixa não fecha com divergência sem motivo documentado; duas sessões concorrentes não abrem sem aviso
+- [x] **AUDIT-01**: PDV processa venda com peça + mão de obra + depósito sem duplicar cobrança nem perder o valor do sinal (testado com transação real, não fixture)
+- [x] **AUDIT-02**: Sessão de caixa não fecha com divergência sem motivo documentado; duas sessões concorrentes não abrem sem aviso
 - [x] **AUDIT-03**: Avaliação de troca bloqueia conclusão sem checklist de condição preenchido
-- [ ] **AUDIT-04**: Guarda de custo/margem confirmada sem vazamento em PDV e trocas (não só na OS) — Atendente/Gestor/Técnico nunca recebem esse dado no payload
+- [x] **AUDIT-04**: Guarda de custo/margem confirmada sem vazamento em PDV e trocas (não só na OS) — Atendente/Gestor/Técnico nunca recebem esse dado no payload
 - [x] **AUDIT-05**: Garantia de aparelho usado (`Used Device Warranty`) tem expiração calculada e checada de verdade no momento da reivindicação, não só armazenada como dado
 
 ### Garantia de 90 Dias (fechamento OS.6)
@@ -74,10 +74,10 @@ Explicitamente excluído deste marco. Documentado pra não reabrir depois.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUDIT-01 | Phase 3 | Pending |
-| AUDIT-02 | Phase 3 | Pending |
+| AUDIT-01 | Phase 3 | Complete |
+| AUDIT-02 | Phase 3 | Complete |
 | AUDIT-03 | Phase 3 | Complete |
-| AUDIT-04 | Phase 3 | Pending |
+| AUDIT-04 | Phase 3 | Complete |
 | AUDIT-05 | Phase 3 | Complete |
 | WARR-01 | Phase 1 | Complete |
 | DEADLINE-01 | Phase 1 | Complete |
