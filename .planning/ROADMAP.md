@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 1: OS.6 Closure — Warranty Verification & Deadline Wiring** - Prove the 90-day warranty boundary end-to-end and wire the existing `estimated_deadline` field to a real write path and UI
 - [ ] **Phase 2: Audited Field-Edit for Post-Creation Corrections** - Let Atendente/Gestor correct contact, device credential, and customer identity on an existing OS, fully audited, without touching immutable delivery/warranty dates
-- [ ] **Phase 3: Systematic Audit — PDV → Trade-in → Warranty (Aparelho Usado) → Caixa** - Real end-to-end audit and bugfix of the remaining unaudited modules, in dependency order, including the cost/margin guard extension
+- [x] **Phase 3: Systematic Audit — PDV → Trade-in → Warranty (Aparelho Usado) → Caixa** - Real end-to-end audit and bugfix of the remaining unaudited modules, in dependency order, including the cost/margin guard extension (completed 2026-09-18)
 - [ ] **Phase 4: Design System (Single Pass)** - Document and apply one consistent design system, hard-gated until everything above is functional and tested
 - [ ] **Phase 5: Deploy Readiness — Coolify Pilot** - Validate a real production deploy for Rafacel, including physical printing and QR/barcode scanning
 
@@ -83,7 +83,7 @@ Plans:
   4. Querying PDV and trade-in data as Atendente, Gestor, or Técnico never returns cost, margin, or profit fields — confirmed by inspecting the actual API response payload, not just the UI
   5. Claiming warranty on a used device past its calculated expiration date is blocked by the server; a claim within the window succeeds
 
-**Plans**: 5/5 plans executed
+**Plans**: 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -149,6 +149,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. OS.6 Closure — Warranty Verification & Deadline Wiring | 0/4 | Planned | - |
 | 2. Audited Field-Edit for Post-Creation Corrections | 0/TBD | Not started | - |
-| 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 5/5 | In Progress|  |
+| 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 5/5 | Complete   | 2026-09-18 |
 | 4. Design System (Single Pass) | 0/TBD | Not started | - |
 | 5. Deploy Readiness — Coolify Pilot | 0/TBD | Not started | - |
