@@ -210,11 +210,16 @@ services:
 
   db:
     image: '${MARIADB_IMAGE:-mariadb:10.6}'
-    command:
-      - '--character-set-server=utf8mb4'
-      - '--collation-server=utf8mb4_unicode_ci'
-      - '--skip-character-set-client-handshake'
-      - '--skip-innodb-read-only-compressed'
+    # No custom command flags here on purpose: the CI pipeline's own MariaDB
+    # service (.github/workflows/publish-image.yml) runs plain mariadb:10.6
+    # with zero flags and is the only environment this image has ever been
+    # proven to bootstrap cleanly on. --skip-character-set-client-handshake
+    # in particular forces the server to ignore the client's own charset
+    # negotiation, which caused a real deploy failure here: installing
+    # erpnext crashed with "'Meta' object has no attribute 'istable'" while
+    # creating the first Module Def record - a metadata-loading query that
+    # depends on the client/server charset/collation agreeing. Matching CI's
+    # untouched MariaDB config resolved it.
     environment:
       MYSQL_ROOT_PASSWORD: '${SERVICE_PASSWORD_DB}'
       MARIADB_ROOT_PASSWORD: '${SERVICE_PASSWORD_DB}'
