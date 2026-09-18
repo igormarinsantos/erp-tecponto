@@ -277,7 +277,6 @@
    "options": "Warehouse"
   },
   {
-   "default": "MO-REPARO",
    "fieldname": "default_labor_item",
    "fieldtype": "Link",
    "label": "Item padr\u00e3o de m\u00e3o de obra",
