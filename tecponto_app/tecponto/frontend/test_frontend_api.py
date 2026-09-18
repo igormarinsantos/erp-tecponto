@@ -3222,6 +3222,15 @@ def run_edit_audit_checks() -> dict:
 		if user_scoped_row.get("reference_doctype") or user_scoped_row.get("reference_name"):
 			raise AssertionError("Linha de auditoria de senha (User-scoped) não deveria preencher reference_doctype/reference_name.")
 
+		# 02-01 Task 3: pin the frontend wiring with source markers so this row
+		# cannot silently disappear — there is no frontend test runner, and
+		# `npm run build` only proves the code compiles, not that it survived a refactor.
+		app_source = (Path(__file__).parents[3] / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+		app_markers = ("detail.entry_audit", "Entrada editada por")
+		for marker in app_markers:
+			if marker not in app_source:
+				raise AssertionError(f"App.tsx perdeu a amarra visual da auditoria de edição: {marker!r}.")
+
 		return {
 			"status": "ok",
 			"audit_row_written": True,
@@ -3232,6 +3241,7 @@ def run_edit_audit_checks() -> dict:
 			"immutability_survives_migration": True,
 			"technician_blocked": technician_blocked,
 			"user_scoped_audit_backwards_compatible": True,
+			"frontend_source_markers": {"app_tsx": True},
 		}
 	finally:
 		frappe.set_user(previous_user)

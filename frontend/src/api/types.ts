@@ -502,6 +502,12 @@ export interface StockTransferResponse {
   item: StockTransferSummary;
 }
 
+export interface ReferenceAuditIndicator {
+  actor: string;
+  change_type: string;
+  occurred_on: string;
+}
+
 export interface ServiceOrderDetailResponse {
   name: string;
   caminho: "Rápido" | "Completo";
@@ -537,6 +543,7 @@ export interface ServiceOrderDetailResponse {
   os_contact_name: string | null;
   os_contact_phone: string | null;
   device_access_type: string | null;
+  entry_audit: ReferenceAuditIndicator | null;
   diagnosis: {
     problem_found: string | null;
     diagnosis_date: string;
