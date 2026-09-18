@@ -1240,6 +1240,17 @@ def run_device_credential_non_leak_checks() -> dict:
 		except frappe.PermissionError:
 			unauthorized_blocked = True
 
+		# 02-02 Task 2 Step B: the access-audit log is now a channel the credential
+		# can cross (device_credential_edit rows), so it must be scanned like every
+		# other channel here (GEMINI.md §1.2 — every channel, not just the ones that
+		# existed when this test was first written).
+		frappe.set_user("Administrator")
+		channels["access_audit"] = frappe.get_all(
+			"Tecponto Access Audit",
+			filters={"reference_name": ["in", [order.name, device.name]]},
+			fields=["before_state", "after_state"],
+		)
+
 		for channel, payload in channels.items():
 			if sentinel in frappe.as_json(payload):
 				raise AssertionError(f"Credencial-sentinela da OS vazou no canal {channel}.")
@@ -3257,6 +3268,31 @@ def run_edit_audit_checks() -> dict:
 		if credential_row_count_after_untouched_edit != credential_row_count_before_untouched_edit:
 			raise AssertionError("Uma edição que não tocou contato nem credencial gravou uma nova linha de auditoria.")
 
+		# --- 02-02 Task 2: sentinel-prove the audit log is not a credential leak channel (D-03, GEMINI.md §1.2). ---
+		sentinel_credential = f"SENTINELA-EDICAO-{frappe.generate_hash(length=18)}"
+		update_service_order_entry(
+			order_name,
+			{
+				"device_access_type": "Alfanumérica",
+				"device_access_credential": sentinel_credential,
+				"reported_defect": "Defeito relatado de teste automatizado.",
+				"physical_state": "Sem avarias visiveis.",
+				"entry_operating_condition": "Liga e permite teste",
+			},
+		)
+		# Site-wide scan (no reference filter): a bug that writes the secret onto
+		# the wrong row must still fail this test.
+		site_wide_audit_rows = frappe.get_all("Tecponto Access Audit", fields=["name", "before_state", "after_state"])
+		for row in site_wide_audit_rows:
+			if sentinel_credential in (row.get("before_state") or "") or sentinel_credential in (row.get("after_state") or ""):
+				raise AssertionError(f"Sentinela de credencial vazou site-wide na linha de auditoria de acesso {row.get('name')}.")
+
+		sentinel_detail = get_service_order_detail(order_name)
+		if sentinel_credential in frappe.as_json(sentinel_detail):
+			raise AssertionError("Sentinela de credencial vazou no payload de get_service_order_detail após a rotação.")
+		if sentinel_detail.get("device_access_type") != "Alfanumérica":
+			raise AssertionError("get_service_order_detail não refletiu o novo device_access_type após a rotação (rótulo deveria permanecer visível).")
+
 		# Test 4 (D-07 read gate).
 		frappe.set_user(manager)
 		manager_detail = get_service_order_detail(order_name)
@@ -3342,6 +3378,8 @@ def run_edit_audit_checks() -> dict:
 			"device_credential_metadata_only": True,
 			"credential_rotated_flag_honest": True,
 			"untouched_edit_writes_no_audit_row": True,
+			"sentinel_not_in_access_audit": True,
+			"detail_masked_after_rotation": True,
 		}
 	finally:
 		frappe.set_user(previous_user)
