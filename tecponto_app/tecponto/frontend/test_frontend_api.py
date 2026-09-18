@@ -3161,6 +3161,102 @@ def run_edit_audit_checks() -> dict:
 		if len(audit_rows_after_noop) != 1:
 			raise AssertionError("Uma edição sem alteração real de contato gravou uma nova linha de auditoria.")
 
+		# --- 02-02 Task 1 (EDIT-02, D-02/D-03): device-credential edit is audited as metadata only. ---
+		device_name = frappe.db.get_value("Service Order", order_name, "customer_device")
+		# Force a clean "no credential set" starting point regardless of what other
+		# foundation checks did to this shared demo device before this function ran.
+		frappe.db.set_value("Customer Device", device_name, "device_access_type", "", update_modified=False)
+
+		# Task 1 Test 1 + Test 4 (happy path + before-state fidelity, D-02).
+		credential_value = f"CRED-{frappe.generate_hash(length=10)}"
+		update_service_order_entry(
+			order_name,
+			{
+				"device_access_type": "PIN",
+				"device_access_credential": credential_value,
+				"reported_defect": "Defeito relatado de teste automatizado.",
+				"physical_state": "Sem avarias visiveis.",
+				"entry_operating_condition": "Liga e permite teste",
+			},
+		)
+		credential_audit_rows = frappe.get_all(
+			"Tecponto Access Audit",
+			filters={"reference_doctype": "Service Order", "reference_name": order_name, "change_type": "device_credential_edit"},
+			fields=["name", "before_state", "after_state"],
+		)
+		if len(credential_audit_rows) != 1:
+			raise AssertionError(
+				f"Esperava exatamente uma linha de auditoria device_credential_edit para {order_name}, achou {len(credential_audit_rows)}."
+			)
+		credential_audit_row = credential_audit_rows[0]
+		credential_before = json.loads(credential_audit_row.get("before_state") or "{}")
+		credential_after = json.loads(credential_audit_row.get("after_state") or "{}")
+
+		# Task 1 Test 2 (D-03 key whitelist).
+		allowed_credential_keys = {"device_access_type", "had_credential", "credential_rotated"}
+		if not set(credential_before).issubset(allowed_credential_keys):
+			raise AssertionError(f"before_state da auditoria de credencial tem chaves fora do whitelist (D-03): {set(credential_before)}")
+		if not set(credential_after).issubset(allowed_credential_keys):
+			raise AssertionError(f"after_state da auditoria de credencial tem chaves fora do whitelist (D-03): {set(credential_after)}")
+
+		# Task 1 Test 3 (D-03 value non-leak: raw credential, substrings >=4 chars, or its length).
+		serialized_credential_states = (credential_audit_row.get("before_state") or "") + (credential_audit_row.get("after_state") or "")
+		if credential_value in serialized_credential_states:
+			raise AssertionError("Credencial do aparelho vazou para a trilha de auditoria de acesso (D-03).")
+		for offset in range(len(credential_value) - 3):
+			fragment = credential_value[offset : offset + 4]
+			if fragment in serialized_credential_states:
+				raise AssertionError(f"Fragmento da credencial ({fragment!r}) vazou para a trilha de auditoria de acesso (D-03).")
+		if str(len(credential_value)) in serialized_credential_states:
+			raise AssertionError("Tamanho da credencial vazou como valor na trilha de auditoria de acesso (D-03).")
+
+		# Task 1 Test 4 (before-state fidelity).
+		if credential_before.get("had_credential") is not False:
+			raise AssertionError("before_state deveria indicar had_credential=False para aparelho sem credencial prévia.")
+		if credential_after.get("had_credential") is not True or credential_after.get("credential_rotated") is not True:
+			raise AssertionError("after_state deveria indicar had_credential=True e credential_rotated=True após uma rotação real.")
+
+		# Task 1 Test 5 (type-only change with blank credential preserves the secret; audit is honest about it).
+		update_service_order_entry(
+			order_name,
+			{
+				"device_access_type": "PIN",
+				"device_access_credential": "",
+				"reported_defect": "Defeito relatado de teste automatizado.",
+				"physical_state": "Sem avarias visiveis.",
+				"entry_operating_condition": "Liga e permite teste",
+			},
+		)
+		latest_credential_rows = frappe.get_all(
+			"Tecponto Access Audit",
+			filters={"reference_doctype": "Service Order", "reference_name": order_name, "change_type": "device_credential_edit"},
+			fields=["after_state"],
+			order_by="occurred_on desc",
+			limit_page_length=1,
+		)
+		latest_credential_after = json.loads((latest_credential_rows[0].get("after_state") if latest_credential_rows else None) or "{}")
+		if latest_credential_after.get("credential_rotated") is not False:
+			raise AssertionError("Edição só de tipo com credencial em branco deveria registrar credential_rotated=False.")
+
+		# Task 1 Test 6 (an edit touching neither contact nor credential writes no new audit row).
+		credential_row_count_before_untouched_edit = frappe.db.count(
+			"Tecponto Access Audit", filters={"reference_doctype": "Service Order", "reference_name": order_name}
+		)
+		update_service_order_entry(
+			order_name,
+			{
+				"attendance_notes": f"Nota interna sem alteração auditável {frappe.generate_hash(length=6)}.",
+				"reported_defect": "Defeito relatado de teste automatizado.",
+				"physical_state": "Sem avarias visiveis.",
+				"entry_operating_condition": "Liga e permite teste",
+			},
+		)
+		credential_row_count_after_untouched_edit = frappe.db.count(
+			"Tecponto Access Audit", filters={"reference_doctype": "Service Order", "reference_name": order_name}
+		)
+		if credential_row_count_after_untouched_edit != credential_row_count_before_untouched_edit:
+			raise AssertionError("Uma edição que não tocou contato nem credencial gravou uma nova linha de auditoria.")
+
 		# Test 4 (D-07 read gate).
 		frappe.set_user(manager)
 		manager_detail = get_service_order_detail(order_name)
@@ -3242,6 +3338,10 @@ def run_edit_audit_checks() -> dict:
 			"technician_blocked": technician_blocked,
 			"user_scoped_audit_backwards_compatible": True,
 			"frontend_source_markers": {"app_tsx": True},
+			"device_credential_audit_written": True,
+			"device_credential_metadata_only": True,
+			"credential_rotated_flag_honest": True,
+			"untouched_edit_writes_no_audit_row": True,
 		}
 	finally:
 		frappe.set_user(previous_user)

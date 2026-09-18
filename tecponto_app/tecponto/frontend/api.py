@@ -2461,8 +2461,26 @@ def update_service_order_entry(name: str, payload: str | dict[str, Any] | None =
 	for fieldname in text_fields:
 		if fieldname in data:
 			doc.set(fieldname, (data.get(fieldname) or "").strip())
-	if "device_access_type" in data or "device_access_credential" in data:
+	credential_touched = "device_access_type" in data or "device_access_credential" in data
+	before_credential_meta: dict[str, Any] = {}
+	after_credential_meta: dict[str, Any] = {}
+	if credential_touched:
+		# Compute the supplied-secret flag once, here, and never reference the raw
+		# payload key again below this line — everything downstream reads this
+		# boolean, never the credential itself (D-03).
+		credential_supplied = bool((data.get("device_access_credential") or "").strip())
+		current_access_type = frappe.db.get_value("Customer Device", doc.customer_device, "device_access_type")
+		before_credential_meta = {
+			"device_access_type": current_access_type,
+			"had_credential": bool(current_access_type),
+		}
 		_save_device_access_credential(doc.customer_device, data)
+		new_access_type = frappe.db.get_value("Customer Device", doc.customer_device, "device_access_type")
+		after_credential_meta = {
+			"device_access_type": new_access_type,
+			"had_credential": bool(new_access_type),
+			"credential_rotated": credential_supplied,
+		}
 	if not (doc.reported_defect or "").strip() or not (doc.physical_state or "").strip():
 		frappe.throw(_("Defeito relatado e estado físico são obrigatórios na Entrada."), frappe.ValidationError)
 	if doc.entry_operating_condition not in ENTRY_OPERATING_CONDITIONS:
@@ -2478,6 +2496,15 @@ def update_service_order_entry(name: str, payload: str | dict[str, Any] | None =
 			reference_name=doc.name,
 			before=before_contact,
 			after=after_contact,
+		)
+	if credential_touched and before_credential_meta != after_credential_meta:
+		# Metadata only — never the secret, a fragment of it, or its length (D-03).
+		audit_reference_field_edit(
+			change_type="device_credential_edit",
+			reference_doctype="Service Order",
+			reference_name=doc.name,
+			before=before_credential_meta,
+			after=after_credential_meta,
 		)
 	return get_service_order_detail(doc.name)
 
