@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 02
 current_phase_name: Audited Field-Edit for Post-Creation Corrections
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-09-18T19:11:24.666Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-09-18T19:40:18.906Z"
 last_activity: 2026-09-18
-last_activity_desc: Phase 3 marked complete
-state_head: c989e4587a2e4f8e35818f795974a67a7605fdc2
+last_activity_desc: Phase 02 execution started
+state_head: f7fbefa4165ed5a3b4a7b99c4272b42f236d0556
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 9
+  completed_plans: 10
   percent: 20
 ---
 
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-02)
 
 **Core value:** O balcão consegue rodar o dia a dia real — check-in até retirada, PDV, trocas/garantias, caixa — sem quebrar no meio e sem vazar dado sensível (custo/margem, senha do aparelho). Confiança operacional vem antes de polimento visual.
-**Current focus:** Phase 3 — Systematic Audit — PDV → Trade-in → Warranty (Aparelho Usado) → Caixa
+**Current focus:** Phase 02 — Audited Field-Edit for Post-Creation Corrections
 
 ## Current Position
 
-Phase: 02 (Audited Field-Edit for Post-Creation Corrections) — READY TO EXECUTE
-Plan: 5 of 5
+Phase: 02 (Audited Field-Edit for Post-Creation Corrections) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-09-18 — Phase 3 marked complete
+Last activity: 2026-09-18 — Phase 02 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-os-6-closure-warranty-verification-deadline-wiring P04 | 24min | 3 tasks | 5 files |
 | Phase 3 P03 | 55min | 3 tasks | 7 files |
 | Phase 03 P04 | 65min | 3 tasks | 5 files |
+| Phase 02 P01 | 50min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,8 @@ Recent decisions affecting current work:
 - [Phase 3]: _validate_checklist_complete ordered before _validate_approved_value_range in validar_avaliacao (not last), required by the over-table-max fixture behavior the plan itself described
 - [Phase 3]: used_device_warranty and used_device_warranty_no_charge are both read-only on Service Order; only the server (check-in helper) sets them, only the validate hook can reject them
 - [Phase 3]: is_warranty_active(warranty_name, reference_date) is the single role-free expiry comparison, reused by both consultar_garantia_usado and the validate hook
+- [Phase 02]: Phase 2: Task 1 one-way Tecponto Access Audit schema migration (relax affected_user reqd, add reference_doctype/reference_name Dynamic Link pair) approved as proposed; extends the doctype rather than creating a parallel one (D-01)
+- [Phase 02]: Phase 2: audit_reference_field_edit(*, change_type, reference_doctype, reference_name, before, after) is the single entry point for EDIT-01/02/03 audit writes; 02-02/02-03 must call it directly, never _write_audit
 
 ### Pending Todos
 
@@ -98,6 +101,7 @@ None yet.
 - Phase 2 (Audited Field-Edit) has an open product question flagged by research: whether edits should be blocked once the OS reaches `Entregue`, or always allowed-but-audited — needs a decision during discuss-phase, not pre-decided here.
 - Phase 3 (Systematic Audit) sub-question: the mixed-transaction-type caixa reconciliation test scenario needs to be designed against `cash.py`'s actual bucket-handling logic — worth a focused look before writing that test.
 - Structural split of `App.tsx`/`api.py`/`test_frontend_api.py` (TECH-01/02/03) is v2-scoped, deferred out of this milestone's roadmap — new capabilities in Phases 1-2 should still land in small domain modules (per research) to avoid growing the existing large files further.
+- dev-local-server.sh restart fails via a pre-existing bench migrate/sync_fixtures pickling bug (LazyUser not picklable) unrelated to Phase 2 changes; the mariadb test container also exited on its own mid-session (chronic Docker/WSL2 instability per AUDITORIA_SISTEMA.md). Workaround used: disposable container + bench reload-doctype/execute. Needs a fix before the persistent dev server can be used for interactive browser testing again.
 
 ## Deferred Items
 
@@ -109,6 +113,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-18T18:15:59.289Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-audited-field-edit-for-post-creation-corrections/02-CONTEXT.md
+Last session: 2026-09-18T19:40:18.793Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
