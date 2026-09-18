@@ -17,6 +17,7 @@ from tecponto_app.tecponto.customer import (
 	assert_existing_customer_is_complete,
 	validate_customer_contact_document,
 )
+from tecponto_app.tecponto.user_access import audit_reference_field_edit, get_latest_reference_audit
 from tecponto_app.tecponto.pos import get_commercial_item_groups, get_retail_item_groups
 from tecponto_app.tecponto.tradein.evaluation import (
 	CHECKLIST_RESULT_VALUES,
@@ -115,6 +116,7 @@ POS_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POST_SALE_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES
 POST_SALE_IDEMPOTENCY_DOCTYPE = "Tecponto Post Sale Request"
 TRADEIN_ALLOWED_ROLES = CHECKIN_ALLOWED_ROLES | {"Tecponto Diretor"}
+AUDIT_INDICATOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 SERVICE_CATALOG_EDITOR_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 STORE_OPERATION_MANAGER_ROLES = {"System Manager", "Tecponto Gestor", "Tecponto Diretor"}
 TECHNICIAN_COMMISSION_ROLES = {"System Manager", "Tecponto Tecnico"}
@@ -1528,6 +1530,11 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 		"os_contact_name": doc.get("os_contact_name"),
 		"os_contact_phone": doc.get("os_contact_phone"),
 		"device_access_type": (_get_device_detail(doc.get("customer_device")) or {}).get("device_access_type") or doc.get("device_access_type"),
+		"entry_audit": (
+			_serialize_reference_audit(get_latest_reference_audit("Service Order", doc.name))
+			if set(frappe.get_roles(frappe.session.user)).intersection(AUDIT_INDICATOR_ROLES)
+			else None
+		),
 		"diagnosis": {
 			"problem_found": doc.get("problem_found"),
 			"diagnosis_date": str(doc.get("diagnosis_date") or ""),
@@ -2445,6 +2452,7 @@ def update_service_order_entry(name: str, payload: str | dict[str, Any] | None =
 	doc.check_permission("write")
 	if doc.get("workflow_state") in {"Entregue", "Cancelado"}:
 		frappe.throw(_("A entrada não pode ser editada após o encerramento da OS."), frappe.ValidationError)
+	before_contact = {"os_contact_name": doc.os_contact_name, "os_contact_phone": doc.os_contact_phone}
 	data = _parse_payload(payload)
 	text_fields = {
 		"reported_defect", "physical_state", "attendance_notes", "entry_operating_condition",
@@ -2462,6 +2470,15 @@ def update_service_order_entry(name: str, payload: str | dict[str, Any] | None =
 	# The endpoint allowlist is the authority here; permlevel 1 keeps the secret
 	# out of generic forms while the check-in operator may rotate it explicitly.
 	doc.save(ignore_permissions=True)
+	after_contact = {"os_contact_name": doc.os_contact_name, "os_contact_phone": doc.os_contact_phone}
+	if before_contact != after_contact:
+		audit_reference_field_edit(
+			change_type="os_contact_edit",
+			reference_doctype="Service Order",
+			reference_name=doc.name,
+			before=before_contact,
+			after=after_contact,
+		)
 	return get_service_order_detail(doc.name)
 
 
@@ -4804,6 +4821,16 @@ def _is_image_data_url(value: str | None) -> bool:
 def _safe_filename(value: str) -> str:
 	name = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-")
 	return name or "entrada.png"
+
+
+def _serialize_reference_audit(row: Any) -> dict[str, Any] | None:
+	if not row:
+		return None
+	return {
+		"actor": str(row.get("actor") or ""),
+		"change_type": str(row.get("change_type") or ""),
+		"occurred_on": str(row.get("occurred_on") or ""),
+	}
 
 
 def _serialize_service_row(row: Any) -> dict[str, Any]:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from typing import Any
 
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
@@ -264,20 +265,60 @@ def _first_enabled_admin() -> str:
 	return ""
 
 
-def _write_audit(*, affected_user: str, change_type: str, before: dict, after: dict) -> None:
+def _write_audit(
+	*,
+	affected_user: str | None = None,
+	change_type: str,
+	before: dict,
+	after: dict,
+	reference_doctype: str | None = None,
+	reference_name: str | None = None,
+) -> None:
 	if not frappe.db.exists("DocType", AUDIT_DOCTYPE):
 		return
-	frappe.get_doc(
-		{
-			"doctype": AUDIT_DOCTYPE,
-			"actor": frappe.session.user,
-			"affected_user": affected_user,
-			"change_type": change_type,
-			"before_state": json.dumps(before, ensure_ascii=True, sort_keys=True),
-			"after_state": json.dumps(after, ensure_ascii=True, sort_keys=True),
-			"occurred_on": now_datetime(),
-		}
-	).insert(ignore_permissions=True)
+	doc_fields: dict[str, Any] = {
+		"doctype": AUDIT_DOCTYPE,
+		"actor": frappe.session.user,
+		"change_type": change_type,
+		"before_state": json.dumps(before, ensure_ascii=True, sort_keys=True),
+		"after_state": json.dumps(after, ensure_ascii=True, sort_keys=True),
+		"occurred_on": now_datetime(),
+	}
+	if affected_user:
+		doc_fields["affected_user"] = affected_user
+	if reference_doctype and reference_name:
+		doc_fields["reference_doctype"] = reference_doctype
+		doc_fields["reference_name"] = reference_name
+	frappe.get_doc(doc_fields).insert(ignore_permissions=True)
+
+
+def audit_reference_field_edit(
+	*, change_type: str, reference_doctype: str, reference_name: str, before: dict, after: dict
+) -> None:
+	"""Record a post-creation field correction against a Service Order or Customer, not a User."""
+	_write_audit(
+		change_type=change_type,
+		before=before,
+		after=after,
+		reference_doctype=reference_doctype,
+		reference_name=reference_name,
+	)
+
+
+def get_latest_reference_audit(reference_doctype: str, reference_name: str) -> dict | None:
+	"""Role-free reader for the newest audit row pointing at a Service Order/Customer.
+
+	The role gate belongs at the api.py call site, matching the precedent set by
+	is_warranty_active staying role-free while its caller decides visibility.
+	"""
+	rows = frappe.get_all(
+		AUDIT_DOCTYPE,
+		filters={"reference_doctype": reference_doctype, "reference_name": reference_name},
+		fields=["actor", "change_type", "occurred_on"],
+		order_by="occurred_on desc",
+		limit_page_length=1,
+	)
+	return rows[0] if rows else None
 
 
 def audit_accumulated_role_action(*, role: str, action_type: str, reference_doctype: str, reference_name: str, result: dict) -> None:

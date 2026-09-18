@@ -129,6 +129,7 @@ from tecponto_app.tecponto.frontend.api import (
 	_quote_send_text,
 	set_service_order_estimated_deadline,
 	get_service_order_deadline_suggestion,
+	update_service_order_entry,
 )
 from tecponto_app.tecponto.acceptance import (
 	audit_completed_acceptance_evidence,
@@ -351,6 +352,7 @@ def run_foundation_checks() -> dict:
 		warranty_mode_check = run_warranty_mode_checks()
 		warranty_delivery_check = run_warranty_delivery_checks()
 		service_order_deadline_checks = run_service_order_deadline_checks()
+		edit_audit_checks = run_edit_audit_checks()
 		budget_presentation_check = run_budget_presentation_checks()
 		print_document_checks = run_print_document_checks()
 		device_credential_guard = run_device_credential_non_leak_checks()
@@ -436,6 +438,7 @@ def run_foundation_checks() -> dict:
 			"warranty_mode": warranty_mode_check,
 			"warranty_delivery": warranty_delivery_check,
 			"service_order_deadline": service_order_deadline_checks,
+			"edit_audit_checks": edit_audit_checks,
 			"budget_presentation": budget_presentation_check,
 			"print_documents": print_document_checks,
 			"device_credential_guard": device_credential_guard,
@@ -3082,6 +3085,155 @@ def run_service_order_deadline_checks() -> dict:
 		if created_catalog_service and frappe.db.exists("Tecponto Service", created_catalog_service):
 			frappe.set_user("Administrator")
 			frappe.delete_doc("Tecponto Service", created_catalog_service, ignore_permissions=True, force=True)
+		frappe.set_user(previous_user)
+
+
+def run_edit_audit_checks() -> dict:
+	"""Prove an OS contact edit is recorded as a Service Order-scoped Tecponto Access Audit row.
+
+	EDIT-01 tracer: reuses the existing Tecponto Access Audit doctype (D-01), never
+	adds a justification field (D-06), and gates the UI indicator to Gestor/Diretor (D-07).
+	"""
+	previous_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		ensure_frontend_foundation()
+		attendant = _find_or_create_user("Tecponto Atendente")
+		technician = _find_or_create_user("Tecponto Tecnico")
+		manager = _find_or_create_user("Tecponto Gestor")
+		order_name = _create_action_request_service_order(attendant)
+		frappe.db.commit()
+
+		frappe.set_user(attendant)
+
+		# Test 1 + 2 (EDIT-01 happy path, D-04 before/after fidelity).
+		new_name = f"Contato Editado {frappe.generate_hash(length=6)}"
+		new_phone = "(11) 90000-9999"
+		updated = update_service_order_entry(
+			order_name,
+			{
+				"os_contact_name": new_name,
+				"os_contact_phone": new_phone,
+				"reported_defect": "Defeito relatado de teste automatizado.",
+				"physical_state": "Sem avarias visiveis.",
+				"entry_operating_condition": "Liga e permite teste",
+			},
+		)
+		if updated.get("os_contact_name") != new_name or updated.get("os_contact_phone") != new_phone:
+			raise AssertionError("update_service_order_entry não persistiu o contato editado.")
+
+		audit_rows = frappe.get_all(
+			"Tecponto Access Audit",
+			filters={"reference_doctype": "Service Order", "reference_name": order_name},
+			fields=["name", "actor", "change_type", "before_state", "after_state", "affected_user"],
+		)
+		if len(audit_rows) != 1:
+			raise AssertionError(f"Esperava exatamente uma linha de auditoria para {order_name}, achou {len(audit_rows)}.")
+		audit_row = audit_rows[0]
+		if audit_row.get("change_type") != "os_contact_edit":
+			raise AssertionError("change_type da auditoria de contato não é 'os_contact_edit'.")
+		if audit_row.get("actor") != attendant:
+			raise AssertionError("Auditoria de contato não registrou o atendente como ator.")
+		if audit_row.get("affected_user"):
+			raise AssertionError("Auditoria de contato não deveria preencher affected_user (D-01).")
+		before_state = json.loads(audit_row.get("before_state") or "{}")
+		after_state = json.loads(audit_row.get("after_state") or "{}")
+		if after_state.get("os_contact_name") != new_name or after_state.get("os_contact_phone") != new_phone:
+			raise AssertionError("after_state da auditoria não contém os valores pós-edição.")
+		if before_state.get("os_contact_name") == new_name or before_state.get("os_contact_phone") == new_phone:
+			raise AssertionError("before_state da auditoria não contém os valores pré-edição.")
+
+		# Test 3 (no-op writes nothing).
+		update_service_order_entry(
+			order_name,
+			{
+				"os_contact_name": new_name,
+				"os_contact_phone": new_phone,
+				"reported_defect": "Defeito relatado de teste automatizado.",
+				"physical_state": "Sem avarias visiveis.",
+				"entry_operating_condition": "Liga e permite teste",
+			},
+		)
+		audit_rows_after_noop = frappe.get_all(
+			"Tecponto Access Audit",
+			filters={"reference_doctype": "Service Order", "reference_name": order_name},
+		)
+		if len(audit_rows_after_noop) != 1:
+			raise AssertionError("Uma edição sem alteração real de contato gravou uma nova linha de auditoria.")
+
+		# Test 4 (D-07 read gate).
+		frappe.set_user(manager)
+		manager_detail = get_service_order_detail(order_name)
+		manager_entry_audit = manager_detail.get("entry_audit")
+		if not manager_entry_audit or not manager_entry_audit.get("actor") or not manager_entry_audit.get("occurred_on"):
+			raise AssertionError("Gestor não recebeu entry_audit preenchido no detalhe da OS.")
+
+		frappe.set_user(attendant)
+		attendant_detail = get_service_order_detail(order_name)
+		if attendant_detail.get("entry_audit") is not None:
+			raise AssertionError("Atendente não deveria receber entry_audit no detalhe da OS.")
+
+		# Test 5 (immutability survives the migration).
+		frappe.set_user("Administrator")
+		audit_doc = frappe.get_doc("Tecponto Access Audit", audit_row["name"])
+		save_blocked = False
+		try:
+			audit_doc.save()
+		except frappe.PermissionError:
+			save_blocked = True
+		if not save_blocked:
+			raise AssertionError("Linha de auditoria migrada pôde ser salva — imutabilidade quebrada.")
+
+		delete_blocked = False
+		try:
+			frappe.delete_doc("Tecponto Access Audit", audit_row["name"], force=True)
+		except frappe.PermissionError:
+			delete_blocked = True
+		if not delete_blocked:
+			raise AssertionError("Linha de auditoria migrada pôde ser excluída — imutabilidade quebrada.")
+
+		# Test 6 (D-05 role gate).
+		frappe.set_user(technician)
+		technician_blocked = False
+		try:
+			update_service_order_entry(order_name, {"os_contact_name": "Não deveria salvar"})
+		except frappe.PermissionError:
+			technician_blocked = True
+		if not technician_blocked:
+			raise AssertionError("Técnico conseguiu editar a Entrada da OS (D-05 quebrado).")
+
+		# Test 7 (D-01 backwards compatibility — the User-scoped audit path keeps working).
+		frappe.set_user("Administrator")
+		from tecponto_app.tecponto.user_access import audit_password_change
+
+		audit_password_change(attendant, creating=False)
+		user_scoped_rows = frappe.get_all(
+			"Tecponto Access Audit",
+			filters={"affected_user": attendant, "change_type": "Senha redefinida manualmente"},
+			fields=["affected_user", "reference_doctype", "reference_name"],
+			order_by="occurred_on desc",
+			limit_page_length=1,
+		)
+		if not user_scoped_rows:
+			raise AssertionError("audit_password_change não gravou linha de auditoria após a migração do schema.")
+		user_scoped_row = user_scoped_rows[0]
+		if user_scoped_row.get("affected_user") != attendant:
+			raise AssertionError("Linha de auditoria de senha perdeu affected_user após a migração do schema.")
+		if user_scoped_row.get("reference_doctype") or user_scoped_row.get("reference_name"):
+			raise AssertionError("Linha de auditoria de senha (User-scoped) não deveria preencher reference_doctype/reference_name.")
+
+		return {
+			"status": "ok",
+			"audit_row_written": True,
+			"change_type": audit_row.get("change_type"),
+			"no_op_writes_nothing": True,
+			"manager_sees_entry_audit": True,
+			"attendant_sees_no_entry_audit": True,
+			"immutability_survives_migration": True,
+			"technician_blocked": technician_blocked,
+			"user_scoped_audit_backwards_compatible": True,
+		}
+	finally:
 		frappe.set_user(previous_user)
 
 
