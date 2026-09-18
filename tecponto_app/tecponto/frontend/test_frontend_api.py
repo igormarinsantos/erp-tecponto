@@ -3602,10 +3602,23 @@ def run_edit_audit_checks() -> dict:
 		# cannot silently disappear — there is no frontend test runner, and
 		# `npm run build` only proves the code compiles, not that it survived a refactor.
 		app_source = (Path(__file__).parents[3] / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
-		app_markers = ("detail.entry_audit", "Entrada editada por")
+		app_markers = (
+			"detail.entry_audit",
+			"Entrada editada por",
+			"detail.customer_audit",
+			"Cadastro editado por",
+			"balcao.updateCustomer(",
+		)
 		for marker in app_markers:
 			if marker not in app_source:
 				raise AssertionError(f"App.tsx perdeu a amarra visual da auditoria de edição: {marker!r}.")
+
+		# 02-03 Task 3: pin the RPC name binding in balcao.ts too — a rename of the Python
+		# endpoint without updating the TS helper would otherwise fail silently in the
+		# browser instead of failing this suite.
+		balcao_source = (Path(__file__).parents[3] / "frontend" / "src" / "api" / "balcao.ts").read_text(encoding="utf-8")
+		if "update_customer" not in balcao_source:
+			raise AssertionError("balcao.ts perdeu a amarra do endpoint update_customer.")
 
 		return {
 			"status": "ok",
@@ -3633,6 +3646,7 @@ def run_edit_audit_checks() -> dict:
 			"invalid_cpf_rejected": invalid_cpf_rejected,
 			"technician_blocked_from_customer_edit": technician_blocked_from_customer_edit,
 			"customer_audit_role_gated": customer_audit_role_gated,
+			"frontend_customer_edit_pinned": True,
 		}
 	finally:
 		frappe.set_user(previous_user)
