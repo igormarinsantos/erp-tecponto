@@ -67,7 +67,25 @@ Plans:
   4. Attempting to alter `pickup_date` or `warranty_expiry` through the edit capability (API or UI, any role) is rejected — these fields remain immutable
   5. Edit audit records cannot be modified or deleted by any role once written — a direct attempt to edit or delete an existing record fails
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Tracer: OS contact edit audited end to end (audit doctype migration, widened `_write_audit`, `entry_audit` indicator)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Device-credential correction audited with metadata only, sentinel-proved, plus the EDIT-04 date-immutability regression
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-03-PLAN.md — New `update_customer` endpoint for customer name/CPF, its counter affordance and the cadastro audit indicator
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 02-04-PLAN.md — Composed full-suite run, frontend build, CI, and human verification of the three correction journeys
+
 **UI hint**: yes
 
 ### Phase 3: Systematic Audit — PDV → Trade-in → Warranty (Aparelho Usado) → Caixa
@@ -148,7 +166,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. OS.6 Closure — Warranty Verification & Deadline Wiring | 0/4 | Planned | - |
-| 2. Audited Field-Edit for Post-Creation Corrections | 0/TBD | Not started | - |
+| 2. Audited Field-Edit for Post-Creation Corrections | 0/4 | Planned | - |
 | 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 5/5 | Complete   | 2026-09-18 |
 | 4. Design System (Single Pass) | 0/TBD | Not started | - |
 | 5. Deploy Readiness — Coolify Pilot | 0/TBD | Not started | - |
