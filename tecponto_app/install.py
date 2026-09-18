@@ -67,6 +67,24 @@ def after_install() -> None:
 
 	ensure_card_receivables_setup()
 	ensure_pos_profile()
+	_warm_assets_json_cache()
+
+
+def _warm_assets_json_cache() -> None:
+	"""Populate Frappe's shared assets.json cache before first use.
+
+	frappe.utils.get_assets_json() populates a shared, generator-backed
+	cache entry on first read. On a brand-new site (a fresh Coolify
+	deployment, or CI's ephemeral site) the very first caller can be a PDF
+	print job (e.g. a PDV receipt), and an uncached cold read here has been
+	observed returning None instead of the parsed manifest, crashing print
+	generation. Warming it during install means the very first real print
+	never has to be that first caller.
+	"""
+	try:
+		frappe.utils.get_assets_json()
+	except Exception:
+		frappe.log_error(title="tecponto_app: falha ao aquecer o cache de assets.json")
 
 
 def _resolve_company(company: str | None = None, raise_if_missing: bool = True):

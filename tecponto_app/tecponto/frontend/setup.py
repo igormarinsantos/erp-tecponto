@@ -56,3 +56,14 @@ def ensure_frontend_foundation() -> None:
 		""",
 		{"workspaces": LEGACY_WORKSPACE_DEFAULTS},
 	)
+
+	# A cold shared assets.json cache (frappe.utils.get_assets_json) has been
+	# observed returning None to whichever caller hits it first on a
+	# brand-new site. Warming it here means a print/PDF-generating check
+	# (e.g. run_pos_sale_checks -> pos_download_receipt) is never that
+	# first caller. See tecponto_app.install._warm_assets_json_cache for
+	# the same protection on real deployments.
+	try:
+		frappe.utils.get_assets_json()
+	except Exception:
+		pass
