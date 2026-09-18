@@ -1535,6 +1535,11 @@ def get_service_order_detail(name: str) -> dict[str, Any]:
 			if set(frappe.get_roles(frappe.session.user)).intersection(AUDIT_INDICATOR_ROLES)
 			else None
 		),
+		"customer_audit": (
+			_serialize_reference_audit(get_latest_reference_audit("Customer", doc.customer))
+			if doc.get("customer") and set(frappe.get_roles(frappe.session.user)).intersection(AUDIT_INDICATOR_ROLES)
+			else None
+		),
 		"diagnosis": {
 			"problem_found": doc.get("problem_found"),
 			"diagnosis_date": str(doc.get("diagnosis_date") or ""),
@@ -3502,6 +3507,49 @@ def create_customer(payload: str | dict[str, Any] | None = None) -> dict[str, An
 	customer.insert(ignore_permissions=True)
 	item = frappe.db.get_value("Customer", customer.name, list(SAFE_CUSTOMER_FIELDS), as_dict=True)
 	return {"item": _serialize_customer(item)}
+
+
+@frappe.whitelist()
+def update_customer(name: str, payload: str | dict[str, Any] | None = None) -> dict[str, Any]:
+	"""Correct an existing individual customer's name/CPF from the counter, audited (EDIT-03)."""
+	_require_checkin_role()
+	customer = frappe.get_doc("Customer", (name or "").strip())
+	# No doctype-level check_permission("write") here: unlike Service Order, Customer's
+	# standard/Custom DocPerm rows only grant write to ERPNext Sales roles, never to the
+	# Tecponto roles — the same reason create_customer inserts with ignore_permissions=True
+	# instead of relying on the DocPerm engine. _require_checkin_role() above is this
+	# endpoint's sole role gate, matching create_customer's own established pattern.
+	data = _parse_payload(payload)
+	# Wrap, don't reimplement: the validator expects a full record, this endpoint accepts a
+	# partial one, so merge the stored document over the payload before validating.
+	validate_customer_contact_document({**customer.as_dict(), **data})
+
+	before = {"customer_name": customer.customer_name, "custom_cpf": customer.custom_cpf}
+	if "customer_name" in data:
+		customer.customer_name = (data.get("customer_name") or "").strip()
+	if "custom_cpf" in data:
+		customer.custom_cpf = (data.get("custom_cpf") or "").strip()
+	customer.save(ignore_permissions=True)
+	after = {"customer_name": customer.customer_name, "custom_cpf": customer.custom_cpf}
+
+	if before != after:
+		audit_reference_field_edit(
+			change_type="customer_identity_edit",
+			reference_doctype="Customer",
+			reference_name=customer.name,
+			before=before,
+			after=after,
+		)
+
+	item = frappe.db.get_value("Customer", customer.name, list(SAFE_CUSTOMER_FIELDS), as_dict=True)
+	return {
+		"item": _serialize_customer(item),
+		"last_edit": (
+			_serialize_reference_audit(get_latest_reference_audit("Customer", customer.name))
+			if set(frappe.get_roles(frappe.session.user)).intersection(AUDIT_INDICATOR_ROLES)
+			else None
+		),
+	}
 
 
 @frappe.whitelist()

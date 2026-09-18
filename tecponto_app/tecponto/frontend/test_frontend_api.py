@@ -71,6 +71,7 @@ from tecponto_app.tecponto.frontend.api import (
 	search_service_order_warranties,
 	open_store_cash_session,
 	create_customer,
+	update_customer,
 	create_customer_device,
 	get_registry_record,
 	list_catalog_references,
@@ -3458,6 +3459,145 @@ def run_edit_audit_checks() -> dict:
 		if user_scoped_row.get("reference_doctype") or user_scoped_row.get("reference_name"):
 			raise AssertionError("Linha de auditoria de senha (User-scoped) não deveria preencher reference_doctype/reference_name.")
 
+		# --- 02-03 Task 1 (EDIT-03, D-02/D-04/D-05/D-06/D-07): customer identity correction is
+		# audited with real name/CPF values, reusing validate_customer_contact_document via a
+		# merge-wrap so a partial edit does not fail the phone-obrigatorio rule. ---
+		# The fixture customer is created as the attendant (not Administrator): ERPNext's
+		# Customer.on_update re-saves the linked Contact via frappe.set_value once
+		# customer_primary_contact is set, and Contact's only Tecponto-reachable grant is the
+		# implicit "All" role with if_owner=1 — so the attendant must own that Contact for
+		# update_customer's later customer.save(ignore_permissions=True) to succeed.
+		frappe.set_user(attendant)
+		identity_suffix = frappe.generate_hash(length=6)
+		original_identity_name = f"Cliente Identidade {identity_suffix}"
+		identity_customer = create_customer(
+			{
+				"customer_name": original_identity_name,
+				"mobile_no": "11999996666",
+				"custom_cpf": "98765432100",
+			}
+		)["item"]["name"]
+		identity_device = _get_or_create_demo_device(identity_customer)
+		identity_order_name = _upsert_demo_service_order(
+			demo={
+				"slug": f"customer-identity-{identity_suffix}",
+				"state": "Entrada criada",
+				"approval_status": "Pendente",
+				"reported_defect": "OS isolada para validar edição de identidade do cliente (EDIT-03).",
+				"problem_found": None,
+			},
+			customer=identity_customer,
+			device=identity_device,
+			service_item=_get_demo_item(is_stock_item=0),
+			part_item=_get_demo_item(is_stock_item=1),
+			warehouse=_get_demo_warehouse(),
+			attendant=attendant,
+		)
+		frappe.db.commit()
+
+		frappe.set_user(attendant)
+
+		# Test 1 (happy path) + Test 2 (D-04 real before/after name/CPF values).
+		new_identity_name = f"Cliente Identidade Editado {identity_suffix}"
+		update_customer(identity_customer, {"customer_name": new_identity_name})
+		if frappe.db.get_value("Customer", identity_customer, "customer_name") != new_identity_name:
+			raise AssertionError("update_customer não persistiu o novo nome do cliente.")
+
+		identity_audit_rows = frappe.get_all(
+			"Tecponto Access Audit",
+			filters={"reference_doctype": "Customer", "reference_name": identity_customer},
+			fields=["name", "actor", "change_type", "before_state", "after_state", "affected_user"],
+		)
+		if len(identity_audit_rows) != 1:
+			raise AssertionError(
+				f"Esperava exatamente uma linha de auditoria de identidade para {identity_customer}, achou {len(identity_audit_rows)}."
+			)
+		identity_audit_row = identity_audit_rows[0]
+		if identity_audit_row.get("change_type") != "customer_identity_edit":
+			raise AssertionError("change_type da auditoria de identidade não é 'customer_identity_edit'.")
+		if identity_audit_row.get("actor") != attendant:
+			raise AssertionError("Auditoria de identidade não registrou o atendente como ator.")
+		if identity_audit_row.get("affected_user"):
+			raise AssertionError("Auditoria de identidade não deveria preencher affected_user (D-01).")
+
+		identity_before = json.loads(identity_audit_row.get("before_state") or "{}")
+		identity_after = json.loads(identity_audit_row.get("after_state") or "{}")
+		if identity_before.get("customer_name") != original_identity_name:
+			raise AssertionError("before_state da auditoria de identidade não contém o nome real pré-edição (D-04).")
+		if identity_after.get("customer_name") != new_identity_name:
+			raise AssertionError("after_state da auditoria de identidade não contém o nome real pós-edição (D-04).")
+		if identity_before.get("custom_cpf") != "98765432100" or identity_after.get("custom_cpf") != "98765432100":
+			raise AssertionError("before/after_state da auditoria de identidade não preservou o CPF real (D-04).")
+
+		# Test 3 (partial edit survives the validator merge-wrap — only customer_name is sent,
+		# proving the merge, since validating the bare partial payload would throw on the
+		# phone-obrigatorio rule).
+		partial_edit_name = f"Cliente Identidade Parcial {identity_suffix}"
+		update_customer(identity_customer, {"customer_name": partial_edit_name})
+		partial_edit_passes_validator = frappe.db.get_value("Customer", identity_customer, "customer_name") == partial_edit_name
+		if not partial_edit_passes_validator:
+			raise AssertionError("update_customer com payload parcial (só nome) falhou — o merge-wrap do validador está quebrado.")
+
+		# Test 4 (validator still bites — genuinely reused, not bypassed).
+		invalid_cpf_rejected = False
+		try:
+			update_customer(identity_customer, {"custom_cpf": "1234567890"})
+		except frappe.ValidationError:
+			invalid_cpf_rejected = True
+		if not invalid_cpf_rejected:
+			raise AssertionError("update_customer aceitou CPF com 10 dígitos (validador não foi reutilizado de verdade).")
+
+		empty_name_rejected = False
+		try:
+			update_customer(identity_customer, {"customer_name": ""})
+		except frappe.ValidationError:
+			empty_name_rejected = True
+		if not empty_name_rejected:
+			raise AssertionError("update_customer aceitou nome vazio (validador não foi reutilizado de verdade).")
+
+		if frappe.db.get_value("Customer", identity_customer, "customer_name") != partial_edit_name:
+			raise AssertionError("Uma tentativa de edição rejeitada pelo validador alterou o nome do cliente mesmo assim.")
+		if frappe.db.get_value("Customer", identity_customer, "custom_cpf") != "98765432100":
+			raise AssertionError("Uma tentativa de edição rejeitada pelo validador alterou o CPF do cliente mesmo assim.")
+
+		# Test 5 (D-05 role gate) — a Técnico is rejected before any write happens.
+		frappe.set_user(technician)
+		technician_blocked_from_customer_edit = False
+		try:
+			update_customer(identity_customer, {"customer_name": "Não deveria salvar"})
+		except frappe.PermissionError:
+			technician_blocked_from_customer_edit = True
+		if not technician_blocked_from_customer_edit:
+			raise AssertionError("Técnico conseguiu editar a identidade do cliente (D-05 quebrado).")
+		if frappe.db.get_value("Customer", identity_customer, "customer_name") != partial_edit_name:
+			raise AssertionError("A tentativa bloqueada do Técnico alterou o nome do cliente mesmo assim.")
+
+		# Test 6 (no-op writes nothing).
+		frappe.set_user(attendant)
+		identity_row_count_before_noop = frappe.db.count(
+			"Tecponto Access Audit", filters={"reference_doctype": "Customer", "reference_name": identity_customer}
+		)
+		update_customer(identity_customer, {"customer_name": partial_edit_name, "custom_cpf": "98765432100"})
+		identity_row_count_after_noop = frappe.db.count(
+			"Tecponto Access Audit", filters={"reference_doctype": "Customer", "reference_name": identity_customer}
+		)
+		if identity_row_count_after_noop != identity_row_count_before_noop:
+			raise AssertionError("Uma edição de identidade sem alteração real gravou uma nova linha de auditoria.")
+
+		# Test 7 (D-07 read gate) — Gestor sees customer_audit on the OS detail, Atendente does not.
+		frappe.set_user(manager)
+		manager_customer_audit = get_service_order_detail(identity_order_name).get("customer_audit")
+		if not manager_customer_audit or not manager_customer_audit.get("actor"):
+			raise AssertionError("Gestor não recebeu customer_audit preenchido no detalhe da OS.")
+
+		frappe.set_user(attendant)
+		attendant_customer_audit = get_service_order_detail(identity_order_name).get("customer_audit")
+		if attendant_customer_audit is not None:
+			raise AssertionError("Atendente não deveria receber customer_audit no detalhe da OS.")
+		customer_audit_role_gated = True
+
+		frappe.set_user("Administrator")
+
 		# 02-01 Task 3: pin the frontend wiring with source markers so this row
 		# cannot silently disappear — there is no frontend test runner, and
 		# `npm run build` only proves the code compiles, not that it survived a refactor.
@@ -3488,6 +3628,11 @@ def run_edit_audit_checks() -> dict:
 			"closed_os_edit_blocked": True,
 			"delivery_dates_immutable_on_delivered_os": True,
 			"technician_blocked_from_credential_edit": technician_credential_blocked,
+			"customer_identity_audited": True,
+			"partial_edit_passes_validator": partial_edit_passes_validator,
+			"invalid_cpf_rejected": invalid_cpf_rejected,
+			"technician_blocked_from_customer_edit": technician_blocked_from_customer_edit,
+			"customer_audit_role_gated": customer_audit_role_gated,
 		}
 	finally:
 		frappe.set_user(previous_user)
