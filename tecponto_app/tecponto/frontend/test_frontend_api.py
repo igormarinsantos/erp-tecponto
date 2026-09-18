@@ -14,7 +14,7 @@ from pathlib import Path
 
 import frappe
 from frappe.utils import today
-from frappe.utils import add_days, add_to_date, flt, now_datetime, nowdate
+from frappe.utils import add_days, add_to_date, flt, getdate, now_datetime, nowdate
 from pypdf import PdfReader
 from PIL import Image, ImageDraw
 from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry import (
@@ -3293,6 +3293,110 @@ def run_edit_audit_checks() -> dict:
 		if sentinel_detail.get("device_access_type") != "Alfanumérica":
 			raise AssertionError("get_service_order_detail não refletiu o novo device_access_type após a rotação (rótulo deveria permanecer visível).")
 
+		# --- 02-02 Task 3: regression-prove delivery/warranty dates stay untouchable (EDIT-04). ---
+		# Test 1 (allowlist by omission, the primary EDIT-04 proof) + Test 2 (no audit
+		# row mentions the ignored fields).
+		before_dates = frappe.db.get_value(
+			"Service Order", order_name, ["pickup_date", "warranty_expiry", "estimated_deadline"], as_dict=True
+		)
+		tampered_contact_name = f"Contato EDIT-04 {frappe.generate_hash(length=6)}"
+		update_service_order_entry(
+			order_name,
+			{
+				"os_contact_name": tampered_contact_name,
+				"pickup_date": add_days(nowdate(), 30),
+				"warranty_expiry": add_days(nowdate(), 400),
+				"estimated_deadline": add_days(nowdate(), 60),
+				"reported_defect": "Defeito relatado de teste automatizado.",
+				"physical_state": "Sem avarias visiveis.",
+				"entry_operating_condition": "Liga e permite teste",
+			},
+		)
+		after_dates = frappe.db.get_value(
+			"Service Order", order_name, ["pickup_date", "warranty_expiry", "estimated_deadline"], as_dict=True
+		)
+		if before_dates != after_dates:
+			raise AssertionError("update_service_order_entry alterou pickup_date/warranty_expiry/estimated_deadline (EDIT-04 quebrado).")
+		if frappe.db.get_value("Service Order", order_name, "os_contact_name") != tampered_contact_name:
+			raise AssertionError(
+				"A chamada com datas indevidas no payload não persistiu a mudança legítima de contato — "
+				"EDIT-04 deveria ignorar só as datas, não rejeitar a chamada inteira."
+			)
+
+		edit04_audit_rows = frappe.get_all(
+			"Tecponto Access Audit",
+			filters={"reference_doctype": "Service Order", "reference_name": order_name},
+			fields=["before_state", "after_state"],
+		)
+		for row in edit04_audit_rows:
+			combined_state = (row.get("before_state") or "") + (row.get("after_state") or "")
+			for forbidden_field in ("pickup_date", "warranty_expiry", "estimated_deadline"):
+				if forbidden_field in combined_state:
+					raise AssertionError(f"Linha de auditoria mencionou {forbidden_field}, campo que esta rota não pode editar (EDIT-04).")
+
+		# Test 3 (closed-OS guard, first layer) — a delivered or cancelled OS refuses any edit outright.
+		delivered_order_name = _create_action_request_service_order(attendant)
+		frappe.db.set_value(
+			"Service Order",
+			delivered_order_name,
+			{"workflow_state": "Entregue", "pickup_date": nowdate(), "warranty_expiry": add_days(nowdate(), 90)},
+			update_modified=False,
+		)
+		delivered_edit_blocked = False
+		try:
+			update_service_order_entry(delivered_order_name, {"os_contact_name": "Tentativa em OS entregue"})
+		except frappe.ValidationError:
+			delivered_edit_blocked = True
+		if not delivered_edit_blocked:
+			raise AssertionError("update_service_order_entry aceitou edição em OS Entregue (EDIT-04 primeira camada quebrada).")
+
+		cancelled_order_name = _create_action_request_service_order(attendant)
+		frappe.db.set_value("Service Order", cancelled_order_name, "workflow_state", "Cancelado", update_modified=False)
+		cancelled_edit_blocked = False
+		try:
+			update_service_order_entry(cancelled_order_name, {"os_contact_name": "Tentativa em OS cancelada"})
+		except frappe.ValidationError:
+			cancelled_edit_blocked = True
+		if not cancelled_edit_blocked:
+			raise AssertionError("update_service_order_entry aceitou edição em OS Cancelada (EDIT-04 primeira camada quebrada).")
+
+		# Test 4 (immutability backstop, second layer) — a direct document write bypassing
+		# the endpoint entirely is also rejected by the engine (GEMINI.md §1.3).
+		frappe.set_user("Administrator")
+		pickup_write_blocked = False
+		try:
+			delivered_pickup_doc = frappe.get_doc("Service Order", delivered_order_name)
+			delivered_pickup_doc.pickup_date = add_days(nowdate(), 5)
+			delivered_pickup_doc.save()
+		except frappe.ValidationError:
+			pickup_write_blocked = True
+		if not pickup_write_blocked:
+			raise AssertionError("Escrita direta em pickup_date de OS entregue não foi bloqueada pelo motor (EDIT-04 segunda camada quebrada).")
+		if getdate(frappe.db.get_value("Service Order", delivered_order_name, "pickup_date")) != getdate(nowdate()):
+			raise AssertionError("pickup_date de OS entregue mudou mesmo após o save ter lançado exceção.")
+
+		warranty_write_blocked = False
+		try:
+			delivered_warranty_doc = frappe.get_doc("Service Order", delivered_order_name)
+			delivered_warranty_doc.warranty_expiry = add_days(nowdate(), 500)
+			delivered_warranty_doc.save()
+		except frappe.ValidationError:
+			warranty_write_blocked = True
+		if not warranty_write_blocked:
+			raise AssertionError("Escrita direta em warranty_expiry de OS entregue não foi bloqueada pelo motor (EDIT-04 segunda camada quebrada).")
+		if getdate(frappe.db.get_value("Service Order", delivered_order_name, "warranty_expiry")) != getdate(add_days(nowdate(), 90)):
+			raise AssertionError("warranty_expiry de OS entregue mudou mesmo após o save ter lançado exceção.")
+
+		# Test 5 (D-05 role gate) — re-assert after Task 1 added a new code path into this function.
+		frappe.set_user(technician)
+		technician_credential_blocked = False
+		try:
+			update_service_order_entry(order_name, {"device_access_type": "PIN", "device_access_credential": "não deveria salvar"})
+		except frappe.PermissionError:
+			technician_credential_blocked = True
+		if not technician_credential_blocked:
+			raise AssertionError("Técnico conseguiu acionar o ramo de credencial de update_service_order_entry (D-05 quebrado).")
+
 		# Test 4 (D-07 read gate).
 		frappe.set_user(manager)
 		manager_detail = get_service_order_detail(order_name)
@@ -3380,6 +3484,10 @@ def run_edit_audit_checks() -> dict:
 			"untouched_edit_writes_no_audit_row": True,
 			"sentinel_not_in_access_audit": True,
 			"detail_masked_after_rotation": True,
+			"delivery_dates_ignored_by_edit": True,
+			"closed_os_edit_blocked": True,
+			"delivery_dates_immutable_on_delivered_os": True,
+			"technician_blocked_from_credential_edit": technician_credential_blocked,
 		}
 	finally:
 		frappe.set_user(previous_user)
