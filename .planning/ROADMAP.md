@@ -67,7 +67,7 @@ Plans:
   4. Attempting to alter `pickup_date` or `warranty_expiry` through the edit capability (API or UI, any role) is rejected — these fields remain immutable
   5. Edit audit records cannot be modified or deleted by any role once written — a direct attempt to edit or delete an existing record fails
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -80,7 +80,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-03-PLAN.md — New `update_customer` endpoint for customer name/CPF, its counter affordance and the cadastro audit indicator
+- [x] 02-03-PLAN.md — New `update_customer` endpoint for customer name/CPF, its counter affordance and the cadastro audit indicator
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -166,7 +166,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. OS.6 Closure — Warranty Verification & Deadline Wiring | 0/4 | Planned | - |
-| 2. Audited Field-Edit for Post-Creation Corrections | 2/4 | In Progress|  |
+| 2. Audited Field-Edit for Post-Creation Corrections | 3/4 | In Progress|  |
 | 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 5/5 | Complete   | 2026-09-18 |
 | 4. Design System (Single Pass) | 0/TBD | Not started | - |
 | 5. Deploy Readiness — Coolify Pilot | 0/TBD | Not started | - |

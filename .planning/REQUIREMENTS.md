@@ -28,7 +28,7 @@ Requisitos deste marco (estabilização do sistema inteiro até o deploy do pilo
 
 - [x] **EDIT-01**: Atendente/Gestor pode editar contato da OS (nome/telefone) depois de criado, com log de auditoria (quem/quando/antes/depois), reusando o padrão `Tecponto Access Audit`
 - [x] **EDIT-02**: Credencial do aparelho pode ser corrigida depois de criada, permanecendo mascarada, com log de auditoria
-- [ ] **EDIT-03**: Dados do cliente (nome/CPF) podem ser corrigidos, com log de auditoria
+- [x] **EDIT-03**: Dados do cliente (nome/CPF) podem ser corrigidos, com log de auditoria
 - [x] **EDIT-04**: A capacidade de edição nunca abre brecha pra alterar data de entrega (`pickup_date`) ou expiração de garantia (`warranty_expiry`) — permanecem imutáveis
 
 ### Design System
@@ -84,7 +84,7 @@ Explicitamente excluído deste marco. Documentado pra não reabrir depois.
 | DEADLINE-02 | Phase 1 | Complete |
 | EDIT-01 | Phase 2 | Complete |
 | EDIT-02 | Phase 2 | Complete |
-| EDIT-03 | Phase 2 | Pending |
+| EDIT-03 | Phase 2 | Complete |
 | EDIT-04 | Phase 2 | Complete |
 | DESIGN-01 | Phase 4 | Pending |
 | DESIGN-02 | Phase 4 | Pending |

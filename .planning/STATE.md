@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 02
 current_phase_name: Audited Field-Edit for Post-Creation Corrections
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-09-18T20:16:30.291Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-09-18T20:54:56.790Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 02 execution started
-state_head: 27c8f5ad41153d562a6e6d93a6973b83c3ed0b71
+state_head: 373c2baad419a45532158ec72dc9eb6209f78f96
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 20
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-02)
 ## Current Position
 
 Phase: 02 (Audited Field-Edit for Post-Creation Corrections) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-09-18 — Phase 02 execution started
 
@@ -66,6 +66,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 03 P04 | 65min | 3 tasks | 5 files |
 | Phase 02 P01 | 50min | 3 tasks | 6 files |
 | Phase 02 P02 | 70min | 3 tasks | 2 files |
+| Phase 02 P03 | 65min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Phase 2: audit_reference_field_edit(*, change_type, reference_doctype, reference_name, before, after) is the single entry point for EDIT-01/02/03 audit writes; 02-02/02-03 must call it directly, never _write_audit
 - [Phase 02]: 02-02: every credential-touching update_service_order_entry call always writes a device_credential_edit audit row (metadata dicts are structurally always different before/after); credential_rotated distinguishes a real rotation from a touched-but-preserved edit, not row presence
 - [Phase 02]: 02-02: Task 2 mutation-test spot-check (temporarily revert metadata to leak the credential) was blocked by the harness safety classifier and not performed; forward-direction leak proofs (key whitelist, substring/length scan, site-wide sentinel scan) all passed, but the meta-property (test would catch a regression) is unverified — flagged for a follow-up session
+- [Phase 02]: [Phase 02] 02-03: update_customer follows create_customer's role-gate-only authorization (_require_checkin_role() alone, no doctype-level check_permission) because Customer has no DocPerm/Custom DocPerm write grant for any Tecponto role, unlike Service Order
+- [Phase 02]: [Phase 02] 02-03: EDIT-03 test fixture customer must be created as the attendant (not Administrator) because ERPNexts Customer.on_update re-saves the linked Contact via frappe.set_value once customer_primary_contact is set, and Contacts only Tecponto-reachable grant is the implicit All role with if_owner=1
 
 ### Pending Todos
 
@@ -117,6 +120,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-18T20:16:30.150Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-09-18T20:54:56.647Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
