@@ -176,11 +176,29 @@ def pos_download_receipt(sales_invoice: str) -> None:
 	doc = frappe.get_doc("Sales Invoice", sales_invoice)
 	print_format = frappe.get_doc("Print Format", POS_RECEIPT_PRINT_FORMAT)
 	body = frappe.render_template(print_format.html, {"doc": doc, "frappe": frappe})
+	_ensure_assets_json_cached()
 	pdf = get_pdf(f"<style>{print_format.css or ''}</style>{body}")
 	frappe.local.response.filename = f"Cupom-{sales_invoice}.pdf"
 	frappe.local.response.filecontent = pdf
 	frappe.local.response.type = "download"
 	frappe.local.response.display_content_as = "inline"
+
+
+def _ensure_assets_json_cached() -> None:
+	"""frappe.utils.get_assets_json() has been observed returning None inside a
+	long bench execute run (root cause not fully pinned down; the isolated call
+	always succeeds, so something upstream in the same process leaves Frappe's
+	shared client-cache entry unusable). The one place that turns that None
+	into a hard crash is bundled_asset() during PDF generation, so recompute
+	and re-cache the manifest directly, right before the call that needs it,
+	if Frappe's own cache is not currently returning it.
+	"""
+	if frappe.utils.get_assets_json() is not None:
+		return
+	assets = json.loads(frappe.read_file("assets/assets.json") or "{}")
+	if assets_rtl := frappe.read_file("assets/assets-rtl.json"):
+		assets.update(json.loads(assets_rtl))
+	frappe.client_cache.set_value("assets_json", assets, shared=True)
 
 
 @frappe.whitelist()

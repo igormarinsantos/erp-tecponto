@@ -8500,6 +8500,7 @@ def _find_or_create_commission_peer() -> str:
 		).insert(ignore_permissions=True)
 	if not frappe.db.exists("Has Role", {"parent": user, "parenttype": "User", "role": "Tecponto Tecnico"}):
 		frappe.get_doc("User", user).append("roles", {"role": "Tecponto Tecnico"}).save(ignore_permissions=True)
+		frappe.clear_cache(user=user)
 	return user
 
 

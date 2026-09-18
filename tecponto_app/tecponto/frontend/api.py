@@ -5381,6 +5381,10 @@ def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple
 			return False
 		return False
 
+	def is_date_like_field(path: str) -> bool:
+		leaf = path.rsplit(".", 1)[-1].split("[")[0].lower()
+		return leaf.endswith("date") or leaf in {"modified", "creation", "timestamp"}
+
 	def walk(value: Any, path: str = "") -> None:
 		if isinstance(value, dict):
 			for key, nested in value.items():
@@ -5396,7 +5400,7 @@ def contains_sensitive_field(payload: Any, forbidden_values: list[float] | tuple
 		elif isinstance(value, (list, tuple)):
 			for index, nested in enumerate(value):
 				walk(nested, f"{path}[{index}]")
-		elif matches_forbidden_amount(value):
+		elif not is_date_like_field(path) and matches_forbidden_amount(value):
 			found.add(path or "<root>")
 
 	walk(payload)
