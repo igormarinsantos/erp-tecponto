@@ -3529,7 +3529,16 @@ def update_customer(name: str, payload: str | dict[str, Any] | None = None) -> d
 		customer.customer_name = (data.get("customer_name") or "").strip()
 	if "custom_cpf" in data:
 		customer.custom_cpf = (data.get("custom_cpf") or "").strip()
-	customer.save(ignore_permissions=True)
+	# customer.save(ignore_permissions=True) only sets the flag on THIS document instance.
+	# ERPNext's Customer.on_update -> create_primary_contact() re-saves the linked Contact
+	# via frappe.set_value(), which builds its OWN Document instance with no ignore_permissions
+	# passthrough and checks frappe.session.user directly -- so it 403s for any Tecponto role
+	# whenever the correcting operator isn't the Contact's original owner (found by real UI
+	# testing: editing a customer created by a different attendant/Administrator failed).
+	# Same root cause as the Bloco A session-corruption fix: escalate via as_user(), never
+	# frappe.set_user(), for the narrow duration of the save.
+	with as_user("Administrator"):
+		customer.save(ignore_permissions=True)
 	after = {"customer_name": customer.customer_name, "custom_cpf": customer.custom_cpf}
 
 	if before != after:
