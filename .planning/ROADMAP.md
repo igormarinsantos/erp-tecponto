@@ -141,7 +141,26 @@ Plans:
   2. Every screen across all four roles reflects the documented design system after one consolidated pass — applied once, not iterated tela-by-tela
   3. The full behavioral test suite (OS, PDV, trade-in, warranty, caixa) still passes after the visual pass, and a live click-through of each journey confirms nothing functional broke
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Tracer: check-in wizard 5→7 steps end to end, plus the two locked token-drift fixes and a build guard for the step invariant
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 04-02-PLAN.md — OS-vs-PDV alignment: shared `success` Button variant, budget-decision card, Kanban overdue marker and the quotes CRM screen
+- [ ] 04-03-PLAN.md — Last two raw-palette screens plus accessible names on icon-only app-shell chrome
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-04-PLAN.md — `frontend/DESIGN_SYSTEM.md` and the CI guard that keeps token consistency from decaying
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 04-05-PLAN.md — Composed verification: full build, backend regression suite, and a live click-through of all four role journeys
+
 **UI hint**: yes
 
 ### Phase 5: Deploy Readiness — Coolify Pilot
@@ -168,5 +187,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. OS.6 Closure — Warranty Verification & Deadline Wiring | 0/4 | Planned | - |
 | 2. Audited Field-Edit for Post-Creation Corrections | 4/4 | Complete   | 2026-09-19 |
 | 3. Systematic Audit — PDV → Trade-in → Warranty → Caixa | 5/5 | Complete   | 2026-09-18 |
-| 4. Design System (Single Pass) | 0/TBD | Not started | - |
+| 4. Design System (Single Pass) | 0/5 | Planned | - |
 | 5. Deploy Readiness — Coolify Pilot | 0/TBD | Not started | - |
