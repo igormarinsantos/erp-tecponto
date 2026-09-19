@@ -3462,11 +3462,6 @@ def run_edit_audit_checks() -> dict:
 		# --- 02-03 Task 1 (EDIT-03, D-02/D-04/D-05/D-06/D-07): customer identity correction is
 		# audited with real name/CPF values, reusing validate_customer_contact_document via a
 		# merge-wrap so a partial edit does not fail the phone-obrigatorio rule. ---
-		# The fixture customer is created as the attendant (not Administrator): ERPNext's
-		# Customer.on_update re-saves the linked Contact via frappe.set_value once
-		# customer_primary_contact is set, and Contact's only Tecponto-reachable grant is the
-		# implicit "All" role with if_owner=1 — so the attendant must own that Contact for
-		# update_customer's later customer.save(ignore_permissions=True) to succeed.
 		frappe.set_user(attendant)
 		identity_suffix = frappe.generate_hash(length=6)
 		original_identity_name = f"Cliente Identidade {identity_suffix}"
@@ -3596,6 +3591,46 @@ def run_edit_audit_checks() -> dict:
 			raise AssertionError("Atendente não deveria receber customer_audit no detalhe da OS.")
 		customer_audit_role_gated = True
 
+		# Test 8 (regression for cacbb21) — a customer created by a DIFFERENT user than the one
+		# correcting it must not 403. ERPNext's Customer.on_update -> create_primary_contact()
+		# re-saves the linked Contact via frappe.set_value(), which builds its own Document
+		# instance with no ignore_permissions passthrough and checks frappe.session.user
+		# directly — so this only reproduces when the editor does not own that Contact.
+		# update_customer wraps the save in as_user("Administrator") to cover exactly this case.
+		frappe.set_user("Administrator")
+		cross_operator_customer = create_customer(
+			{
+				"customer_name": f"Cliente Operador Cruzado {identity_suffix}",
+				"mobile_no": "11999995555",
+				"custom_cpf": "11122233344",
+			}
+		)["item"]["name"]
+		frappe.db.commit()
+
+		frappe.set_user(attendant)
+		cross_operator_new_name = f"Cliente Operador Cruzado Editado {identity_suffix}"
+		cross_operator_edit_allowed = True
+		try:
+			update_customer(cross_operator_customer, {"customer_name": cross_operator_new_name})
+		except frappe.PermissionError:
+			cross_operator_edit_allowed = False
+		if not cross_operator_edit_allowed:
+			raise AssertionError(
+				"update_customer 403ou ao corrigir um cliente criado por outro usuário (regressão de cacbb21)."
+			)
+		if frappe.db.get_value("Customer", cross_operator_customer, "customer_name") != cross_operator_new_name:
+			raise AssertionError("update_customer não persistiu o nome ao corrigir um cliente de outro operador.")
+		cross_operator_audit_row = frappe.db.get_value(
+			"Tecponto Access Audit",
+			{"reference_doctype": "Customer", "reference_name": cross_operator_customer},
+			"actor",
+		)
+		if cross_operator_audit_row != attendant:
+			raise AssertionError(
+				"Auditoria da correção de operador cruzado não atribuiu o atendente real como ator "
+				"(a escalação de privilégio vazou pro campo actor)."
+			)
+
 		frappe.set_user("Administrator")
 
 		# 02-01 Task 3: pin the frontend wiring with source markers so this row
@@ -3647,6 +3682,7 @@ def run_edit_audit_checks() -> dict:
 			"technician_blocked_from_customer_edit": technician_blocked_from_customer_edit,
 			"customer_audit_role_gated": customer_audit_role_gated,
 			"frontend_customer_edit_pinned": True,
+			"cross_operator_edit_allowed": cross_operator_edit_allowed,
 		}
 	finally:
 		frappe.set_user(previous_user)
