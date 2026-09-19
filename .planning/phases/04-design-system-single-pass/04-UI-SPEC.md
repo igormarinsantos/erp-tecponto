@@ -1,7 +1,7 @@
 ---
 phase: "04"
 slug: "design-system-single-pass"
-status: draft
+status: verified
 shadcn_initialized: false
 preset: none
 created: "2026-09-19"
@@ -308,12 +308,12 @@ different data shown) rather than visual — belongs in `## Deferred Ideas`, not
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS (not applicable — no registry)
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: FLAG — error-state copy has no retry affordance; not escalated to BLOCK because fixing it would add a new interaction affordance, contradicting D-02's visual-only lock. Logged for a future non-visual-only phase.
+- [x] Dimension 2 Visuals: FLAG — no declared `aria-label` fallback for icon-only chrome (`Topbar`, `Modal` close button); recommend confirming/adding during the pass.
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: FLAG (not BLOCK) — more than 4 sizes / 2 active weights on the raw dimension criteria, but D-01/D-02 explicitly lock "document the existing scale as-is, no consolidation." Logged as known typographic debt for a future dedicated phase.
+- [x] Dimension 5 Spacing: FLAG (not BLOCK) — values outside the 8-point set (12/20/40/44px) on the raw criteria, same D-02 lock applies. Logged as known spacing debt for a future phase.
+- [x] Dimension 6 Registry Safety: PASS (not applicable — no registry, no shadcn)
+- [x] Dimension 7 Inventory Provenance: FLAG — command/count/date present and correct; `<package>@<version>` is absent but reasoned (in-repo hand-rolled library, not a versioned package). No action required.
 
-**Approval:** pending
+**Approval:** verified 2026-09-19 — APPROVED by gsd-ui-checker. No BLOCK-severity findings once the locked `04-CONTEXT.md` decisions (D-01/D-02: document as-is, no new scale) are respected. All FLAGs are either pre-existing, out-of-scope-by-lock, or already self-mitigated in the spec.
